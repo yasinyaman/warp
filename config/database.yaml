@@ -1,0 +1,83 @@
+# Auto CRUD API - Database Configuration
+# Environment variables can be used with ${VAR_NAME} syntax
+
+databases:
+  - name: primary_db
+    type: postgresql
+    host: ${DB_HOST:localhost}
+    port: ${DB_PORT:5432}
+    database: ${DB_NAME:myapp}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASS:}
+    options:
+      pool_size: 10
+      pool_max_overflow: 5
+      ssl: false
+
+  # MySQL configuration
+  - name: mysql_db
+    type: mysql
+    host: ${MYSQL_HOST:localhost}
+    port: ${MYSQL_PORT:3306}
+    database: ${MYSQL_DB:testdb}
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASS:}
+    options:
+      pool_size: 10
+
+settings:
+  # Automatically discover all tables in the database
+  auto_discover_tables: true
+
+  # Tables to exclude from API generation
+  excluded_tables:
+    - migrations
+    - _prisma_migrations
+    - alembic_version
+    - schema_migrations
+
+  # Pagination settings
+  pagination:
+    default_limit: 50
+    max_limit: 1000
+
+  # Raw query settings
+  enable_raw_query: true
+  raw_query_whitelist:
+    - SELECT
+    # Add more allowed SQL commands if needed
+    # - INSERT
+    # - UPDATE
+
+  # API settings
+  api_prefix: /api/v1
+  docs_url: /docs
+  redoc_url: /redoc
+
+  # Authentication settings
+  auth:
+    enabled: true
+    header_name: X-API-Key
+    # Public paths that don't require authentication
+    public_paths:
+      - /health
+      - /docs
+      - /redoc
+      - /openapi.json
+    # API keys with permissions
+    # Permissions: read, create, update, delete, query (for raw SQL), all (full access)
+    api_keys:
+      - key: ${API_KEY_ADMIN:***REMOVED***}
+        name: admin
+        permissions:
+          - all
+      - key: ${API_KEY_READONLY:***REMOVED***}
+        name: readonly_user
+        permissions:
+          - read
+      - key: ${API_KEY_WRITER:***REMOVED***}
+        name: writer_user
+        permissions:
+          - read
+          - create
+          - update

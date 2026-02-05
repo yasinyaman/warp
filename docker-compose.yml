@@ -1,0 +1,114 @@
+# Warp Engine - Docker Compose for Development
+version: '3.8'
+
+services:
+  # ===================
+  # Application Service
+  # ===================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: warp-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src:ro
+      - ./config:/app/config:ro
+      - ./pyproject.toml:/app/pyproject.toml:ro
+    environment:
+      - APP_ENV=development
+      - LOG_LEVEL=DEBUG
+      - CONFIG_PATH=/app/config/database.yaml
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=testdb
+      - DB_USER=postgres
+      - DB_PASS=***REMOVED***
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DB=testdb
+      - MYSQL_USER=root
+      - MYSQL_PASS=***REMOVED***
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+    networks:
+      - warp-network
+    restart: unless-stopped
+
+  # ===================
+  # PostgreSQL Database
+  # ===================
+  postgres:
+    image: postgres:16-alpine
+    container_name: warp-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ***REMOVED***
+      POSTGRES_DB: testdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-scripts/postgres:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d testdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - warp-network
+    restart: unless-stopped
+
+  # ===================
+  # MySQL Database
+  # ===================
+  mysql:
+    image: mysql:8.0
+    container_name: warp-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ***REMOVED***
+      MYSQL_DATABASE: testdb
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docker/init-scripts/mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p***REMOVED***"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - warp-network
+    restart: unless-stopped
+
+  # ===================
+  # Adminer (DB Admin UI)
+  # ===================
+  adminer:
+    image: adminer:latest
+    container_name: warp-adminer
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+      - mysql
+    networks:
+      - warp-network
+    restart: unless-stopped
+
+networks:
+  warp-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mysql_data:
