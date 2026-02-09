@@ -6,6 +6,7 @@ Production-ready with connection retry, proper error handling, and logging.
 """
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Dict, Optional
 
@@ -24,6 +25,8 @@ from warp.schema.models import DatabaseSchema
 from warp.api.router_factory import RouterFactory
 from warp.api.query import create_query_router
 from warp.api.auth import AuthManager, init_auth_manager
+from warp.api.catalog_router import create_catalog_router, _refresh_openapi_enrichment
+from warp.catalog.store import CatalogFileStore
 
 
 # Environment configuration
@@ -184,6 +187,31 @@ async def lifespan(app: FastAPI):
             logger.error(f"Failed to setup database {db_name}: {e}")
             raise
 
+    # Register catalog router
+    catalog_store = None
+    try:
+        catalog_store = CatalogFileStore(state.settings.settings.catalog.storage_path)
+        catalog_router = create_catalog_router(
+            store=catalog_store,
+            config=state.settings,
+            adapters=state.databases,
+            app=app,
+        )
+        app.include_router(
+            catalog_router,
+            prefix=state.settings.settings.api_prefix,
+        )
+        logger.info("Catalog API router registered")
+    except Exception as e:
+        logger.warning(f"Failed to initialize catalog router: {e}")
+
+    # Auto-enrich OpenAPI spec with catalog descriptions at startup
+    if catalog_store and state.databases:
+        try:
+            _refresh_openapi_enrichment(app, catalog_store, state.settings, state.databases)
+        except Exception as e:
+            logger.warning(f"Failed to setup OpenAPI auto-enrichment: {e}")
+
     state.is_ready = True
     logger.info("Warp Engine started successfully!")
     logger.info(f"API documentation available at: {state.settings.settings.docs_url}")
@@ -253,10 +281,29 @@ GET /api/v1/users?limit=20&offset=40
 ```
         """,
         version=__version__,
-        docs_url=docs_url,
-        redoc_url=redoc_url,
+        # Disable default docs — we serve custom /docs with cache-busting
+        docs_url=None,
+        redoc_url=None,
         lifespan=lifespan
     )
+
+    # Custom /docs and /redoc with cache-busting for OpenAPI JSON
+    if docs_url:
+        from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+
+        @app.get("/docs", include_in_schema=False)
+        async def custom_swagger_ui():
+            return get_swagger_ui_html(
+                openapi_url=f"/openapi.json?v={int(time.time())}",
+                title=f"{app.title} - Swagger UI",
+            )
+
+        @app.get("/redoc", include_in_schema=False)
+        async def custom_redoc():
+            return get_redoc_html(
+                openapi_url=f"/openapi.json?v={int(time.time())}",
+                title=f"{app.title} - ReDoc",
+            )
 
     # CORS middleware
     cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
@@ -359,11 +406,26 @@ GET /api/v1/users?limit=20&offset=40
                 "table_count": len(schema.tables)
             }
 
+        # Catalog info
+        catalog_info = {}
+        if state.settings:
+            try:
+                _store = CatalogFileStore(state.settings.settings.catalog.storage_path)
+                catalog_names = _store.list_catalogs()
+                catalog_info = {
+                    "available_catalogs": catalog_names,
+                    "catalog_count": len(catalog_names),
+                    "storage_path": state.settings.settings.catalog.storage_path,
+                }
+            except Exception:
+                catalog_info = {"available_catalogs": [], "catalog_count": 0}
+
         return {
             "name": "Warp Engine",
             "version": __version__,
             "environment": APP_ENV,
             "databases": tables_info,
+            "catalog": catalog_info,
             "settings": {
                 "api_prefix": state.settings.settings.api_prefix if state.settings else "/api/v1",
                 "pagination": {

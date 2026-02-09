@@ -11,6 +11,7 @@ from warp.config.settings import (
     DatabaseConfig,
     SettingsConfig,
     PaginationConfig,
+    CatalogConfig,
     load_config,
     interpolate_env_vars,
 )
@@ -257,3 +258,69 @@ class TestLoadConfig:
 
         assert settings.databases[0].port == 5433
         assert isinstance(settings.databases[0].port, int)
+
+
+class TestCatalogConfig:
+    """Tests for CatalogConfig model."""
+
+    def test_defaults(self):
+        """Test default values."""
+        config = CatalogConfig()
+        assert config.storage_path == "./catalogs"
+        assert config.default_format == "json"
+        assert config.auto_cross_reference is True
+        assert config.auto_enrich_openapi is True
+        assert config.openapi_enrichment_lang == "en"
+
+    def test_custom_values(self):
+        """Test custom values."""
+        config = CatalogConfig(
+            storage_path="/tmp/catalogs",
+            auto_enrich_openapi=False,
+            openapi_enrichment_lang="tr",
+        )
+        assert config.storage_path == "/tmp/catalogs"
+        assert config.auto_enrich_openapi is False
+        assert config.openapi_enrichment_lang == "tr"
+
+    def test_catalog_config_in_settings(self):
+        """Test CatalogConfig is accessible through SettingsConfig."""
+        settings = SettingsConfig(
+            catalog={
+                "auto_enrich_openapi": True,
+                "openapi_enrichment_lang": "de",
+            }
+        )
+        assert settings.catalog.auto_enrich_openapi is True
+        assert settings.catalog.openapi_enrichment_lang == "de"
+
+    def test_catalog_config_from_yaml(self, tmp_path):
+        """Test CatalogConfig loads correctly from YAML config."""
+        config_content = {
+            "databases": [
+                {
+                    "name": "test",
+                    "type": "postgresql",
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "mydb",
+                    "username": "user",
+                }
+            ],
+            "settings": {
+                "catalog": {
+                    "storage_path": "./my_catalogs",
+                    "auto_enrich_openapi": False,
+                    "openapi_enrichment_lang": "tr",
+                }
+            },
+        }
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_content, f)
+
+        settings = load_config(str(config_file))
+        assert settings.settings.catalog.storage_path == "./my_catalogs"
+        assert settings.settings.catalog.auto_enrich_openapi is False
+        assert settings.settings.catalog.openapi_enrichment_lang == "tr"

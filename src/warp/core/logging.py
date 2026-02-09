@@ -95,6 +95,10 @@ def setup_logging(
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("asyncpg").setLevel(logging.WARNING)
     logging.getLogger("aiomysql").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
 
 
 def get_logger(name: str) -> logging.Logger:

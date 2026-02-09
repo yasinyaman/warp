@@ -44,9 +44,16 @@ dependencies = [
     "aiomysql>=0.2.0",
     "cryptography>=42.0.0",
     "python-dotenv>=1.0.0",
+    "httpx>=0.26.0",
+    "click>=8.1.0",
 ]
 
 [project.optional-dependencies]
+llm = [
+    "openai>=1.12.0",
+    "anthropic>=0.18.0",
+    "google-generativeai>=0.4.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.23.0",
@@ -72,6 +79,7 @@ Issues = "https://github.com/yourorg/warp/issues"
 
 [project.scripts]
 warp = "warp.main:main"
+warp-catalog = "warp.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -164,6 +172,9 @@ pretty = true
 module = [
     "asyncpg.*",
     "aiomysql.*",
+    "openai.*",
+    "anthropic.*",
+    "google.generativeai.*",
 ]
 ignore_missing_imports = true
 

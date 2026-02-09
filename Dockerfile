@@ -14,7 +14,7 @@ COPY pyproject.toml README.md ./
 COPY src/ ./src/
 COPY config/ ./src/config/
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e ".[dev]"
+    pip install --no-cache-dir -e ".[dev,llm]"
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \

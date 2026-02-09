@@ -56,7 +56,7 @@ settings:
 
   # Authentication settings
   auth:
-    enabled: true
+    enabled: false
     header_name: X-API-Key
     # Public paths that don't require authentication
     public_paths:
@@ -81,3 +81,36 @@ settings:
           - read
           - create
           - update
+
+  # --- Catalog Intelligence  Settings ---
+
+  # Catalog storage configuration
+  catalog:
+    storage_path: "./catalogs"
+    default_format: "json"        # json or yaml
+    auto_cross_reference: true    # Use existing catalogs as context
+    auto_enrich_openapi: true     # Auto-enrich /docs with catalog descriptions
+    openapi_enrichment_lang: "en" # Language for OpenAPI enrichment
+
+  # Schema analysis configuration
+  analysis:
+    sample_limit: 5               # Sample rows per table for LLM context
+    include_row_count: true       # Include approximate row counts
+
+  # LLM provider configuration
+  llm:
+    provider: "${LLM_PROVIDER:ollama}"           # openai, anthropic, gemini, ollama
+    model: "${LLM_MODEL:gemma3:1b}"
+    api_key: "${LLM_API_KEY:}"
+    base_url: "${LLM_BASE_URL:http://localhost:11434}"
+    temperature: 0.3
+    max_tokens: 4096
+
+  # Internationalization
+  i18n:
+    default_language: "en"
+    languages:
+      - "en"
+    fallback_language: "en"
+    auto_translate: true
+    translation_strategy: "single"   # single (all langs in one call) or multi (translate after)

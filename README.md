@@ -1,38 +1,47 @@
 # Warp Engine
 
-Auto-generates REST CRUD endpoints from database schema (PostgreSQL/MySQL).
+Auto-discovery REST CRUD API generator with LLM-powered database catalog intelligence.
+
+Warp connects to your database, discovers tables and columns, and generates a fully functional REST API with filtering, sorting, pagination, and authentication. Its catalog intelligence layer uses LLMs to generate human-readable descriptions, semantic types, and multi-language documentation for your entire schema — then injects all of it into the OpenAPI spec so downstream LLMs and tools get rich context automatically.
 
 ## Features
 
 - **Auto-discovery** - Automatically discovers database tables and generates API endpoints
 - **Full CRUD** - Create, Read, Update, Delete operations for all tables
-- **Filtering** - Filter results using query parameters with operators (eq, gt, lt, in, etc.)
-- **Sorting** - Sort results by any column, ascending or descending
+- **Filtering** - Filter results using query parameters with operators (eq, gt, lt, in, like, is_null, etc.)
+- **Sorting** - Sort results by any column with ascending/descending support
 - **Pagination** - Built-in pagination with configurable limits
-- **Raw Queries** - Execute raw SQL queries (when enabled)
-- **Multi-DB Support** - PostgreSQL and MySQL support
-- **Production Ready** - Connection retry, health checks, structured logging
+- **Raw Queries** - Secure raw SQL execution with command whitelist
+- **Multi-DB Support** - PostgreSQL and MySQL
+- **Authentication** - API key authentication with role-based access control
+- **Catalog Intelligence** - LLM-powered schema analysis with semantic types and descriptions
+- **Multi-Language** - Catalog descriptions in multiple languages with auto-translation
+- **Human-in-the-Loop Review** - Interactive draft/review/approve workflow for catalog edits
+- **Override Persistence** - User edits survive LLM regeneration via `user_overrides`
+- **OpenAPI Enrichment** - Auto-enrich OpenAPI specs with catalog metadata, `x-llm-context` extensions, and example values
+- **Export** - Export catalogs to JSON, YAML, or Markdown
+- **Production Ready** - Connection retry, health checks, structured logging, Docker support
 
 ## Quick Start
 
 ### Using Docker Compose
 
 ```bash
-# Clone the repository
 git clone https://github.com/yourorg/warp.git
 cd warp
 
-# Start all services (API + PostgreSQL + MySQL)
+# Start all services (API + PostgreSQL + MySQL + Adminer)
 docker-compose up -d
 
-# API is available at http://localhost:8000
-# Documentation at http://localhost:8000/docs
+# API: http://localhost:8000
+# Docs: http://localhost:8000/docs
+# Adminer: http://localhost:8080
 ```
 
 ### Using pip
 
 ```bash
-pip install warp
+pip install -e ".[dev,llm]"
 
 # Set environment variables
 export DB_HOST=localhost
@@ -40,8 +49,11 @@ export DB_NAME=mydb
 export DB_USER=postgres
 export DB_PASS=secret
 
-# Run the server
+# Run the API server
 warp
+
+# Or use the catalog CLI
+warp-catalog analyze -d primary_db --auto-approve
 ```
 
 ## Configuration
@@ -71,55 +83,86 @@ settings:
     max_limit: 1000
   enable_raw_query: true
   api_prefix: /api/v1
+
+  # Catalog Intelligence
+  catalog:
+    storage_path: "./catalogs"
+    default_format: "json"
+    auto_cross_reference: true
+    auto_enrich_openapi: true
+    openapi_enrichment_lang: "en"
+
+  # LLM Provider
+  llm:
+    provider: "${LLM_PROVIDER:ollama}"   # openai, anthropic, gemini, ollama
+    model: "${LLM_MODEL:gemma3:1b}"
+    api_key: "${LLM_API_KEY:}"
+    base_url: "${LLM_BASE_URL:http://localhost:11434}"
+    temperature: 0.3
+    max_tokens: 4096
+
+  # Internationalization
+  i18n:
+    default_language: "en"
+    languages: ["en"]
+    auto_translate: true
+    translation_strategy: "single"
+
+  # Authentication
+  auth:
+    enabled: false
+    header_name: X-API-Key
+    public_paths:
+      - /health
+      - /docs
+      - /redoc
+      - /openapi.json
 ```
 
-## API Usage
+### LLM Provider Configuration
 
-Once running, Warp automatically creates endpoints for each discovered table.
+Warp supports multiple LLM providers. The API key can be set in config or via environment variables:
 
-### List Records
+| Provider | Config `provider` | Environment Variable | Notes |
+|----------|------------------|---------------------|-------|
+| OpenAI | `openai` | `OPENAI_API_KEY` | GPT-4o, GPT-4o-mini |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | Claude models |
+| Google Gemini | `gemini` | `GOOGLE_API_KEY` | Gemini models |
+| Ollama | `ollama` | (none needed) | Local models, no API key required |
+
+**Using Ollama (local, free):**
 
 ```bash
-GET /api/v1/{table}
-GET /api/v1/users
-GET /api/v1/products
+# Install and start Ollama
+ollama serve
+
+# Pull a model
+ollama pull gemma3:1b
+
+# Set in config or env
+export LLM_PROVIDER=ollama
+export LLM_MODEL=gemma3:1b
+export LLM_BASE_URL=http://localhost:11434
 ```
 
-### Get Single Record
+**Docker + Ollama:** When running Warp in Docker with Ollama on the host, Warp automatically rewrites `localhost` to `host.docker.internal`. The `docker-compose.yml` includes `extra_hosts` for Linux compatibility.
+
+## REST API
+
+### CRUD Endpoints
+
+Warp auto-generates these for each discovered table:
 
 ```bash
-GET /api/v1/{table}/{id}
-GET /api/v1/users/123
+GET    /api/v1/{table}        # List records (paginated, filtered, sorted)
+GET    /api/v1/{table}/{id}   # Get single record
+POST   /api/v1/{table}        # Create record
+PUT    /api/v1/{table}/{id}   # Update record
+PATCH  /api/v1/{table}/{id}   # Partial update record
+DELETE /api/v1/{table}/{id}   # Delete record
 ```
 
-### Create Record
-
-```bash
-POST /api/v1/{table}
-Content-Type: application/json
-
-{
-  "name": "John Doe",
-  "email": "john@example.com"
-}
-```
-
-### Update Record
-
-```bash
-PUT /api/v1/{table}/{id}
-Content-Type: application/json
-
-{
-  "name": "Jane Doe"
-}
-```
-
-### Delete Record
-
-```bash
-DELETE /api/v1/{table}/{id}
-```
+With multiple databases, endpoints include the database name: `/api/v1/{db_name}/{table}`.
 
 ### Filtering
 
@@ -135,58 +178,275 @@ GET /api/v1/orders?filter[status][in]=pending,processing
 
 # NULL check
 GET /api/v1/users?filter[deleted_at][is_null]=true
+
+# LIKE operator
+GET /api/v1/users?filter[name][like]=%john%
 ```
 
 ### Sorting
 
 ```bash
-# Single column ascending
 GET /api/v1/users?sort=name:asc
-
-# Single column descending
 GET /api/v1/products?sort=price:desc
-
-# Multiple columns
 GET /api/v1/orders?sort=status:asc,created_at:desc
-
-# Shorthand (prefix with - for descending)
-GET /api/v1/users?sort=-created_at
+GET /api/v1/users?sort=-created_at         # prefix shorthand
 ```
 
 ### Pagination
 
 ```bash
-# Default pagination
 GET /api/v1/users?limit=20&offset=0
-
-# Page 3 with 20 items per page
-GET /api/v1/users?limit=20&offset=40
+GET /api/v1/users?limit=20&offset=40       # page 3
 ```
 
 ### Raw Queries
 
 ```bash
-POST /api/v1/query
+POST /api/v1/query/execute
 Content-Type: application/json
 
 {
-  "sql": "SELECT * FROM users WHERE status = $1",
+  "query": "SELECT * FROM users WHERE status = $1",
   "params": ["active"]
 }
 ```
 
+## Catalog Intelligence
+
+Warp includes an LLM-powered catalog system that analyzes your database schema and generates rich metadata: descriptions, semantic types, tags, relationships, example values, and multi-language documentation.
+
+### Analyze via API
+
+```bash
+# Analyze all tables and auto-approve
+curl -X POST http://localhost:8000/api/v1/catalog/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"database": "primary_db", "auto_approve": true}'
+
+# Analyze specific tables
+curl -X POST http://localhost:8000/api/v1/catalog/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"database": "primary_db", "tables": ["users", "orders"], "auto_approve": true}'
+```
+
+### CLI Commands
+
+```bash
+# Analyze database and generate catalog (draft)
+warp-catalog analyze -d primary_db
+
+# Analyze with auto-approve (skip review)
+warp-catalog analyze -d primary_db --auto-approve
+
+# Analyze specific tables
+warp-catalog analyze -d primary_db -t users,orders --auto-approve
+
+# Interactive review: table-by-table approve/edit/skip
+warp-catalog review -d primary_db --lang en
+
+# List available catalogs
+warp-catalog list
+
+# Show catalog details
+warp-catalog info -d primary_db
+
+# Export catalog
+warp-catalog export -d primary_db -f markdown -o catalog.md
+
+# Enrich OpenAPI spec with catalog descriptions
+warp-catalog enrich-openapi -d primary_db -i openapi.json -o enriched.json
+
+# Full pipeline: DB -> Catalog -> Export -> Enrich OpenAPI
+warp-catalog pipeline -d primary_db -f json -o catalog.json --openapi openapi.json
+```
+
+### Catalog REST API
+
+All endpoints are under `/api/v1/catalog`:
+
+```bash
+# List catalogs
+GET /catalog
+
+# Analyze database
+POST /catalog/analyze
+{ "database": "primary_db", "auto_approve": true }
+
+# View catalog info
+GET /catalog/{db}
+
+# View draft with review status
+GET /catalog/{db}/draft
+
+# View single table detail (columns, relationships, sample values)
+GET /catalog/{db}/draft/tables/{table}
+
+# Edit table fields (description, human_name, tags, relationships)
+PATCH /catalog/{db}/draft/tables/{table}
+{ "description": {"en": "Updated description"}, "tags": ["core"] }
+
+# Edit column fields (description, semantic_type, tags)
+PATCH /catalog/{db}/draft/tables/{table}/columns/{column}
+{ "semantic_type": "email", "tags": ["pii"] }
+
+# Approve all tables
+POST /catalog/{db}/approve
+
+# Approve single table
+POST /catalog/{db}/approve/{table}
+
+# Export catalog
+GET /catalog/{db}/export?format=json&lang=en
+
+# Delete catalog
+DELETE /catalog/{db}
+```
+
+### Draft/Review/Approve Workflow
+
+1. **Analyze** generates a `draft` catalog with all tables in `pending` status
+2. **Review** each table: view descriptions, edit fields, approve or skip
+3. **Approve** transitions the catalog to `approved` status
+4. OpenAPI enrichment triggers automatically after approval
+
+### User Override Persistence
+
+When users edit catalog fields (description, human_name, semantic_type, tags, etc.), edits are stored in a separate `user_overrides` field. On re-analysis:
+
+1. Existing overrides are extracted before LLM regeneration
+2. LLM generates fresh descriptions from the current schema
+3. User overrides are re-applied on top of new LLM output
+4. Edited tables are marked as `modified`
+
+This ensures user edits survive across schema changes and LLM re-analysis.
+
+## OpenAPI Enrichment
+
+After catalog analysis and approval, Warp automatically enriches the OpenAPI spec (`/openapi.json`) with all catalog metadata. This makes the API self-documenting for both humans and LLMs.
+
+### What Gets Enriched
+
+**Operation level** (each endpoint):
+- Table description, human name, tags, approximate row count
+- Relationships with types (many-to-one, one-to-many, etc.)
+- Full column listing with types, constraints, and descriptions (on GET list endpoints)
+- `x-llm-context` extension with structured machine-readable metadata
+
+**Schema level** (component models):
+- Table description prepended to schema description
+- Column descriptions with semantic types, constraints, and example values
+- `x-llm-context` extension per schema and per property
+- Real `example` values from database samples
+
+**Top-level `x-llm-context`** extension:
+- Complete database overview: all tables, columns, relationships, types, and descriptions
+- Designed for LLMs to consume the entire schema context in one read
+
+### Example: `x-llm-context` in OpenAPI
+
+```json
+{
+  "x-llm-context": {
+    "database": "primary_db",
+    "database_type": "postgresql",
+    "table_count": 5,
+    "tables": [
+      {
+        "name": "categories",
+        "human_name": "Product Categories",
+        "description": "Stores product categories...",
+        "tags": ["categories", "products"],
+        "row_count": 8,
+        "columns": [
+          {
+            "name": "id",
+            "type": "integer",
+            "description": "Unique identifier",
+            "is_primary_key": true,
+            "nullable": false,
+            "examples": [1, 2, 3]
+          },
+          {
+            "name": "parent_id",
+            "type": "integer",
+            "description": "Links to parent category",
+            "foreign_key": "categories.id",
+            "nullable": true
+          }
+        ],
+        "relationships": [
+          {"from": "parent_id", "to": "categories.id", "type": "many-to-one"}
+        ]
+      }
+    ]
+  }
+}
+```
+
+### LLM Resilience
+
+Warp is designed to work with small local models (e.g., `gemma3:1b` via Ollama):
+
+- **Fallback**: If the LLM fails (quota, connection, bad response), tables are created with schema-only info (no descriptions) instead of failing the entire analysis
+- **Flexible JSON parsing**: Small models may return simplified JSON structures — Warp normalizes flat strings, lists, and dicts into the expected catalog format
+- **Partial success**: If some tables fail and others succeed, the successful ones are kept and a warning is logged
+- **Clear error messages**: Quota errors, connection failures, and missing models produce actionable messages with fix instructions
+
 ## Health Endpoints
 
 ```bash
-GET /health  # Full health check with database status
-GET /ready   # Kubernetes readiness probe
-GET /live    # Kubernetes liveness probe
-GET /info    # API information and discovered tables
+GET /health    # Full health check with database status
+GET /ready     # Kubernetes readiness probe
+GET /live      # Kubernetes liveness probe
+GET /info      # API information and discovered tables
+```
+
+## Project Structure
+
+```
+warp/
+├── src/warp/
+│   ├── main.py               # FastAPI application entry point
+│   ├── cli.py                # Catalog CLI (warp-catalog)
+│   ├── api/                  # REST API layer
+│   │   ├── router_factory.py # Dynamic CRUD endpoint generation
+│   │   ├── crud.py           # CRUD operations
+│   │   ├── catalog_router.py # Catalog REST endpoints
+│   │   ├── query.py          # Raw SQL query execution
+│   │   └── auth.py           # Authentication & permissions
+│   ├── catalog/              # Catalog models and persistence
+│   │   ├── models.py         # DatabaseCatalog, TableCatalogEntry, etc.
+│   │   └── store.py          # File-based catalog storage
+│   ├── enrichment/           # LLM-powered schema analysis
+│   │   ├── analyzer.py       # Main enrichment analyzer
+│   │   ├── comment_reader.py # Database comment extraction
+│   │   ├── cross_reference.py
+│   │   └── sample_reader.py  # Sample data extraction
+│   ├── llm/                  # LLM provider abstraction
+│   │   ├── client.py         # Multi-provider LLM client (OpenAI, Anthropic, Gemini, Ollama)
+│   │   └── prompts.py        # Analysis prompt templates
+│   ├── i18n/                 # Multi-language support
+│   │   └── localization.py
+│   ├── integration/          # External integrations
+│   │   ├── openapi_enricher.py  # OpenAPI spec enrichment with x-llm-context
+│   │   ├── mcp_enricher.py
+│   │   └── pipeline.py
+│   ├── export/               # Export formats (JSON, YAML, Markdown)
+│   ├── schema/               # Schema discovery and models
+│   ├── database/             # Database adapters (PostgreSQL, MySQL)
+│   ├── config/               # Configuration management
+│   ├── core/                 # Exceptions and logging
+│   ├── query/                # Query execution strategies
+│   └── utils/                # Filtering, pagination, sorting
+├── config/                   # Configuration files
+│   └── database.yaml         # Main configuration
+├── docker-compose.yml        # Dev environment (API + PostgreSQL + MySQL + Adminer)
+├── Dockerfile                # Application container
+├── tests/                    # Test suite
+└── pyproject.toml            # Dependencies and build config
 ```
 
 ## Development
-
-### Setup
 
 ```bash
 # Clone repository
@@ -197,30 +457,17 @@ cd warp
 python -m venv .venv
 source .venv/bin/activate
 
-# Install dependencies
-pip install -e ".[dev]"
+# Install with dev and LLM dependencies
+pip install -e ".[dev,llm]"
 
 # Run tests
 pytest
 
 # Run with hot-reload
 APP_ENV=development python -m warp.main
-```
 
-### Project Structure
-
-```
-warp/
-├── src/warp/
-│   ├── api/           # API routers and CRUD operations
-│   ├── config/        # Configuration management
-│   ├── core/          # Exceptions and logging
-│   ├── database/      # Database adapters (PostgreSQL, MySQL)
-│   ├── schema/        # Schema discovery and analysis
-│   └── utils/         # Filtering, pagination, sorting
-├── config/            # Configuration files
-├── docker/            # Docker-related files
-└── tests/             # Test suite
+# Docker development
+docker-compose up -d --build
 ```
 
 ## Environment Variables
@@ -230,10 +477,28 @@ warp/
 | `APP_ENV` | `development` | Environment (development/production) |
 | `API_HOST` | `0.0.0.0` | Host to bind |
 | `API_PORT` | `8000` | Port to bind |
-| `LOG_LEVEL` | `INFO` | Log level |
+| `API_WORKERS` | `1` | Number of workers |
+| `LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARNING, ERROR) |
 | `LOG_FORMAT` | `colored` | Log format (colored/json) |
 | `CONFIG_PATH` | `config/database.yaml` | Configuration file path |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
+| `DB_HOST` | `localhost` | PostgreSQL host |
+| `DB_PORT` | `5432` | PostgreSQL port |
+| `DB_NAME` | - | PostgreSQL database name |
+| `DB_USER` | - | PostgreSQL user |
+| `DB_PASS` | - | PostgreSQL password |
+| `MYSQL_HOST` | `localhost` | MySQL host |
+| `MYSQL_PORT` | `3306` | MySQL port |
+| `MYSQL_DB` | - | MySQL database name |
+| `MYSQL_USER` | - | MySQL user |
+| `MYSQL_PASS` | - | MySQL password |
+| `LLM_PROVIDER` | `ollama` | LLM provider (openai, anthropic, gemini, ollama) |
+| `LLM_MODEL` | `gemma3:1b` | LLM model name |
+| `LLM_API_KEY` | - | LLM API key (not needed for Ollama) |
+| `LLM_BASE_URL` | `http://localhost:11434` | LLM base URL (auto-rewrites for Docker) |
+| `OPENAI_API_KEY` | - | OpenAI API key (fallback if LLM_API_KEY not set) |
+| `ANTHROPIC_API_KEY` | - | Anthropic API key (fallback if LLM_API_KEY not set) |
+| `GOOGLE_API_KEY` | - | Google/Gemini API key (fallback if LLM_API_KEY not set) |
 
 ## License
 

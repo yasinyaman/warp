@@ -46,6 +46,45 @@ class AuthConfig(BaseModel):
     public_paths: List[str] = Field(default_factory=lambda: ["/health", "/docs", "/redoc", "/openapi.json"])
 
 
+class CatalogConfig(BaseModel):
+    """Catalog storage configuration."""
+    storage_path: str = "./catalogs"
+    default_format: str = "json"
+    auto_cross_reference: bool = True
+    auto_enrich_openapi: bool = True
+    openapi_enrichment_lang: str = "en"
+
+
+class AnalysisConfig(BaseModel):
+    """Schema analysis configuration."""
+    sample_limit: int = 5
+    include_row_count: bool = True
+    excluded_tables: List[str] = Field(default_factory=list)
+    excluded_schemas: List[str] = Field(
+        default_factory=lambda: ["information_schema", "pg_catalog"]
+    )
+
+
+class LLMConfig(BaseModel):
+    """LLM provider configuration."""
+    provider: str = "openai"
+    model: str = "gpt-4o-mini"
+    api_key: str = ""
+    base_url: str = ""
+    temperature: float = 0.3
+    max_tokens: int = 4096
+    language_prompts: Dict[str, str] = Field(default_factory=dict)
+
+
+class I18nConfig(BaseModel):
+    """Internationalization configuration."""
+    default_language: str = "en"
+    languages: List[str] = Field(default_factory=lambda: ["en"])
+    fallback_language: str = "en"
+    auto_translate: bool = True
+    translation_strategy: str = "single"  # single | multi
+
+
 class SettingsConfig(BaseModel):
     """Application settings."""
     auto_discover_tables: bool = True
@@ -57,6 +96,10 @@ class SettingsConfig(BaseModel):
     docs_url: str = "/docs"
     redoc_url: str = "/redoc"
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    catalog: CatalogConfig = Field(default_factory=CatalogConfig)
+    analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
+    llm: LLMConfig = Field(default_factory=LLMConfig)
+    i18n: I18nConfig = Field(default_factory=I18nConfig)
 
 
 class Settings(BaseModel):
