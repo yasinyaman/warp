@@ -90,7 +90,7 @@ class SettingsConfig(BaseModel):
     auto_discover_tables: bool = True
     excluded_tables: List[str] = Field(default_factory=list)
     pagination: PaginationConfig = Field(default_factory=PaginationConfig)
-    enable_raw_query: bool = True
+    enable_raw_query: bool = False  # default off; opt-in only, refused in production
     raw_query_whitelist: List[str] = Field(default_factory=lambda: ["SELECT"])
     api_prefix: str = "/api/v1"
     docs_url: str = "/docs"

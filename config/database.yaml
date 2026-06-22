@@ -42,7 +42,10 @@ settings:
     max_limit: 1000
 
   # Raw query settings
-  enable_raw_query: true
+  # Disabled by default. Enabling exposes a raw SQL endpoint — keep it off in
+  # production (startup is refused if true while APP_ENV=production), and only
+  # ever point it at a read-only database role.
+  enable_raw_query: false
   raw_query_whitelist:
     - SELECT
     # Add more allowed SQL commands if needed

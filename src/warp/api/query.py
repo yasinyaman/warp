@@ -7,8 +7,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ..core.logging import get_logger
 from ..database.base import DatabaseAdapter
 from .auth import AuthManager, Permission
+
+logger = get_logger(__name__)
 
 
 class QueryRequest(BaseModel):
@@ -61,6 +64,12 @@ class QueryValidator:
         # Normalize query
         normalized = query.strip().upper()
 
+        # Reject multiple statements (a single optional trailing ';' is allowed).
+        # Blocks stacked queries such as "SELECT ...; DROP TABLE ...".
+        without_trailing = query.strip().rstrip(";").rstrip()
+        if ";" in without_trailing:
+            raise ValueError("Multiple SQL statements are not allowed")
+
         # Check for dangerous patterns
         dangerous_patterns = [
             r";\s*(DROP|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE)",
@@ -95,6 +104,11 @@ def create_query_router(
 ) -> APIRouter:
     """
     Create a router for raw SQL query execution.
+
+    Security: this endpoint is disabled by default and, when enabled, should be
+    pointed at a database account with a read-only role so that even a bypass of
+    the command whitelist cannot mutate data. It is also refused at startup when
+    enabled together with APP_ENV=production.
 
     Args:
         db: Database adapter instance.
@@ -165,11 +179,15 @@ Execute a raw SQL query against the database.
             )
 
         except ValueError as e:
+            # Validation errors are our own safe messages — fine to return.
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
+            # Never leak DB/driver errors (schema, SQL text) to the client;
+            # log the detail server-side instead.
+            logger.exception(f"Raw query execution failed: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Query execution failed: {str(e)}"
+                detail="Query execution failed"
             )
 
     @router.get(

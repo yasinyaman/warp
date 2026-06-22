@@ -143,7 +143,7 @@ class TestSettingsConfig:
         config = SettingsConfig()
         assert config.auto_discover_tables is True
         assert config.excluded_tables == []
-        assert config.enable_raw_query is True
+        assert config.enable_raw_query is False
         assert config.api_prefix == "/api/v1"
 
     def test_custom_values(self):
