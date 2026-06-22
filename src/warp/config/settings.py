@@ -63,6 +63,19 @@ class AnalysisConfig(BaseModel):
     excluded_schemas: List[str] = Field(
         default_factory=lambda: ["information_schema", "pg_catalog"]
     )
+    # Privacy: sending raw sample rows to a *cloud* LLM is opt-in. When False,
+    # samples are still read for stats/catalog but not sent to cloud providers.
+    share_samples_with_cloud_llm: bool = False
+    # Mask PII-looking column values before sending samples to any LLM.
+    mask_pii_samples: bool = True
+    pii_column_patterns: List[str] = Field(
+        default_factory=lambda: [
+            "email", "mail", "phone", "tel", "mobile", "ssn", "password",
+            "passwd", "secret", "token", "api_key", "apikey", "credit_card",
+            "card_number", "cvv", "iban", "account_number", "tax_id",
+            "passport", "national_id",
+        ]
+    )
 
 
 class LLMConfig(BaseModel):

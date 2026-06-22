@@ -23,9 +23,9 @@ from warp.core.exceptions import AnalysisError
 from warp.core.logging import get_logger
 from warp.enrichment.comment_reader import CommentReader
 from warp.enrichment.cross_reference import CrossReferenceProvider
-from warp.enrichment.sample_reader import SampleReader
+from warp.enrichment.sample_reader import SampleReader, TableSamples, mask_pii_samples
 from warp.i18n.localization import LocalizationManager
-from warp.llm.client import LLMClient
+from warp.llm.client import CLOUD_PROVIDERS, LLMClient
 from warp.llm.prompts import (
     build_system_prompt,
     build_table_analysis_prompt,
@@ -289,7 +289,7 @@ class EnrichedAnalyzer:
             indexes=idx_dicts,
             table_comment=db_table_comment,
             column_comments=db_column_comments,
-            samples=samples,
+            samples=self._samples_for_llm(samples),
             cross_reference_context=cross_ref_context,
             languages=prompt_languages,
         )
@@ -354,6 +354,37 @@ class EnrichedAnalyzer:
                 f"using fallback: {e}"
             )
             return self._build_basic_entry(*basic_args), False
+
+    def _samples_for_llm(
+        self, samples: TableSamples | None
+    ) -> TableSamples | None:
+        """
+        Apply privacy controls to sample data before it is sent to the LLM.
+
+        - Cloud providers (openai/anthropic/gemini) receive no raw samples
+          unless ``analysis.share_samples_with_cloud_llm`` is enabled.
+        - Otherwise, PII-looking column values are masked when
+          ``analysis.mask_pii_samples`` is enabled.
+
+        The unmodified ``samples`` are still used to populate the catalog.
+        """
+        if samples is None:
+            return None
+
+        analysis = self.config.settings.analysis
+        provider = self.config.settings.llm.provider.lower()
+
+        if provider in CLOUD_PROVIDERS and not analysis.share_samples_with_cloud_llm:
+            logger.info(
+                f"Not sending sample data to cloud LLM provider '{provider}' "
+                "(analysis.share_samples_with_cloud_llm is disabled)"
+            )
+            return None
+
+        if analysis.mask_pii_samples:
+            return mask_pii_samples(samples, analysis.pii_column_patterns)
+
+        return samples
 
     def _build_enriched_entry(
         self,

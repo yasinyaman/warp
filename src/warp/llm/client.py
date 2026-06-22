@@ -21,6 +21,10 @@ _PROVIDER_ENV_VARS: dict[str, str] = {
     "gemini": "GOOGLE_API_KEY",
 }
 
+# Providers that send prompt data off the local machine to a third-party API.
+# (Ollama runs locally and is intentionally excluded.)
+CLOUD_PROVIDERS: frozenset = frozenset(_PROVIDER_ENV_VARS)
+
 
 def _raise_quota_or_rate_limit(provider: str, e: Exception) -> None:
     """Raise a clear error for 429 / quota issues and suggest alternatives."""

@@ -4,6 +4,7 @@ Reads sample rows and column statistics from database tables
 using warp's DatabaseAdapter.
 """
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -11,6 +12,17 @@ from warp.core.logging import get_logger
 from warp.database.identifiers import quote_identifier
 
 logger = get_logger(__name__)
+
+# Column-name substrings that indicate likely PII. Sample values for matching
+# columns are masked before being sent to an LLM.
+DEFAULT_PII_PATTERNS = [
+    "email", "mail", "phone", "tel", "mobile", "ssn", "social_security",
+    "password", "passwd", "secret", "token", "api_key", "apikey",
+    "credit_card", "card_number", "cardno", "cvv", "iban", "account_number",
+    "tax_id", "passport", "national_id",
+]
+
+_MASK_VALUE = "***"
 
 
 class DatabaseAdapterProtocol(Protocol):
@@ -41,6 +53,36 @@ class TableSamples:
     row_count: int | None = None
     column_samples: dict[str, list[Any]] = field(default_factory=dict)
     column_stats: dict[str, ColumnStats] = field(default_factory=dict)
+
+
+def is_pii_column(name: str, patterns: list[str] | None = None) -> bool:
+    """Heuristically decide whether a column name looks like PII."""
+    lowered = name.lower()
+    return any(p in lowered for p in (patterns or DEFAULT_PII_PATTERNS))
+
+
+def mask_pii_samples(
+    samples: TableSamples, patterns: list[str] | None = None
+) -> TableSamples:
+    """
+    Return a copy of ``samples`` with PII-looking column values masked.
+
+    Intended for use before sending sample data to an LLM: values of columns
+    whose name matches a PII pattern are replaced with ``"***"`` while
+    non-PII columns and all column statistics counts are left intact.
+    """
+    patterns = patterns or DEFAULT_PII_PATTERNS
+    masked = copy.deepcopy(samples)
+
+    for col_name, values in masked.column_samples.items():
+        if is_pii_column(col_name, patterns):
+            masked.column_samples[col_name] = [_MASK_VALUE for _ in values]
+
+    for col_name, stats in masked.column_stats.items():
+        if is_pii_column(col_name, patterns) and stats.sample_values:
+            stats.sample_values = [_MASK_VALUE for _ in stats.sample_values]
+
+    return masked
 
 
 class SampleReader:
