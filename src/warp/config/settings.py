@@ -201,3 +201,54 @@ def reload_settings(config_path: Optional[str] = None) -> Settings:
     global _settings
     _settings = load_config(config_path)
     return _settings
+
+
+def validate_production_config(
+    settings: Settings,
+    app_env: str,
+    cors_origins: Optional[List[str]] = None,
+) -> List[str]:
+    """
+    Check security-sensitive configuration for production deployments.
+
+    Returns a list of human-readable violation messages. The list is only
+    populated when ``app_env == "production"``; in any other environment the
+    same options are legitimate defaults and no violations are reported.
+
+    The caller is expected to refuse startup (fail-safe) when the returned
+    list is non-empty.
+
+    Args:
+        settings: Loaded application settings.
+        app_env: The current ``APP_ENV`` value.
+        cors_origins: The effective CORS allowlist (e.g. from ``CORS_ORIGINS``).
+
+    Returns:
+        A list of violation messages (empty when the configuration is safe).
+    """
+    violations: List[str] = []
+
+    if app_env != "production":
+        return violations
+
+    cfg = settings.settings
+
+    if not cfg.auth.enabled:
+        violations.append(
+            "auth.enabled is false: every endpoint would be public. "
+            "Enable authentication for production."
+        )
+
+    if cfg.enable_raw_query:
+        violations.append(
+            "settings.enable_raw_query is true: the raw SQL endpoint would be "
+            "exposed. Set enable_raw_query: false for production."
+        )
+
+    if cors_origins and any(origin.strip() == "*" for origin in cors_origins):
+        violations.append(
+            "CORS_ORIGINS allows '*': any origin could call the API. "
+            "Set CORS_ORIGINS to an explicit, comma-separated allowlist."
+        )
+
+    return violations

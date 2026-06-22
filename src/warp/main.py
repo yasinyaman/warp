@@ -15,8 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from warp import __version__
-from warp.config.settings import Settings, load_config
-from warp.core.exceptions import AutoCrudException, DatabaseConnectionError
+from warp.config.settings import Settings, load_config, validate_production_config
+from warp.core.exceptions import AutoCrudException, ConfigurationError, DatabaseConnectionError
 from warp.core.logging import setup_logging, get_logger
 from warp.database.base import DatabaseAdapter
 from warp.database.factory import DatabaseFactory
@@ -33,6 +33,7 @@ from warp.catalog.store import CatalogFileStore
 APP_ENV = os.getenv("APP_ENV", "development")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FORMAT = os.getenv("LOG_FORMAT", "json" if APP_ENV == "production" else "colored")
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
 
 # Setup logging
 setup_logging(level=LOG_LEVEL, json_format=(LOG_FORMAT == "json"))
@@ -108,6 +109,16 @@ async def lifespan(app: FastAPI):
     except FileNotFoundError as e:
         logger.error(f"Configuration error: {e}")
         raise
+
+    # Fail-safe: refuse to start in production with unsafe configuration.
+    violations = validate_production_config(state.settings, APP_ENV, CORS_ORIGINS)
+    if violations:
+        for violation in violations:
+            logger.error(f"Unsafe production configuration: {violation}")
+        raise ConfigurationError(
+            "Refusing to start in production with unsafe configuration",
+            details={"violations": violations},
+        )
 
     # Initialize auth manager
     auth_manager = init_auth_manager(state.settings.settings.auth)
@@ -305,12 +316,14 @@ GET /api/v1/users?limit=20&offset=40
                 title=f"{app.title} - ReDoc",
             )
 
-    # CORS middleware
-    cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
+    # CORS middleware.
+    # Browsers reject a "*" allowlist combined with credentials, so credentials
+    # are only enabled when an explicit origin allowlist is configured.
+    allow_credentials = "*" not in CORS_ORIGINS
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=cors_origins,
-        allow_credentials=True,
+        allow_origins=CORS_ORIGINS,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
