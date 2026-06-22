@@ -42,6 +42,20 @@ docker-compose up -d
 
 ```bash
 pip install -e ".[dev,llm]"
+```
+
+#### Reproducible installs (pinned + hashed)
+
+`pyproject.toml` keeps flexible `>=` ranges for library consumers. For
+reproducible environments (CI, Docker, audits), `requirements.lock` pins exact
+versions with hashes. Regenerate it with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv pip compile pyproject.toml --all-extras --universal --generate-hashes -o requirements.lock
+uv pip sync requirements.lock        # or: pip install --require-hashes -r requirements.lock
+```
+
+```bash
 
 # Set environment variables
 export DB_HOST=localhost
