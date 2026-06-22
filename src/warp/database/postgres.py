@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import asyncpg
 
 from .base import DatabaseAdapter
+from .identifiers import sanitize_identifier
 
 
 class PostgreSQLAdapter(DatabaseAdapter):
@@ -339,14 +340,8 @@ class PostgreSQLAdapter(DatabaseAdapter):
             return row is not None
 
     def _sanitize_identifier(self, name: str) -> str:
-        """
-        Sanitize SQL identifier (column/table name) to prevent injection.
-        Only allows alphanumeric characters and underscores.
-        """
-        import re
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name):
-            raise ValueError(f"Invalid identifier: {name}")
-        return name
+        """Validate a SQL identifier (delegates to the shared sanitizer)."""
+        return sanitize_identifier(name)
 
     def _build_where_clause(
         self,

@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from warp.core.logging import get_logger
+from warp.database.identifiers import quote_identifier
 
 logger = get_logger(__name__)
 
@@ -56,9 +57,14 @@ class SampleReader:
         self.schema = schema
 
     def _quote_identifier(self, name: str) -> str:
-        """Quote a SQL identifier to prevent injection."""
-        clean = name.replace('"', "").replace("'", "").replace(";", "")
-        return f'"{clean}"'
+        """Validate and quote a SQL identifier (dialect-aware, injection-safe).
+
+        Uses the shared strict sanitizer: invalid identifiers raise ValueError
+        instead of being silently stripped, so a crafted table/column name can
+        never escape the quotes.
+        """
+        dialect = "mysql" if self.db_type in ("mysql", "mariadb") else "postgresql"
+        return quote_identifier(name, dialect)
 
     def _qualified_table(self, table_name: str) -> str:
         """Get fully qualified table name."""
@@ -70,10 +76,9 @@ class SampleReader:
         self, table_name: str, limit: int = 5
     ) -> dict[str, list[Any]]:
         """Read sample rows from a table."""
-        qualified = self._qualified_table(table_name)
-        query = f"SELECT * FROM {qualified} LIMIT {int(limit)}"
-
         try:
+            qualified = self._qualified_table(table_name)
+            query = f"SELECT * FROM {qualified} LIMIT {int(limit)}"
             rows = await self.adapter.execute_query(query)
 
             if not rows:
@@ -130,8 +135,12 @@ class SampleReader:
         self, table_name: str, columns: list[str] | None = None
     ) -> dict[str, ColumnStats]:
         """Read basic statistics for columns."""
-        qualified = self._qualified_table(table_name)
         result: dict[str, ColumnStats] = {}
+        try:
+            qualified = self._qualified_table(table_name)
+        except ValueError as e:
+            logger.warning(f"Failed to read column stats for {table_name}: {e}")
+            return result
 
         if not columns:
             try:
