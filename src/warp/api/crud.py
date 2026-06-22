@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from pydantic import BaseModel
 
+from ..core.exceptions import ValidationError
 from ..database.base import DatabaseAdapter
 from ..schema.models import TableSchema
 from ..utils.pagination import PaginationParams, PaginatedResponse, paginate_response
@@ -22,7 +23,8 @@ class CRUDOperations:
         self,
         db: DatabaseAdapter,
         table_schema: TableSchema,
-        response_model: Optional[Type[BaseModel]] = None
+        response_model: Optional[Type[BaseModel]] = None,
+        readonly_columns: Optional[List[str]] = None
     ):
         """
         Initialize CRUD operations.
@@ -31,12 +33,25 @@ class CRUDOperations:
             db: Database adapter instance.
             table_schema: Schema of the table.
             response_model: Optional Pydantic model for response serialization.
+            readonly_columns: Column names clients may never write
+                (mass-assignment protection). The primary key and
+                auto-generated columns are always protected in addition to these.
         """
         self.db = db
         self.schema = table_schema
         self.table_name = table_schema.table_name
         self.pk_column = table_schema.pk_column or "id"
         self.response_model = response_model
+
+        # Mass-assignment protection: compute the columns a client is allowed
+        # to write. Insertable columns already exclude auto-generated PK/serial/
+        # identity columns; we further drop configured read-only columns, and
+        # the PK is additionally immutable on update.
+        self._readonly_columns = set(readonly_columns or [])
+        self._creatable_columns = (
+            set(table_schema.get_insertable_columns()) - self._readonly_columns
+        )
+        self._updatable_columns = self._creatable_columns - {self.pk_column}
 
     async def get_all(
         self,
@@ -101,6 +116,8 @@ class CRUDOperations:
         Returns:
             Created record with generated values.
         """
+        self._reject_non_writable(data, self._creatable_columns, "set")
+
         # Filter out None values if column is not nullable without default
         clean_data = {
             k: v for k, v in data.items()
@@ -127,6 +144,8 @@ class CRUDOperations:
         Returns:
             Updated record or None if not found.
         """
+        self._reject_non_writable(data, self._updatable_columns, "update")
+
         # Filter out None values for partial updates
         clean_data = {k: v for k, v in data.items() if v is not None}
 
@@ -189,6 +208,29 @@ class CRUDOperations:
             pagination={"limit": 1, "offset": 0}
         )
         return total
+
+    def _reject_non_writable(
+        self,
+        data: Dict[str, Any],
+        allowed: set,
+        action: str
+    ) -> None:
+        """
+        Reject attempts to write read-only, auto-generated, or unknown columns.
+
+        Raises:
+            ValidationError: If ``data`` contains any column not in ``allowed``.
+        """
+        offending = set(data) - allowed
+        if offending:
+            raise ValidationError(
+                f"Cannot {action} read-only or unknown column(s): "
+                f"{', '.join(sorted(offending))}",
+                details={
+                    "columns": sorted(offending),
+                    "writable": sorted(allowed),
+                },
+            )
 
     def _is_nullable(self, column_name: str) -> bool:
         """Check if a column is nullable."""

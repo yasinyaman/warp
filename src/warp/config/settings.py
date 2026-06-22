@@ -92,6 +92,11 @@ class SettingsConfig(BaseModel):
     pagination: PaginationConfig = Field(default_factory=PaginationConfig)
     enable_raw_query: bool = False  # default off; opt-in only, refused in production
     raw_query_whitelist: List[str] = Field(default_factory=lambda: ["SELECT"])
+    # Columns clients may never write (mass-assignment protection). The primary
+    # key and auto-generated columns are always protected in addition to these.
+    readonly_columns: List[str] = Field(
+        default_factory=lambda: ["created_at", "updated_at"]
+    )
     api_prefix: str = "/api/v1"
     docs_url: str = "/docs"
     redoc_url: str = "/redoc"

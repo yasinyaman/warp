@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, Type
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from ..core.exceptions import ValidationError
+from ..core.logging import get_logger
 from ..database.base import DatabaseAdapter
 from ..schema.analyzer import SchemaAnalyzer
 from ..schema.models import TableSchema
@@ -14,6 +16,8 @@ from ..utils.pagination import PaginationParams, PaginatedResponse
 from ..utils.sorting import parse_sort_from_request
 from .auth import AuthManager, Permission
 from .crud import CRUDOperations
+
+logger = get_logger(__name__)
 
 
 def convert_id_type(value: str, column_type: str) -> Any:
@@ -64,7 +68,8 @@ class RouterFactory:
         default_limit: int = 50,
         max_limit: int = 1000,
         db_name: Optional[str] = None,
-        auth_manager: Optional[AuthManager] = None
+        auth_manager: Optional[AuthManager] = None,
+        readonly_columns: Optional[List[str]] = None
     ):
         """
         Initialize the router factory.
@@ -76,6 +81,7 @@ class RouterFactory:
             max_limit: Maximum allowed pagination limit.
             db_name: Optional database name for tag prefixing.
             auth_manager: Optional auth manager for permission control.
+            readonly_columns: Columns clients may never write (mass-assignment).
         """
         self.db = db
         self.analyzer = schema_analyzer
@@ -83,6 +89,7 @@ class RouterFactory:
         self.max_limit = max_limit
         self.db_name = db_name
         self.auth_manager = auth_manager
+        self.readonly_columns = readonly_columns or []
         self._crud_instances: Dict[str, CRUDOperations] = {}
 
     def create_router(
@@ -263,11 +270,12 @@ Retrieve a paginated list of {table_name} records.
             try:
                 record = await crud.create(data.model_dump(exclude_unset=True))
                 return record
+            except ValidationError as e:
+                # Safe, intentional message (e.g. read-only column rejected).
+                raise HTTPException(status_code=400, detail=e.message)
             except Exception as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to create record: {str(e)}"
-                )
+                logger.exception(f"Failed to create {table_name} record: {e}")
+                raise HTTPException(status_code=400, detail="Failed to create record")
 
         # UPDATE endpoint
         @router.put(
@@ -291,11 +299,12 @@ Retrieve a paginated list of {table_name} records.
             try:
                 record = await crud.update(typed_id, data.model_dump(exclude_unset=True))
                 return record
+            except ValidationError as e:
+                # Safe, intentional message (e.g. read-only column rejected).
+                raise HTTPException(status_code=400, detail=e.message)
             except Exception as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to update record: {str(e)}"
-                )
+                logger.exception(f"Failed to update {table_name} record: {e}")
+                raise HTTPException(status_code=400, detail="Failed to update record")
 
         # PATCH endpoint (partial update)
         @router.patch(
@@ -319,11 +328,12 @@ Retrieve a paginated list of {table_name} records.
             try:
                 record = await crud.update(typed_id, data.model_dump(exclude_unset=True))
                 return record
+            except ValidationError as e:
+                # Safe, intentional message (e.g. read-only column rejected).
+                raise HTTPException(status_code=400, detail=e.message)
             except Exception as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to update record: {str(e)}"
-                )
+                logger.exception(f"Failed to update {table_name} record: {e}")
+                raise HTTPException(status_code=400, detail="Failed to update record")
 
         # DELETE endpoint
         @router.delete(
@@ -377,7 +387,8 @@ Retrieve a paginated list of {table_name} records.
         if table_name not in self._crud_instances:
             self._crud_instances[table_name] = CRUDOperations(
                 db=self.db,
-                table_schema=table_schema
+                table_schema=table_schema,
+                readonly_columns=self.readonly_columns
             )
 
         return self._crud_instances[table_name]

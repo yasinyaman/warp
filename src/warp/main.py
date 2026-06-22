@@ -165,7 +165,8 @@ async def lifespan(app: FastAPI):
                     default_limit=state.settings.settings.pagination.default_limit,
                     max_limit=state.settings.settings.pagination.max_limit,
                     db_name=use_db_name,
-                    auth_manager=auth_manager
+                    auth_manager=auth_manager,
+                    readonly_columns=state.settings.settings.readonly_columns
                 )
 
                 routers = router_factory.create_routers_for_all_tables(schema.tables)
