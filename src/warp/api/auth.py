@@ -1,8 +1,10 @@
 """
 Authentication and authorization module for API endpoints.
 """
+import hashlib
+import secrets
 from enum import Enum
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
@@ -25,7 +27,7 @@ class AuthenticatedUser:
     
     def __init__(self, api_key_config: ApiKeyConfig):
         self.name = api_key_config.name
-        self.key = api_key_config.key
+        # Deliberately do NOT retain the plaintext API key on the user object.
         self.permissions = api_key_config.permissions
     
     def has_permission(self, permission: Permission) -> bool:
@@ -52,19 +54,44 @@ class AuthManager:
         self.config = auth_config
         self.enabled = auth_config.enabled
         self.header_name = auth_config.header_name
-        self.api_keys = {key.key: key for key in auth_config.api_keys}
+        # Store sha256(key) -> config instead of plaintext keys. Empty/unset
+        # keys are dropped so they can never authenticate.
+        self._key_hashes: List[Tuple[str, ApiKeyConfig]] = [
+            (self._hash_key(key.key), key)
+            for key in auth_config.api_keys
+            if key.key
+        ]
+        self.api_key_count = len(self._key_hashes)
         self.public_paths = auth_config.public_paths
-        
+
         # Create API key header scheme
         self.api_key_header = APIKeyHeader(
             name=self.header_name,
             auto_error=False,
             description="API Key for authentication"
         )
-    
-    def _get_api_key_config(self, api_key: str) -> Optional[ApiKeyConfig]:
-        """Get API key configuration by key value."""
-        return self.api_keys.get(api_key)
+
+    @staticmethod
+    def _hash_key(api_key: str) -> str:
+        """Hash an API key for constant-length, timing-safe comparison."""
+        return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+    def _get_api_key_config(self, api_key: Optional[str]) -> Optional[ApiKeyConfig]:
+        """
+        Look up the config for a presented key using a timing-safe comparison.
+
+        Uses ``secrets.compare_digest`` against the stored hashes and scans all
+        configured keys without short-circuiting, so neither the comparison nor
+        the number of keys leaks timing information about the secret.
+        """
+        if not api_key:
+            return None
+        candidate = self._hash_key(api_key)
+        match: Optional[ApiKeyConfig] = None
+        for stored_hash, config in self._key_hashes:
+            if secrets.compare_digest(stored_hash, candidate):
+                match = config
+        return match
     
     def _is_public_path(self, path: str) -> bool:
         """Check if the path is public (no auth required)."""

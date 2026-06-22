@@ -123,7 +123,7 @@ async def lifespan(app: FastAPI):
     # Initialize auth manager
     auth_manager = init_auth_manager(state.settings.settings.auth)
     if auth_manager.enabled:
-        logger.info(f"Authentication enabled with {len(auth_manager.api_keys)} API key(s)")
+        logger.info(f"Authentication enabled with {auth_manager.api_key_count} API key(s)")
     else:
         logger.info("Authentication disabled - all endpoints are public")
 
