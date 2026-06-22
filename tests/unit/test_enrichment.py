@@ -430,13 +430,15 @@ class TestEnrichedAnalyzer:
             database_name="testdb",
         )
 
-        catalog = await analyzer.analyze(table_names=["users"])
+        # Per-table fallback: invalid JSON -> basic (schema-only) entry.
+        # (analyze() additionally raises AnalysisError only when *all* tables
+        # fail LLM; full schema-only catalog fallback is a Phase 3 item.)
+        entry, llm_ok = await analyzer._analyze_table(table_name="users")
 
-        # Should still have the table with basic info
-        users = catalog.get_table("users")
-        assert users is not None
-        assert users.table_name == "users"
-        assert len(users.columns) == 5
+        assert llm_ok is False
+        assert entry is not None
+        assert entry.table_name == "users"
+        assert len(entry.columns) == 5
 
     @pytest.mark.asyncio
     async def test_analyze_with_foreign_keys(

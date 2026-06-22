@@ -84,7 +84,8 @@ class TestOpenAPIEnricher:
         # Should enrich summary
         get_op = result["paths"]["/api/v1/users"]["get"]
         assert "Users" in get_op["summary"]
-        assert get_op["description"] == "User accounts"
+        # Description is now a rich markdown block led by the table summary.
+        assert get_op["description"].startswith("**Users**: User accounts")
 
     def test_enrich_request_body(self, catalog):
         spec = {
@@ -114,13 +115,17 @@ class TestOpenAPIEnricher:
         body_schema = result["paths"]["/api/v1/users"]["post"]["requestBody"][
             "content"
         ]["application/json"]["schema"]
-        assert body_schema["properties"]["email"]["description"] == "User email"
+        # Column descriptions now include semantic-type metadata.
+        email_desc = body_schema["properties"]["email"]["description"]
+        assert email_desc.startswith("User email")
+        assert "Semantic type: email" in email_desc
 
     def test_extract_table_from_path(self, catalog):
         enricher = OpenAPIEnricher(catalog)
         assert enricher._extract_table_from_path("/api/v1/users") == "users"
         assert enricher._extract_table_from_path("/api/v1/users/{id}") == "users"
-        assert enricher._extract_table_from_path("/users") == "users"
+        # Only /api/v1-prefixed paths are matched; unprefixed paths are ignored.
+        assert enricher._extract_table_from_path("/users") is None
 
     def test_extract_column_from_param(self):
         assert OpenAPIEnricher._extract_column_from_param("filter[email][eq]") == "email"
