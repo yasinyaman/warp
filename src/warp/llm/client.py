@@ -181,18 +181,26 @@ class AnthropicProvider(LLMProvider):
 
 
 class GeminiProvider(LLMProvider):
-    """Google Gemini API provider."""
+    """Google Gemini API provider (google-genai SDK).
+
+    Uses the current `google-genai` package; the legacy `google-generativeai`
+    SDK reached end of life on 2025-11-30.
+    """
 
     def __init__(self, api_key: str, model: str = "gemini-1.5-flash", base_url: str = ""):
         try:
-            import google.generativeai as genai
+            from google import genai
+            from google.genai import types
         except ImportError:
             raise LLMProviderNotFoundError(
-                "gemini - install with: pip install google-generativeai"
+                "gemini - install with: pip install google-genai"
             )
 
-        genai.configure(api_key=api_key)
-        self.genai = genai
+        self._types = types
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_kwargs["http_options"] = types.HttpOptions(base_url=base_url)
+        self.client = genai.Client(**client_kwargs)
         self.model_name = model
 
     async def generate(
@@ -203,20 +211,21 @@ class GeminiProvider(LLMProvider):
         max_tokens: int = 4096,
         response_format: str | None = None,
     ) -> str:
-        import asyncio
+        types = self._types
+        config = types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+            response_mime_type=(
+                "application/json" if response_format == "json" else None
+            ),
+        )
 
         try:
-            model = self.genai.GenerativeModel(
-                model_name=self.model_name,
-                system_instruction=system_prompt,
-                generation_config=self.genai.GenerationConfig(
-                    temperature=temperature,
-                    max_output_tokens=max_tokens,
-                ),
-            )
-
-            response = await asyncio.get_event_loop().run_in_executor(
-                None, model.generate_content, prompt
+            response = await self.client.aio.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=config,
             )
             text = response.text
             if not text:
