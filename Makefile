@@ -4,6 +4,10 @@
 
 .PHONY: help install dev test lint format clean docker-build docker-up docker-down docker-logs docker-shell
 
+# Load local secrets/credentials from .env when present (copy .env.example -> .env).
+-include .env
+export
+
 # Default target
 help:
 	@echo "Warp Engine - Available Commands"
@@ -95,7 +99,7 @@ db-shell-pg:
 	docker-compose exec postgres psql -U postgres -d testdb
 
 db-shell-mysql:
-	docker-compose exec mysql mysql -u root -p***REMOVED*** testdb
+	docker-compose exec mysql mysql -u root -p"$(MYSQL_PASS)" $(MYSQL_DB)
 
 # ===========================================
 # Utilities

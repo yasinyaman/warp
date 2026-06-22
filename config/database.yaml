@@ -66,16 +66,18 @@ settings:
       - /openapi.json
     # API keys with permissions
     # Permissions: read, create, update, delete, query (for raw SQL), all (full access)
+    # Keys are supplied via environment variables (see .env.example).
+    # No insecure defaults: an unset/empty key cannot authenticate.
     api_keys:
-      - key: ${API_KEY_ADMIN:***REMOVED***}
+      - key: ${API_KEY_ADMIN:}
         name: admin
         permissions:
           - all
-      - key: ${API_KEY_READONLY:***REMOVED***}
+      - key: ${API_KEY_READONLY:}
         name: readonly_user
         permissions:
           - read
-      - key: ${API_KEY_WRITER:***REMOVED***}
+      - key: ${API_KEY_WRITER:}
         name: writer_user
         permissions:
           - read
