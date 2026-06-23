@@ -7,6 +7,7 @@ Provides cross-catalog search capabilities.
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -267,7 +268,7 @@ class CatalogFileStore:
         self,
         db_name: str,
         table_name: str,
-        updates: dict,
+        updates: dict[str, Any],
         lang: str = "en",
     ) -> TableCatalogEntry:
         """Update editable fields on a table entry.
@@ -336,7 +337,7 @@ class CatalogFileStore:
         db_name: str,
         table_name: str,
         column_name: str,
-        updates: dict,
+        updates: dict[str, Any],
         lang: str = "en",
     ) -> ColumnCatalogEntry:
         """Update editable fields on a column entry.
@@ -382,7 +383,7 @@ class CatalogFileStore:
         self.save(catalog)
         return column
 
-    def extract_overrides(self, db_name: str) -> dict[str, dict]:
+    def extract_overrides(self, db_name: str) -> dict[str, dict[str, Any]]:
         """Extract all user_overrides from an existing catalog.
 
         Returns a dict keyed by table_name, each containing:
@@ -395,14 +396,14 @@ class CatalogFileStore:
         if not catalog:
             return {}
 
-        overrides: dict[str, dict] = {}
+        overrides: dict[str, dict[str, Any]] = {}
         for tname, table in catalog.tables.items():
-            table_overrides: dict = {}
+            table_overrides: dict[str, Any] = {}
 
             if table.user_overrides:
                 table_overrides.update(table.user_overrides)
 
-            col_overrides: dict[str, dict] = {}
+            col_overrides: dict[str, dict[str, Any]] = {}
             for col in table.columns:
                 if col.user_overrides:
                     col_overrides[col.name] = dict(col.user_overrides)
@@ -418,7 +419,7 @@ class CatalogFileStore:
     def apply_overrides(
         self,
         db_name: str,
-        overrides: dict[str, dict],
+        overrides: dict[str, dict[str, Any]],
     ) -> DatabaseCatalog:
         """Apply saved user_overrides to a (newly regenerated) catalog.
 

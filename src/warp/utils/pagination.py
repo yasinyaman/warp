@@ -98,7 +98,7 @@ def paginate_response(
     items: list[Any],
     total: int,
     pagination: PaginationParams
-) -> PaginatedResponse:
+) -> PaginatedResponse[Any]:
     """
     Create a paginated response from items.
 

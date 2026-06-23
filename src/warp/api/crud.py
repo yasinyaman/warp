@@ -59,7 +59,7 @@ class CRUDOperations:
         filters: list[tuple[str, str, Any]] | None = None,
         pagination: PaginationParams | None = None,
         sort: list[tuple[str, str]] | None = None
-    ) -> PaginatedResponse:
+    ) -> PaginatedResponse[Any]:
         """
         Get all records with filtering, pagination, and sorting.
 
@@ -212,7 +212,7 @@ class CRUDOperations:
     def _reject_non_writable(
         self,
         data: dict[str, Any],
-        allowed: set,
+        allowed: set[str],
         action: str
     ) -> None:
         """

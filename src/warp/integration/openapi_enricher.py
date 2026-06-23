@@ -94,7 +94,7 @@ class OpenAPIEnricher:
     # ------------------------------------------------------------------
 
     def _enrich_path_operations(
-        self, path: str, methods: dict, table: TableCatalogEntry
+        self, path: str, methods: dict[str, Any], table: TableCatalogEntry
     ) -> None:
         """Enrich all operations under a single path."""
         table.description.get(self.lang)
@@ -234,7 +234,7 @@ class OpenAPIEnricher:
     # Parameter & request body enrichment
     # ------------------------------------------------------------------
 
-    def _enrich_parameters(self, operation: dict, table: TableCatalogEntry) -> None:
+    def _enrich_parameters(self, operation: dict[str, Any], table: TableCatalogEntry) -> None:
         """Add column descriptions to query/path parameters."""
         params = operation.get("parameters", [])
         for param in params:
@@ -264,7 +264,7 @@ class OpenAPIEnricher:
                 }
 
     def _enrich_request_body(
-        self, operation: dict, table: TableCatalogEntry
+        self, operation: dict[str, Any], table: TableCatalogEntry
     ) -> None:
         """Add column descriptions and metadata to request body properties."""
         body = operation.get("requestBody", {})
@@ -276,7 +276,7 @@ class OpenAPIEnricher:
         self._enrich_schema_properties(schema_ref, table)
 
     def _enrich_schema_properties(
-        self, schema: dict, table: TableCatalogEntry
+        self, schema: dict[str, Any], table: TableCatalogEntry
     ) -> None:
         """Enrich properties within a schema dict."""
         properties = schema.get("properties", {})
@@ -299,7 +299,7 @@ class OpenAPIEnricher:
     # Component schema enrichment
     # ------------------------------------------------------------------
 
-    def _enrich_schemas(self, spec: dict) -> None:
+    def _enrich_schemas(self, spec: dict[str, Any]) -> None:
         """Enrich component schemas with full catalog info."""
         components = spec.get("components", {})
         schemas = components.get("schemas", {})
@@ -372,7 +372,7 @@ class OpenAPIEnricher:
     # Top-level LLM context
     # ------------------------------------------------------------------
 
-    def _add_llm_context(self, spec: dict) -> None:
+    def _add_llm_context(self, spec: dict[str, Any]) -> None:
         """Add x-llm-context top-level extension with full DB overview."""
         tables_overview = []
         for tname, table in self.catalog.tables.items():

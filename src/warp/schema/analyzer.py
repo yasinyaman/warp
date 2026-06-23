@@ -246,7 +246,7 @@ class SchemaAnalyzer:
                 if col.default and ("nextval" in col.default.lower() or "identity" in col.default.lower()):
                     continue
 
-            python_type = self._get_python_type(col)
+            python_type: Any = self._get_python_type(col)
             example_value = self._get_example_value(col)
 
             # Determine if field is optional
@@ -272,7 +272,7 @@ class SchemaAnalyzer:
             fields[col.name] = (python_type, field_info)
 
         # Create the model
-        model = create_model(model_name, **fields)
+        model: type[BaseModel] = create_model(model_name, **fields)
         self._pydantic_models[cache_key] = model
 
         return model

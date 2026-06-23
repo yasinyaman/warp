@@ -123,14 +123,14 @@ def create_query_router(
     validator = QueryValidator(whitelist)
 
     # Auth dependencies
-    def get_auth_deps(permission: Permission) -> list:
+    def get_auth_deps(permission: Permission) -> list[Any]:
         if auth_manager and auth_manager.enabled:
             return [Depends(auth_manager.require(permission))]
         return []
 
     if not enabled:
         @router.post("/execute", response_model=QueryResponse)
-        async def execute_query_disabled(request: QueryRequest):
+        async def execute_query_disabled(request: QueryRequest) -> QueryResponse:
             """Raw query execution is disabled."""
             raise HTTPException(
                 status_code=403,
@@ -160,7 +160,7 @@ Execute a raw SQL query against the database.
         """,
         dependencies=get_auth_deps(Permission.QUERY)
     )
-    async def execute_query(request: QueryRequest):
+    async def execute_query(request: QueryRequest) -> QueryResponse:
         """Execute a raw SQL query."""
         try:
             # Validate query
@@ -195,7 +195,7 @@ Execute a raw SQL query against the database.
         summary="Get Allowed SQL Commands",
         description="Returns the list of SQL commands that are allowed for raw queries."
     )
-    async def get_allowed_commands():
+    async def get_allowed_commands() -> dict[str, Any]:
         """Get list of allowed SQL commands."""
         return {
             "allowed_commands": validator.whitelist,

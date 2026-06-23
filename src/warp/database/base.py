@@ -26,7 +26,7 @@ class DatabaseAdapter(ABC):
         """
         self.config = config
         self.name = config.get("name", "default")
-        self._pool = None
+        self._pool: Any = None
 
     @abstractmethod
     async def connect(self) -> None:

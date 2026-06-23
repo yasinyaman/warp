@@ -134,7 +134,7 @@ def interpolate_env_vars(value: Any) -> Any:
     if isinstance(value, str):
         pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'
 
-        def replacer(match):
+        def replacer(match: re.Match[str]) -> str:
             var_name = match.group(1)
             default_value = match.group(2) if match.group(2) is not None else ""
             return os.environ.get(var_name, default_value)
@@ -164,14 +164,14 @@ def load_config(config_path: str | None = None) -> Settings:
     if config_path is None:
         # Default to config/database.yaml relative to project root
         project_root = Path(__file__).parent.parent.parent
-        config_path = project_root / "config" / "database.yaml"
+        resolved_path = project_root / "config" / "database.yaml"
     else:
-        config_path = Path(config_path)
+        resolved_path = Path(config_path)
 
-    if not config_path.exists():
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+    if not resolved_path.exists():
+        raise FileNotFoundError(f"Configuration file not found: {resolved_path}")
 
-    with open(config_path, encoding="utf-8") as f:
+    with open(resolved_path, encoding="utf-8") as f:
         raw_config = yaml.safe_load(f)
 
     # Interpolate environment variables

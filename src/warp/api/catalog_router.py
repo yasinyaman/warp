@@ -11,6 +11,7 @@ Provides REST endpoints for catalog operations:
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from warp.catalog.store import CatalogFileStore
@@ -178,7 +179,7 @@ def _refresh_openapi_enrichment(
     if enrichers:
         from fastapi.openapi.utils import get_openapi
 
-        def enriched_openapi():
+        def enriched_openapi() -> dict[str, Any]:
             if app.openapi_schema:
                 return app.openapi_schema
 
@@ -198,7 +199,7 @@ def _refresh_openapi_enrichment(
             logger.debug("Enriched OpenAPI schema cached")
             return app.openapi_schema
 
-        app.openapi = enriched_openapi
+        app.openapi = enriched_openapi  # type: ignore[method-assign]
         # Force regeneration: call it now so the next /openapi.json returns enriched
         enriched_openapi()
         logger.info(f"OpenAPI enrichment refreshed with {len(enrichers)} catalog(s)")
@@ -230,7 +231,7 @@ def create_catalog_router(
         response_model=CatalogListResponse,
         summary="List available catalogs",
     )
-    async def list_catalogs():
+    async def list_catalogs() -> CatalogListResponse:
         """List all available catalogs."""
         catalog_names = store.list_catalogs()
         index = store.get_index()
@@ -260,7 +261,7 @@ def create_catalog_router(
     async def get_catalog_info(
         db_name: str,
         lang: str = Query(default="en", description="Language for descriptions"),
-    ):
+    ) -> CatalogInfoResponse:
         """Get detailed information about a specific catalog."""
         catalog = store.load(db_name)
         if not catalog:
@@ -297,7 +298,7 @@ def create_catalog_router(
         db_name: str,
         format: str = Query(default="json", description="Export format"),
         lang: str = Query(default="en", description="Language"),
-    ):
+    ) -> Response:
         """Export a catalog in the specified format."""
         catalog = store.load(db_name)
         if not catalog:
@@ -317,7 +318,6 @@ def create_catalog_router(
             "md": "text/markdown",
         }
 
-        from fastapi.responses import Response
         return Response(
             content=content,
             media_type=content_types.get(format, "text/plain"),
@@ -334,7 +334,7 @@ def create_catalog_router(
     async def analyze_database(
         request: AnalyzeRequest,
         background_tasks: BackgroundTasks,
-    ):
+    ) -> AnalyzeResponse:
         """Trigger database analysis and catalog generation.
 
         This starts the analysis process. For large databases,
@@ -415,7 +415,7 @@ def create_catalog_router(
         "/{db_name}",
         summary="Delete a catalog",
     )
-    async def delete_catalog(db_name: str):
+    async def delete_catalog(db_name: str) -> dict[str, Any]:
         """Delete a stored catalog."""
         if store.delete(db_name):
             return {"deleted": True, "database": db_name}
@@ -431,7 +431,7 @@ def create_catalog_router(
     async def get_draft_info(
         db_name: str,
         lang: str = Query(default="en", description="Language for descriptions"),
-    ):
+    ) -> DraftInfoResponse:
         """Get draft catalog overview with per-table review status."""
         catalog = store.load(db_name)
         if not catalog:
@@ -469,7 +469,7 @@ def create_catalog_router(
         db_name: str,
         table_name: str,
         lang: str = Query(default="en", description="Language"),
-    ):
+    ) -> TableReviewDetail:
         """Get detailed table info for review including columns and relationships."""
         catalog = store.load(db_name)
         if not catalog:
@@ -530,7 +530,7 @@ def create_catalog_router(
         table_name: str,
         request: TableEditRequest,
         lang: str = Query(default="en", description="Default language for string values"),
-    ):
+    ) -> dict[str, Any]:
         """Edit table-level fields. The table review_status becomes 'modified'."""
         catalog = store.load(db_name)
         if not catalog:
@@ -571,7 +571,7 @@ def create_catalog_router(
         col_name: str,
         request: ColumnEditRequest,
         lang: str = Query(default="en", description="Default language"),
-    ):
+    ) -> dict[str, Any]:
         """Edit column-level fields. The parent table review_status becomes 'modified'."""
         catalog = store.load(db_name)
         if not catalog:
@@ -610,7 +610,7 @@ def create_catalog_router(
     async def approve_catalog_endpoint(
         db_name: str,
         request: ApproveRequest = ApproveRequest(),
-    ):
+    ) -> dict[str, Any]:
         """Approve all tables or specific tables in a draft catalog.
 
         If request.tables is None, approves all pending tables and
@@ -650,7 +650,7 @@ def create_catalog_router(
     async def approve_single_table(
         db_name: str,
         table_name: str,
-    ):
+    ) -> dict[str, Any]:
         """Approve a single table in the draft catalog."""
         try:
             catalog = store.approve_table(db_name, table_name)

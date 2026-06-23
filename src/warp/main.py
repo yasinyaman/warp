@@ -7,11 +7,13 @@ Production-ready with connection retry, proper error handling, and logging.
 import asyncio
 import os
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from warp import __version__
 from warp.api.auth import init_auth_manager
@@ -90,7 +92,7 @@ async def connect_with_retry(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Application lifespan handler.
 
@@ -301,14 +303,14 @@ GET /api/v1/users?limit=20&offset=40
         from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
         @app.get("/docs", include_in_schema=False)
-        async def custom_swagger_ui():
+        async def custom_swagger_ui() -> HTMLResponse:
             return get_swagger_ui_html(
                 openapi_url=f"/openapi.json?v={int(time.time())}",
                 title=f"{app.title} - Swagger UI",
             )
 
         @app.get("/redoc", include_in_schema=False)
-        async def custom_redoc():
+        async def custom_redoc() -> HTMLResponse:
             return get_redoc_html(
                 openapi_url=f"/openapi.json?v={int(time.time())}",
                 title=f"{app.title} - ReDoc",
@@ -328,7 +330,7 @@ GET /api/v1/users?limit=20&offset=40
 
     # Global exception handler
     @app.exception_handler(AutoCrudException)
-    async def auto_crud_exception_handler(request: Request, exc: AutoCrudException):
+    async def auto_crud_exception_handler(request: Request, exc: AutoCrudException) -> JSONResponse:
         logger.error(f"Application error: {exc.message}")
         return JSONResponse(
             status_code=exc.status_code,
@@ -336,7 +338,7 @@ GET /api/v1/users?limit=20&offset=40
         )
 
     @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception):
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception(f"Unhandled error: {exc}")
         return JSONResponse(
             status_code=500,
@@ -349,7 +351,7 @@ GET /api/v1/users?limit=20&offset=40
 
     # Health check endpoint (Kubernetes/Docker compatible)
     @app.get("/health", tags=["Health"])
-    async def health_check():
+    async def health_check() -> dict[str, Any] | JSONResponse:
         """
         Health check endpoint for container orchestration.
 
@@ -382,7 +384,7 @@ GET /api/v1/users?limit=20&offset=40
 
     # Readiness probe (Kubernetes)
     @app.get("/ready", tags=["Health"])
-    async def readiness_check():
+    async def readiness_check() -> dict[str, Any] | JSONResponse:
         """
         Readiness probe for Kubernetes.
 
@@ -398,7 +400,7 @@ GET /api/v1/users?limit=20&offset=40
 
     # Liveness probe (Kubernetes)
     @app.get("/live", tags=["Health"])
-    async def liveness_check():
+    async def liveness_check() -> dict[str, Any]:
         """
         Liveness probe for Kubernetes.
 
@@ -408,7 +410,7 @@ GET /api/v1/users?limit=20&offset=40
 
     # Info endpoint
     @app.get("/info", tags=["Info"])
-    async def api_info():
+    async def api_info() -> dict[str, Any]:
         """Get API information and discovered tables."""
         tables_info = {}
         for db_name, schema in state.schemas.items():
@@ -454,7 +456,7 @@ GET /api/v1/users?limit=20&offset=40
 app = create_app()
 
 
-def main():
+def main() -> None:
     """Entry point for the application."""
     import uvicorn
 

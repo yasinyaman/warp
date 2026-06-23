@@ -12,10 +12,15 @@ Commands:
 
 import asyncio
 import sys
+from typing import TYPE_CHECKING
 
 import click
 
 from warp import __version__
+
+if TYPE_CHECKING:
+    from warp.catalog.models import TableCatalogEntry
+    from warp.catalog.store import CatalogFileStore
 
 
 @click.group()
@@ -27,7 +32,7 @@ from warp import __version__
     type=click.Path(),
 )
 @click.pass_context
-def main(ctx, config):
+def main(ctx: click.Context, config: str) -> None:
     """Warp Catalog - Database Catalog Intelligence.
 
     LLM-powered database schema analysis and description generation.
@@ -44,12 +49,28 @@ def main(ctx, config):
 @click.option("-o", "--output", default=None, help="Output file path")
 @click.option("--auto-approve", is_flag=True, help="Skip review, approve directly")
 @click.pass_context
-def analyze(ctx, database, tables, lang, fmt, output, auto_approve):
+def analyze(
+    ctx: click.Context,
+    database: str,
+    tables: str | None,
+    lang: str | None,
+    fmt: str,
+    output: str | None,
+    auto_approve: bool,
+) -> None:
     """Analyze database and generate catalog."""
     asyncio.run(_run_analyze(ctx, database, tables, lang, fmt, output, auto_approve))
 
 
-async def _run_analyze(ctx, database, tables, lang, fmt, output, auto_approve=False):
+async def _run_analyze(
+    ctx: click.Context,
+    database: str,
+    tables: str | None,
+    lang: str | None,
+    fmt: str,
+    output: str | None,
+    auto_approve: bool = False,
+) -> None:
     from warp.catalog.store import CatalogFileStore
     from warp.config.settings import load_config
     from warp.core.logging import setup_logging
@@ -131,7 +152,7 @@ async def _run_analyze(ctx, database, tables, lang, fmt, output, auto_approve=Fa
 @click.option("-o", "--output", required=True, help="Output file path")
 @click.option("--lang", default="en", help="Language for export")
 @click.pass_context
-def export_catalog(ctx, database, fmt, output, lang):
+def export_catalog(ctx: click.Context, database: str, fmt: str, output: str, lang: str) -> None:
     """Export an existing catalog."""
     from warp.catalog.store import CatalogFileStore
     from warp.config.settings import load_config
@@ -152,7 +173,7 @@ def export_catalog(ctx, database, fmt, output, lang):
 
 @main.command("list")
 @click.pass_context
-def list_catalogs(ctx):
+def list_catalogs(ctx: click.Context) -> None:
     """List available catalogs."""
     from warp.catalog.store import CatalogFileStore
     from warp.config.settings import load_config
@@ -185,7 +206,7 @@ def list_catalogs(ctx):
 @click.option("-d", "--database", required=True, help="Database/catalog name")
 @click.option("--lang", default="en", help="Language for descriptions")
 @click.pass_context
-def show_info(ctx, database, lang):
+def show_info(ctx: click.Context, database: str, lang: str) -> None:
     """Show catalog info."""
     from warp.catalog.store import CatalogFileStore
     from warp.config.settings import load_config
@@ -225,7 +246,7 @@ def show_info(ctx, database, lang):
 @click.option("--lang", default="en", help="Language for display and editing")
 @click.option("--auto-approve", is_flag=True, help="Approve all without prompting")
 @click.pass_context
-def review_catalog(ctx, database, lang, auto_approve):
+def review_catalog(ctx: click.Context, database: str, lang: str, auto_approve: bool) -> None:
     """Interactive table-by-table review of a draft catalog.
 
     Review LLM-generated descriptions and edit any field before approving.
@@ -342,7 +363,13 @@ def review_catalog(ctx, database, lang, auto_approve):
         click.echo("All tables reviewed. Catalog approved!")
 
 
-def _interactive_edit_table(store, db_name, table_name, table, lang):
+def _interactive_edit_table(
+    store: "CatalogFileStore",
+    db_name: str,
+    table_name: str,
+    table: "TableCatalogEntry",
+    lang: str,
+) -> None:
     """Interactive edit sub-menu for a single table."""
     while True:
         click.echo("\n  Edit fields:")
@@ -442,7 +469,13 @@ def _interactive_edit_table(store, db_name, table_name, table, lang):
 @click.option("-o", "--output", default=None, help="Output file path")
 @click.option("--lang", default="en", help="Language for descriptions")
 @click.pass_context
-def enrich_openapi(ctx, database, input_path, output, lang):
+def enrich_openapi(
+    ctx: click.Context,
+    database: str,
+    input_path: str,
+    output: str | None,
+    lang: str,
+) -> None:
     """Enrich OpenAPI spec with catalog descriptions."""
     from warp.catalog.store import CatalogFileStore
     from warp.config.settings import load_config
@@ -469,12 +502,28 @@ def enrich_openapi(ctx, database, input_path, output, lang):
 @click.option("-o", "--output", default=None, help="Export output path")
 @click.option("--openapi", default=None, help="OpenAPI spec to enrich")
 @click.pass_context
-def run_pipeline(ctx, database, lang, tables, fmt, output, openapi):
+def run_pipeline(
+    ctx: click.Context,
+    database: str,
+    lang: str | None,
+    tables: str | None,
+    fmt: str | None,
+    output: str | None,
+    openapi: str | None,
+) -> None:
     """Run full pipeline: DB -> Catalog -> Enriched MCP."""
     asyncio.run(_run_pipeline(ctx, database, lang, tables, fmt, output, openapi))
 
 
-async def _run_pipeline(ctx, database, lang, tables, fmt, output, openapi):
+async def _run_pipeline(
+    ctx: click.Context,
+    database: str,
+    lang: str | None,
+    tables: str | None,
+    fmt: str | None,
+    output: str | None,
+    openapi: str | None,
+) -> None:
     from warp.config.settings import load_config
     from warp.core.logging import setup_logging
     from warp.integration.pipeline import Pipeline

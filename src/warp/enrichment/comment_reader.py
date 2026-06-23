@@ -132,7 +132,8 @@ class CommentReader:
                 return None
 
             if rows and rows[0].get("comment"):
-                return rows[0]["comment"]
+                comment: str = rows[0]["comment"]
+                return comment
             return None
 
         except Exception as e:

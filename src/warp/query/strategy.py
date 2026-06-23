@@ -72,7 +72,8 @@ class QueryStrategy:
         )
 
         try:
-            return json.loads(response)
+            parsed: dict[str, Any] = json.loads(response)
+            return parsed
         except json.JSONDecodeError:
             return {
                 "query": response,

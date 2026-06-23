@@ -16,7 +16,7 @@ class SortField:
     column: str
     direction: str = "asc"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate direction."""
         self.direction = self.direction.lower()
         if self.direction not in ("asc", "desc"):

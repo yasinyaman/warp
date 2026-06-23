@@ -48,7 +48,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
 
     async def get_table_schema(self, table: str) -> dict[str, Any]:
         """Get detailed schema information for a table."""
-        schema = {
+        schema: dict[str, Any] = {
             "table_name": table,
             "columns": [],
             "primary_key": None,

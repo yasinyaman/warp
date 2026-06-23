@@ -3,7 +3,7 @@ Authentication and authorization module for API endpoints.
 """
 import hashlib
 import secrets
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from enum import Enum
 
 from fastapi import Depends, HTTPException, Request, status
@@ -138,7 +138,7 @@ class AuthManager:
 
         return AuthenticatedUser(key_config)
 
-    def require(self, permission: Permission) -> Callable:
+    def require(self, permission: Permission) -> Callable[..., Awaitable[AuthenticatedUser | None]]:
         """
         Create a dependency that requires a specific permission.
 
@@ -175,7 +175,7 @@ class AuthManager:
 
         return permission_checker
 
-    def require_any(self, permissions: list[Permission]) -> Callable:
+    def require_any(self, permissions: list[Permission]) -> Callable[..., Awaitable[AuthenticatedUser | None]]:
         """
         Create a dependency that requires any of the specified permissions.
 

@@ -8,7 +8,7 @@ import contextlib
 import os
 import time
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, NoReturn
 
 from warp.core.exceptions import LLMError, LLMGenerationError, LLMProviderNotFoundError
 from warp.core.logging import get_logger
@@ -24,10 +24,10 @@ _PROVIDER_ENV_VARS: dict[str, str] = {
 
 # Providers that send prompt data off the local machine to a third-party API.
 # (Ollama runs locally and is intentionally excluded.)
-CLOUD_PROVIDERS: frozenset = frozenset(_PROVIDER_ENV_VARS)
+CLOUD_PROVIDERS: frozenset[str] = frozenset(_PROVIDER_ENV_VARS)
 
 
-def _raise_quota_or_rate_limit(provider: str, e: Exception) -> None:
+def _raise_quota_or_rate_limit(provider: str, e: Exception) -> NoReturn:
     """Raise a clear error for 429 / quota issues and suggest alternatives."""
     msg = str(e).lower()
     if "429" in msg or "quota" in msg or "rate" in msg or "insufficient_quota" in msg:
@@ -117,7 +117,7 @@ class OpenAIProvider(LLMProvider):
 
         try:
             response = await self.client.chat.completions.create(**kwargs)
-            content = response.choices[0].message.content
+            content: str | None = response.choices[0].message.content
             if not content:
                 raise LLMGenerationError("Empty response from OpenAI")
             return content.strip()
@@ -168,7 +168,7 @@ class AnthropicProvider(LLMProvider):
 
         try:
             response = await self.client.messages.create(**kwargs)
-            content = response.content[0].text
+            content: str | None = response.content[0].text
             if not content:
                 raise LLMGenerationError("Empty response from Anthropic")
             return content.strip()
@@ -228,7 +228,7 @@ class GeminiProvider(LLMProvider):
                 contents=prompt,
                 config=config,
             )
-            text = response.text
+            text: str | None = response.text
             if not text:
                 raise LLMGenerationError("Empty response from Gemini")
             return text.strip()
@@ -327,7 +327,7 @@ class OllamaProvider(LLMProvider):
 
             response.raise_for_status()
             data = response.json()
-            text = data.get("response", "")
+            text: str = data.get("response", "")
             if not text:
                 raise LLMGenerationError("Empty response from Ollama")
             return text.strip()

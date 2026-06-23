@@ -1,6 +1,7 @@
 """
 Database factory for creating database adapters.
 """
+from typing import Any
 
 from .base import DatabaseAdapter
 from .mysql import MySQLAdapter
@@ -29,7 +30,7 @@ class DatabaseFactory:
     """
 
     @staticmethod
-    def create(config: dict) -> DatabaseAdapter:
+    def create(config: dict[str, Any]) -> DatabaseAdapter:
         """
         Create a database adapter based on configuration.
 
@@ -73,7 +74,7 @@ class DatabaseFactory:
         ADAPTERS[db_type.lower()] = adapter_class
 
     @staticmethod
-    def get_supported_types() -> list:
+    def get_supported_types() -> list[str]:
         """
         Get list of supported database types.
 

@@ -101,7 +101,7 @@ class EnrichedAnalyzer:
         )
 
         # Extract existing user overrides before regeneration
-        existing_overrides: dict[str, dict] = {}
+        existing_overrides: dict[str, dict[str, Any]] = {}
         if self.store:
             existing_overrides = self.store.extract_overrides(self.database_name)
             if existing_overrides:
@@ -390,9 +390,9 @@ class EnrichedAnalyzer:
         self,
         table_name: str,
         result: dict[str, Any],
-        col_dicts: list[dict],
-        fk_dicts: list[dict],
-        idx_dicts: list[dict],
+        col_dicts: list[dict[str, Any]],
+        fk_dicts: list[dict[str, Any]],
+        idx_dicts: list[dict[str, Any]],
         primary_key: Any,
         samples: Any,
         db_table_comment: str | None,
@@ -520,9 +520,9 @@ class EnrichedAnalyzer:
     def _build_basic_entry(
         self,
         table_name: str,
-        col_dicts: list[dict],
-        fk_dicts: list[dict],
-        idx_dicts: list[dict],
+        col_dicts: list[dict[str, Any]],
+        fk_dicts: list[dict[str, Any]],
+        idx_dicts: list[dict[str, Any]],
         primary_key: Any,
         samples: Any,
         db_table_comment: str | None,

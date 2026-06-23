@@ -120,7 +120,7 @@ def get_exporter(format: str) -> CatalogExporter:
     from warp.export.json_exporter import JsonExporter
     from warp.export.yaml_exporter import YamlExporter
 
-    exporters = {
+    exporters: dict[str, type[CatalogExporter]] = {
         "json": JsonExporter,
         "yaml": YamlExporter,
         "markdown": MarkdownExporter,

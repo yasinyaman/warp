@@ -135,11 +135,15 @@ class RouterFactory:
 
         # Response model
         ResponseModel = models.get("response", models.get("base"))
-        CreateModel = models.get("create")
-        UpdateModel = models.get("update")
+        # CreateModel / UpdateModel are dynamically generated Pydantic models.
+        # They are used as runtime annotations on the route handlers below, so
+        # FastAPI can parse request bodies; mypy cannot treat a runtime variable
+        # as a static type, hence the Any annotation.
+        CreateModel: Any = models.get("create")
+        UpdateModel: Any = models.get("update")
 
         # Auth dependencies
-        def get_auth_deps(permission: Permission) -> list:
+        def get_auth_deps(permission: Permission) -> list[Any]:
             if self.auth_manager and self.auth_manager.enabled:
                 return [Depends(self.auth_manager.require(permission))]
             return []
@@ -195,7 +199,7 @@ Retrieve a paginated list of {table_name} records.
                 default=None,
                 description="Comma-separated list of fields to return"
             )
-        ):
+        ) -> PaginatedResponse[Any]:
             # Parse query params for filters
             query_params = dict(request.query_params)
             filters = parse_filters_from_request(query_params, column_names)
@@ -238,7 +242,7 @@ Retrieve a paginated list of {table_name} records.
                 default=None,
                 description="Comma-separated list of fields to return"
             )
-        ):
+        ) -> dict[str, Any]:
             # Convert id to proper type
             typed_id = convert_id_type(id, pk_type)
 
@@ -266,7 +270,7 @@ Retrieve a paginated list of {table_name} records.
             description=f"Create a new {table_name} record.",
             dependencies=get_auth_deps(Permission.CREATE)
         )
-        async def create_record(data: CreateModel):
+        async def create_record(data: CreateModel) -> dict[str, Any]:
             try:
                 record = await crud.create(data.model_dump(exclude_unset=True))
                 return record
@@ -285,7 +289,7 @@ Retrieve a paginated list of {table_name} records.
             description=f"Update an existing {table_name} record.",
             dependencies=get_auth_deps(Permission.UPDATE)
         )
-        async def update_record(id: str, data: UpdateModel):
+        async def update_record(id: str, data: UpdateModel) -> dict[str, Any] | None:
             # Convert id to proper type
             typed_id = convert_id_type(id, pk_type)
 
@@ -314,7 +318,7 @@ Retrieve a paginated list of {table_name} records.
             description=f"Partially update an existing {table_name} record.",
             dependencies=get_auth_deps(Permission.UPDATE)
         )
-        async def patch_record(id: str, data: UpdateModel):
+        async def patch_record(id: str, data: UpdateModel) -> dict[str, Any] | None:
             # Convert id to proper type
             typed_id = convert_id_type(id, pk_type)
 
@@ -343,7 +347,7 @@ Retrieve a paginated list of {table_name} records.
             description=f"Delete a {table_name} record by its {pk_column}.",
             dependencies=get_auth_deps(Permission.DELETE)
         )
-        async def delete_record(id: str):
+        async def delete_record(id: str) -> None:
             # Convert id to proper type
             typed_id = convert_id_type(id, pk_type)
 

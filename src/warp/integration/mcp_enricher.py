@@ -4,7 +4,9 @@ Enriches stargate MCPServer tool/resource descriptions
 with catalog-aware context so LLMs can make better decisions.
 """
 
-from warp.catalog.models import DatabaseCatalog
+from typing import Any
+
+from warp.catalog.models import DatabaseCatalog, TableCatalogEntry
 from warp.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -17,7 +19,7 @@ class MCPEnricher:
         self.catalog = catalog
         self.lang = lang
 
-    def enrich(self, server: object) -> object:
+    def enrich(self, server: Any) -> Any:
         """Enrich an MCPServer with catalog descriptions."""
         tools = getattr(server, "tools", [])
         enriched_tools = 0
@@ -37,7 +39,7 @@ class MCPEnricher:
 
         return server
 
-    def _enrich_tool(self, tool: object) -> bool:
+    def _enrich_tool(self, tool: Any) -> bool:
         """Enrich a single MCPTool with catalog context."""
         http_path = getattr(tool, "http_path", "")
         tool_name = getattr(tool, "name", "")
@@ -76,7 +78,7 @@ class MCPEnricher:
 
         return False
 
-    def _enrich_resource(self, resource: object) -> bool:
+    def _enrich_resource(self, resource: Any) -> bool:
         """Enrich a single MCPResource with catalog context."""
         uri = getattr(resource, "uri", "")
         resource_name = getattr(resource, "name", "")
@@ -100,7 +102,7 @@ class MCPEnricher:
 
         return False
 
-    def _enrich_input_schema(self, tool: object, table: object) -> None:
+    def _enrich_input_schema(self, tool: Any, table: TableCatalogEntry) -> None:
         """Add column descriptions to tool's input_schema properties."""
         schema = getattr(tool, "input_schema", {})
         if not isinstance(schema, dict):
@@ -117,7 +119,7 @@ class MCPEnricher:
                 if col_desc and not prop_schema.get("description"):
                     prop_schema["description"] = col_desc
 
-    def _build_column_hints(self, table: object) -> str:
+    def _build_column_hints(self, table: TableCatalogEntry) -> str:
         """Build a compact column description string."""
         hints = []
         for col in table.columns:
@@ -130,7 +132,7 @@ class MCPEnricher:
                 hints.append(f"{col.name}(fk{ref})")
         return ", ".join(hints[:8])
 
-    def _build_relationship_hints(self, table: object) -> str:
+    def _build_relationship_hints(self, table: TableCatalogEntry) -> str:
         """Build compact relationship hints."""
         hints = []
         for rel in table.relationships:

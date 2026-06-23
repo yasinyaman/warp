@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 from warp.catalog.models import DatabaseCatalog
 from warp.export.base import CatalogExporter
@@ -34,14 +35,14 @@ class JsonExporter(CatalogExporter):
 
         return json.dumps(data, indent=2, ensure_ascii=False)
 
-    def _filter_language(self, catalog: DatabaseCatalog, lang: str) -> dict:
+    def _filter_language(self, catalog: DatabaseCatalog, lang: str) -> dict[str, Any]:
         """Extract only the specified language from all LocalizedText fields."""
         data = catalog.model_dump(mode="json")
         data["description"] = catalog.description.get(lang)
 
         filtered_tables = {}
         for tname, table in catalog.tables.items():
-            t = {
+            t: dict[str, Any] = {
                 "table_name": table.table_name,
                 "description": table.description.get(lang),
                 "human_name": table.human_name.get(lang),

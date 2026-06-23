@@ -50,7 +50,7 @@ class MySQLAdapter(DatabaseAdapter):
 
     async def get_table_schema(self, table: str) -> dict[str, Any]:
         """Get detailed schema information for a table."""
-        schema = {
+        schema: dict[str, Any] = {
             "table_name": table,
             "columns": [],
             "primary_key": None,
@@ -286,7 +286,7 @@ class MySQLAdapter(DatabaseAdapter):
 
         async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(query, (id_value,))
-            row = await cur.fetchone()
+            row: dict[str, Any] | None = await cur.fetchone()
             return row
 
     async def update(
@@ -334,7 +334,7 @@ class MySQLAdapter(DatabaseAdapter):
 
         async with self._pool.acquire() as conn, conn.cursor() as cur:
             await cur.execute(query, (id_value,))
-            return cur.rowcount > 0
+            return bool(cur.rowcount > 0)
 
     def _sanitize_identifier(self, name: str) -> str:
         """Validate a SQL identifier (delegates to the shared sanitizer)."""
