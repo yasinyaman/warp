@@ -52,6 +52,8 @@ jobs:
         run: uv pip install --system -e ".[dev,llm]"
       - name: Ruff
         run: ruff check src/ tests/
+      - name: Import contracts (layered architecture)
+        run: lint-imports
       # mypy --strict does not yet pass cleanly; reported but non-blocking.
       # Flip continue-on-error to false once the backlog is cleared.
       - name: Mypy (strict)

@@ -7,9 +7,13 @@ Contains structured prompts for:
 - Multi-language generation
 """
 
-from typing import Any
+from __future__ import annotations
 
-from warp.enrichment.sample_reader import TableSamples
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    # Type-only import: avoids a runtime llm <-> enrichment import cycle.
+    from warp.enrichment.sample_reader import TableSamples
 
 SYSTEM_PROMPT_BASE = """\
 You are a database documentation expert. Your task is to analyze database \

@@ -65,6 +65,7 @@ dev = [
     "ruff>=0.1.14",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
+    "import-linter>=2.0",
 ]
 docs = [
     "mkdocs>=1.5.0",
@@ -217,3 +218,51 @@ exclude_lines = [
 ]
 show_missing = true
 fail_under = 80
+
+# ===========================================
+# Import Linter - layered architecture contracts
+# ===========================================
+
+[tool.importlinter]
+root_package = "warp"
+
+[[tool.importlinter.contracts]]
+name = "core is the lowest layer (imports nothing else in warp)"
+type = "forbidden"
+source_modules = ["warp.core"]
+forbidden_modules = [
+    "warp.config", "warp.database", "warp.schema", "warp.utils",
+    "warp.catalog", "warp.llm", "warp.enrichment", "warp.i18n",
+    "warp.query", "warp.export", "warp.integration", "warp.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "config depends on nothing else in warp"
+type = "forbidden"
+source_modules = ["warp.config"]
+forbidden_modules = [
+    "warp.database", "warp.schema", "warp.utils", "warp.catalog",
+    "warp.llm", "warp.enrichment", "warp.i18n", "warp.query",
+    "warp.export", "warp.integration", "warp.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "database is a low layer (no app/domain imports)"
+type = "forbidden"
+source_modules = ["warp.database"]
+forbidden_modules = [
+    "warp.api", "warp.catalog", "warp.schema", "warp.llm",
+    "warp.enrichment", "warp.integration", "warp.query", "warp.export",
+]
+
+[[tool.importlinter.contracts]]
+name = "catalog must not depend on llm, enrichment, api, or integration"
+type = "forbidden"
+source_modules = ["warp.catalog"]
+forbidden_modules = ["warp.llm", "warp.enrichment", "warp.api", "warp.integration"]
+
+[[tool.importlinter.contracts]]
+name = "schema and utils must not depend on api or integration"
+type = "forbidden"
+source_modules = ["warp.schema", "warp.utils"]
+forbidden_modules = ["warp.api", "warp.integration"]
