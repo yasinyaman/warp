@@ -180,7 +180,7 @@ Execute a raw SQL query against the database.
 
         except ValueError as e:
             # Validation errors are our own safe messages — fine to return.
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
         except Exception as e:
             # Never leak DB/driver errors (schema, SQL text) to the client;
             # log the detail server-side instead.
@@ -188,7 +188,7 @@ Execute a raw SQL query against the database.
             raise HTTPException(
                 status_code=500,
                 detail="Query execution failed"
-            )
+            ) from e
 
     @router.get(
         "/allowed-commands",

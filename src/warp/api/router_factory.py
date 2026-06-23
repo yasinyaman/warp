@@ -272,10 +272,10 @@ Retrieve a paginated list of {table_name} records.
                 return record
             except ValidationError as e:
                 # Safe, intentional message (e.g. read-only column rejected).
-                raise HTTPException(status_code=400, detail=e.message)
+                raise HTTPException(status_code=400, detail=e.message) from e
             except Exception as e:
                 logger.exception(f"Failed to create {table_name} record: {e}")
-                raise HTTPException(status_code=400, detail="Failed to create record")
+                raise HTTPException(status_code=400, detail="Failed to create record") from e
 
         # UPDATE endpoint
         @router.put(
@@ -301,10 +301,10 @@ Retrieve a paginated list of {table_name} records.
                 return record
             except ValidationError as e:
                 # Safe, intentional message (e.g. read-only column rejected).
-                raise HTTPException(status_code=400, detail=e.message)
+                raise HTTPException(status_code=400, detail=e.message) from e
             except Exception as e:
                 logger.exception(f"Failed to update {table_name} record: {e}")
-                raise HTTPException(status_code=400, detail="Failed to update record")
+                raise HTTPException(status_code=400, detail="Failed to update record") from e
 
         # PATCH endpoint (partial update)
         @router.patch(
@@ -330,10 +330,10 @@ Retrieve a paginated list of {table_name} records.
                 return record
             except ValidationError as e:
                 # Safe, intentional message (e.g. read-only column rejected).
-                raise HTTPException(status_code=400, detail=e.message)
+                raise HTTPException(status_code=400, detail=e.message) from e
             except Exception as e:
                 logger.exception(f"Failed to update {table_name} record: {e}")
-                raise HTTPException(status_code=400, detail="Failed to update record")
+                raise HTTPException(status_code=400, detail="Failed to update record") from e
 
         # DELETE endpoint
         @router.delete(

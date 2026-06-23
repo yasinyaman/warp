@@ -106,7 +106,7 @@ class CatalogFileStore:
             return file_path
 
         except Exception as e:
-            raise CatalogError(f"Failed to save catalog: {e}")
+            raise CatalogError(f"Failed to save catalog: {e}") from e
 
     def load(self, db_name: str) -> DatabaseCatalog | None:
         """Load a database catalog from disk.

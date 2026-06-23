@@ -226,7 +226,7 @@ class EnrichedAnalyzer:
         except AnalysisError:
             raise
         except Exception as e:
-            raise AnalysisError(f"Database analysis failed: {e}")
+            raise AnalysisError(f"Database analysis failed: {e}") from e
 
     async def _analyze_table(
         self,

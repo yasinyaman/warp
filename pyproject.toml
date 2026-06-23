@@ -152,7 +152,6 @@ select = [
 ignore = [
     "E501",   # line too long (handled by black)
     "B008",   # do not perform function calls in argument defaults
-    "B904",   # raise ... from err — tracked as a Phase 3 cleanup (21 sites)
 ]
 
 [tool.ruff.lint.per-file-ignores]

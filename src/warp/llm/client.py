@@ -80,10 +80,10 @@ class OpenAIProvider(LLMProvider):
     def __init__(self, api_key: str, model: str = "gpt-4o-mini", base_url: str = ""):
         try:
             from openai import AsyncOpenAI
-        except ImportError:
+        except ImportError as e:
             raise LLMProviderNotFoundError(
                 "openai - install with: pip install openai"
-            )
+            ) from e
 
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
@@ -136,10 +136,10 @@ class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-5-20250929", base_url: str = ""):
         try:
             from anthropic import AsyncAnthropic
-        except ImportError:
+        except ImportError as e:
             raise LLMProviderNotFoundError(
                 "anthropic - install with: pip install anthropic"
-            )
+            ) from e
 
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
@@ -192,10 +192,10 @@ class GeminiProvider(LLMProvider):
         try:
             from google import genai
             from google.genai import types
-        except ImportError:
+        except ImportError as e:
             raise LLMProviderNotFoundError(
                 "gemini - install with: pip install google-genai"
-            )
+            ) from e
 
         self._types = types
         client_kwargs: dict[str, Any] = {"api_key": api_key}
@@ -252,10 +252,10 @@ class OllamaProvider(LLMProvider):
     ):
         try:
             import httpx
-        except ImportError:
+        except ImportError as e:
             raise LLMProviderNotFoundError(
                 "ollama requires httpx - install with: pip install httpx"
-            )
+            ) from e
 
         self.model = model
         self.base_url = self._resolve_base_url(base_url)

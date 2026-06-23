@@ -306,7 +306,7 @@ def create_catalog_router(
         try:
             exporter = get_exporter(format)
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
         content = exporter.export_string(catalog, lang=lang)
 
@@ -406,10 +406,10 @@ def create_catalog_router(
             raise HTTPException(
                 status_code=422,
                 detail=str(e),
-            )
+            ) from e
         except Exception as e:
             logger.error(f"Analysis failed for {request.database}: {e}")
-            raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {e}") from e
 
     @router.delete(
         "/{db_name}",
@@ -559,7 +559,7 @@ def create_catalog_router(
                 "updated_fields": list(updates.keys()),
             }
         except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
     @router.patch(
         "/{db_name}/draft/tables/{table_name}/columns/{col_name}",
@@ -601,7 +601,7 @@ def create_catalog_router(
                 "updated_fields": list(updates.keys()),
             }
         except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
     @router.post(
         "/{db_name}/approve",
@@ -625,7 +625,7 @@ def create_catalog_router(
                 try:
                     store.approve_table(db_name, tname)
                 except Exception as e:
-                    raise HTTPException(status_code=400, detail=str(e))
+                    raise HTTPException(status_code=400, detail=str(e)) from e
 
             catalog = store.load_or_raise(db_name)
             if catalog.all_tables_approved:
@@ -655,7 +655,7 @@ def create_catalog_router(
         try:
             catalog = store.approve_table(db_name, table_name)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
 
         if catalog.all_tables_approved:
             catalog = store.approve_catalog(db_name)
