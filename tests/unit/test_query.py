@@ -1,7 +1,9 @@
-"""Tests for the raw SQL query validator."""
+"""Tests for the raw SQL query validator and endpoint."""
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from warp.api.query import QueryValidator
+from warp.api.query import QueryValidator, create_query_router
 
 
 class TestQueryValidator:
@@ -50,3 +52,60 @@ class TestQueryValidator:
     def test_whitelist_is_configurable(self):
         v = QueryValidator(["SELECT", "INSERT"])
         assert v.validate("INSERT INTO t (a) VALUES (:a)") is True
+
+
+class _DB:
+    """Minimal adapter for the query endpoint."""
+
+    def __init__(self, rows=None, error=None):
+        self._rows = rows or []
+        self._error = error
+
+    async def execute_query(self, query, params=None):
+        if self._error:
+            raise self._error
+        return self._rows
+
+
+def _client(db, enabled=True, whitelist=None):
+    app = FastAPI()
+    app.include_router(
+        create_query_router(db=db, whitelist=whitelist or ["SELECT"], enabled=enabled)
+    )
+    return TestClient(app)
+
+
+class TestQueryEndpoint:
+    def test_execute_select(self):
+        client = _client(_DB(rows=[{"id": 1}]))
+        r = client.post("/query/execute", json={"query": "SELECT * FROM users"})
+        assert r.status_code == 200
+        assert r.json()["row_count"] == 1
+
+    def test_disabled_returns_403(self):
+        client = _client(_DB(), enabled=False)
+        r = client.post("/query/execute", json={"query": "SELECT 1"})
+        assert r.status_code == 403
+
+    def test_multi_statement_rejected(self):
+        client = _client(_DB())
+        r = client.post("/query/execute", json={"query": "SELECT 1; DROP TABLE users"})
+        assert r.status_code == 400
+
+    def test_non_whitelisted_rejected(self):
+        client = _client(_DB())
+        r = client.post("/query/execute", json={"query": "DELETE FROM users"})
+        assert r.status_code == 400
+
+    def test_db_error_does_not_leak_details(self):
+        client = _client(_DB(error=RuntimeError("relation secret_table does not exist")))
+        r = client.post("/query/execute", json={"query": "SELECT * FROM x"})
+        assert r.status_code == 500
+        assert "secret_table" not in r.text
+        assert r.json()["detail"] == "Query execution failed"
+
+    def test_allowed_commands_endpoint(self):
+        client = _client(_DB(), whitelist=["SELECT", "INSERT"])
+        r = client.get("/query/allowed-commands")
+        assert r.status_code == 200
+        assert "SELECT" in r.json()["allowed_commands"]
