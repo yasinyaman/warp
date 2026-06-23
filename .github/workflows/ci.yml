@@ -31,11 +31,8 @@ jobs:
           enable-cache: true
       - name: Install project
         run: uv pip install --system -e ".[dev,llm]"
-      - name: Run tests (blocking)
-        run: pytest -q
-      - name: Coverage report (non-blocking; target ≥80%)
+      - name: Run tests + coverage gate (fail under 80%)
         run: pytest --cov=src/warp --cov-report=term-missing
-        continue-on-error: true
 
   quality:
     name: lint & type-check (non-blocking)
