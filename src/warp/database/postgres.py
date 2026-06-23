@@ -7,10 +7,13 @@ import asyncpg
 
 from .base import DatabaseAdapter
 from .identifiers import sanitize_identifier
+from .query_builder import SafeQueryBuilder
 
 
 class PostgreSQLAdapter(DatabaseAdapter):
     """PostgreSQL database adapter using asyncpg."""
+
+    _qb = SafeQueryBuilder("postgresql")
 
     async def connect(self) -> None:
         """Create connection pool to PostgreSQL."""
@@ -193,17 +196,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
         data: dict[str, Any]
     ) -> dict[str, Any]:
         """Insert a new record."""
-        safe_table = self._sanitize_identifier(table)
-        columns = [self._sanitize_identifier(c) for c in data]
-        placeholders = [f"${i+1}" for i in range(len(columns))]
-        values = list(data.values())
-
-        query = f"""
-            INSERT INTO "{safe_table}" ({', '.join(f'"{c}"' for c in columns)})
-            VALUES ({', '.join(placeholders)})
-            RETURNING *
-        """
-
+        query, values = self._qb.build_insert(table, data)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(query, *values)
             return dict(row) if row else {}
@@ -217,52 +210,12 @@ class PostgreSQLAdapter(DatabaseAdapter):
         sort: list[tuple[str, str]] | None = None
     ) -> tuple[list[dict[str, Any]], int]:
         """Select records with filtering, pagination, and sorting."""
-        safe_table = self._sanitize_identifier(table)
-
-        # Build SELECT clause
-        if columns:
-            safe_cols = [self._sanitize_identifier(c) for c in columns]
-            select_cols = ', '.join(f'"{c}"' for c in safe_cols)
-        else:
-            select_cols = "*"
-
-        # Build WHERE clause
-        where_clauses = []
-        params = []
-        param_idx = 1
-
-        if filters:
-            for col, op, val in filters:
-                clause, param_idx, new_params = self._build_where_clause(
-                    col, op, val, param_idx
-                )
-                where_clauses.append(clause)
-                params.extend(new_params)
-
-        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-
-        # Build ORDER BY clause
-        order_sql = ""
-        if sort:
-            safe_sort = [(self._sanitize_identifier(col), dir) for col, dir in sort]
-            order_parts = [f'"{col}" {dir.upper()}' for col, dir in safe_sort]
-            order_sql = f"ORDER BY {', '.join(order_parts)}"
-
-        # Count query
-        count_query = f'SELECT COUNT(*) FROM "{safe_table}" {where_sql}'
+        count_query, query, params = self._qb.build_select(
+            table, columns, filters, pagination, sort
+        )
         async with self._pool.acquire() as conn:
             total = await conn.fetchval(count_query, *params)
-
-            # Main query with pagination
-            limit_sql = ""
-            if pagination:
-                limit = pagination.get("limit", 50)
-                offset = pagination.get("offset", 0)
-                limit_sql = f"LIMIT {limit} OFFSET {offset}"
-
-            query = f'SELECT {select_cols} FROM "{safe_table}" {where_sql} {order_sql} {limit_sql}'
             rows = await conn.fetch(query, *params)
-
             return [dict(row) for row in rows], total
 
     async def select_by_id(
@@ -273,19 +226,9 @@ class PostgreSQLAdapter(DatabaseAdapter):
         columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Select a single record by ID."""
-        safe_table = self._sanitize_identifier(table)
-        safe_id_col = self._sanitize_identifier(id_column)
-
-        if columns:
-            safe_cols = [self._sanitize_identifier(c) for c in columns]
-            select_cols = ', '.join(f'"{c}"' for c in safe_cols)
-        else:
-            select_cols = "*"
-
-        query = f'SELECT {select_cols} FROM "{safe_table}" WHERE "{safe_id_col}" = $1'
-
+        query, params = self._qb.build_select_by_id(table, id_column, id_value, columns)
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(query, id_value)
+            row = await conn.fetchrow(query, *params)
             return dict(row) if row else None
 
     async def update(
@@ -299,26 +242,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
         if not data:
             return await self.select_by_id(table, id_column, id_value)
 
-        safe_table = self._sanitize_identifier(table)
-        safe_id_col = self._sanitize_identifier(id_column)
-
-        set_clauses = []
-        values = []
-        for i, (col, val) in enumerate(data.items(), start=1):
-            safe_col = self._sanitize_identifier(col)
-            set_clauses.append(f'"{safe_col}" = ${i}')
-            values.append(val)
-
-        values.append(id_value)
-        id_param = f"${len(values)}"
-
-        query = f"""
-            UPDATE "{safe_table}"
-            SET {', '.join(set_clauses)}
-            WHERE "{safe_id_col}" = {id_param}
-            RETURNING *
-        """
-
+        query, values = self._qb.build_update(table, id_column, id_value, data)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(query, *values)
             return dict(row) if row else None
@@ -330,13 +254,9 @@ class PostgreSQLAdapter(DatabaseAdapter):
         id_value: Any
     ) -> bool:
         """Delete a record by ID."""
-        safe_table = self._sanitize_identifier(table)
-        safe_id_col = self._sanitize_identifier(id_column)
-
-        query = f'DELETE FROM "{safe_table}" WHERE "{safe_id_col}" = $1 RETURNING "{safe_id_col}"'
-
+        query, params = self._qb.build_delete(table, id_column, id_value)
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(query, id_value)
+            row = await conn.fetchrow(query, *params)
             return row is not None
 
     def _sanitize_identifier(self, name: str) -> str:
@@ -350,53 +270,5 @@ class PostgreSQLAdapter(DatabaseAdapter):
         value: Any,
         param_idx: int
     ) -> tuple[str, int, list[Any]]:
-        """Build a WHERE clause component."""
-        col = f'"{self._sanitize_identifier(column)}"'
-        params = []
-
-        if operator == "eq":
-            clause = f"{col} = ${param_idx}"
-            params.append(value)
-            param_idx += 1
-        elif operator == "ne":
-            clause = f"{col} != ${param_idx}"
-            params.append(value)
-            param_idx += 1
-        elif operator == "gt":
-            clause = f"{col} > ${param_idx}"
-            params.append(value)
-            param_idx += 1
-        elif operator == "gte":
-            clause = f"{col} >= ${param_idx}"
-            params.append(value)
-            param_idx += 1
-        elif operator == "lt":
-            clause = f"{col} < ${param_idx}"
-            params.append(value)
-            param_idx += 1
-        elif operator == "lte":
-            clause = f"{col} <= ${param_idx}"
-            params.append(value)
-            param_idx += 1
-        elif operator == "like":
-            clause = f"{col} ILIKE ${param_idx}"
-            params.append(value)
-            param_idx += 1
-        elif operator == "in":
-            if isinstance(value, list | tuple):
-                placeholders = [f"${param_idx + i}" for i in range(len(value))]
-                clause = f"{col} IN ({', '.join(placeholders)})"
-                params.extend(value)
-                param_idx += len(value)
-            else:
-                clause = f"{col} = ${param_idx}"
-                params.append(value)
-                param_idx += 1
-        elif operator == "is_null":
-            clause = f"{col} IS NULL" if value else f"{col} IS NOT NULL"
-        else:
-            clause = f"{col} = ${param_idx}"
-            params.append(value)
-            param_idx += 1
-
-        return clause, param_idx, params
+        """Build a WHERE clause component (delegates to the shared builder)."""
+        return self._qb.where_clause(column, operator, value, param_idx)
