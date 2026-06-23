@@ -35,7 +35,9 @@ Warp is built with safe-by-default behavior. Key controls:
 - **Parameterized SQL** — all values are bound parameters; dynamic identifiers go
   through a single strict whitelist/quoting layer (`warp.database.identifiers`).
 - **Raw SQL endpoint** — disabled by default; when enabled it whitelists
-  commands, rejects multiple statements, and should run against a read-only role.
+  commands, rejects multiple statements, and can be pointed at a dedicated
+  read-only database role (`readonly_username`/`readonly_password`) so a
+  whitelist bypass still cannot write.
 - **Authentication** — API keys are compared in constant time
   (`secrets.compare_digest`) against stored SHA-256 hashes; plaintext keys are
   not retained.

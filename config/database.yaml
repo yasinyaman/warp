@@ -9,6 +9,10 @@ databases:
     database: ${DB_NAME:myapp}
     username: ${DB_USER:postgres}
     password: ${DB_PASS:}
+    # Optional read-only credentials used only by the raw SQL endpoint.
+    # When set, raw queries run as this role so a whitelist bypass cannot write.
+    readonly_username: ${DB_READONLY_USER:}
+    readonly_password: ${DB_READONLY_PASS:}
     options:
       pool_size: 10
       pool_max_overflow: 5
@@ -22,6 +26,9 @@ databases:
     database: ${MYSQL_DB:testdb}
     username: ${MYSQL_USER:root}
     password: ${MYSQL_PASS:}
+    # Optional read-only credentials used only by the raw SQL endpoint.
+    readonly_username: ${MYSQL_READONLY_USER:}
+    readonly_password: ${MYSQL_READONLY_PASS:}
     options:
       pool_size: 10
 

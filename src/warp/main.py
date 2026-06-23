@@ -45,6 +45,7 @@ class AppState:
     """Container for application state."""
     settings: Settings | None = None
     databases: dict[str, DatabaseAdapter] = {}
+    readonly_databases: dict[str, DatabaseAdapter] = {}
     schemas: dict[str, DatabaseSchema] = {}
     is_ready: bool = False
 
@@ -180,9 +181,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         prefix=f"{state.settings.settings.api_prefix}{db_prefix}"
                     )
 
+                # Raw query endpoint: use a separate read-only connection when
+                # configured, so a whitelist bypass still cannot mutate data.
+                query_adapter = adapter
+                readonly_config = db_config.readonly_config()
+                if readonly_config and state.settings.settings.enable_raw_query:
+                    readonly_adapter = DatabaseFactory.create(readonly_config)
+                    await connect_with_retry(readonly_adapter)
+                    state.readonly_databases[db_name] = readonly_adapter
+                    query_adapter = readonly_adapter
+                    logger.info(
+                        f"Raw query endpoint for {db_name} uses a read-only connection"
+                    )
+
                 # Add raw query router
                 query_router = create_query_router(
-                    db=adapter,
+                    db=query_adapter,
                     whitelist=state.settings.settings.raw_query_whitelist,
                     enabled=state.settings.settings.enable_raw_query,
                     auth_manager=auth_manager
@@ -240,6 +254,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.info(f"Disconnected from {db_name}")
         except Exception as e:
             logger.error(f"Error disconnecting from {db_name}: {e}")
+
+    for db_name, adapter in state.readonly_databases.items():
+        try:
+            await adapter.disconnect()
+            logger.info(f"Disconnected read-only connection for {db_name}")
+        except Exception as e:
+            logger.error(f"Error disconnecting read-only {db_name}: {e}")
 
 
 def create_app() -> FastAPI:

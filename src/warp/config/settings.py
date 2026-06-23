@@ -20,6 +20,26 @@ class DatabaseConfig(BaseModel):
     username: str
     password: str = ""
     options: dict[str, Any] = Field(default_factory=dict)
+    # Optional read-only credentials used ONLY by the raw SQL endpoint, so that
+    # even a bypass of the command whitelist cannot mutate data. Leave empty to
+    # reuse the main (read-write) connection.
+    readonly_username: str = ""
+    readonly_password: str = ""
+
+    def readonly_config(self) -> dict[str, Any] | None:
+        """
+        Build an adapter config for the read-only connection, or None.
+
+        Returns a copy of this config with the username/password swapped for the
+        read-only credentials, or None when no read-only user is configured.
+        """
+        if not self.readonly_username:
+            return None
+        cfg = self.model_dump()
+        cfg["name"] = f"{self.name}__readonly"
+        cfg["username"] = self.readonly_username
+        cfg["password"] = self.readonly_password
+        return cfg
 
 
 class PaginationConfig(BaseModel):

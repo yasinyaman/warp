@@ -529,8 +529,9 @@ unsafe configuration. Production checklist:
    `*` is rejected in production (credentials are only sent with an explicit
    allowlist).
 5. **Raw SQL endpoint off** — `enable_raw_query: false` (default). Startup is
-   refused if enabled in production; if you must enable it, point the connection
-   at a **read-only** database role.
+   refused if enabled in production; if you must enable it, configure a
+   **read-only** DB role via `databases[].readonly_username`/`readonly_password`
+   (env `DB_READONLY_USER`/`DB_READONLY_PASS`) so a whitelist bypass cannot write.
 6. **Run the production image** — the `Dockerfile` is multi-stage, runs as a
    non-root user, ships no dev dependencies, and has no `--reload`. Mount a
    hardened `config/database.yaml` and pass secrets via the environment.
