@@ -59,6 +59,7 @@ class LocalizationManager:
         translation_strategy: str = "single",
         language_prompts: dict[str, str] | None = None,
     ):
+        """Store the default/fallback languages and translation settings."""
         self.default_language = default_language
         self.languages = languages or [default_language]
         self.fallback_language = fallback_language

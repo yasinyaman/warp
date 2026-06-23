@@ -32,7 +32,9 @@ class DatabaseAdapterProtocol(Protocol):
         self,
         query: str,
         params: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[dict[str, Any]]:
+        """Run a SQL query and return rows as dicts."""
+        ...
 
 
 @dataclass
@@ -64,8 +66,7 @@ def is_pii_column(name: str, patterns: list[str] | None = None) -> bool:
 def mask_pii_samples(
     samples: TableSamples, patterns: list[str] | None = None
 ) -> TableSamples:
-    """
-    Return a copy of ``samples`` with PII-looking column values masked.
+    """Return a copy of ``samples`` with PII-looking column values masked.
 
     Intended for use before sending sample data to an LLM: values of columns
     whose name matches a PII pattern are replaced with ``"***"`` while
@@ -94,6 +95,7 @@ class SampleReader:
         db_type: str = "postgresql",
         schema: str = "public",
     ):
+        """Store the adapter and the dialect/schema to read from."""
         self.adapter = adapter
         self.db_type = db_type.lower()
         self.schema = schema

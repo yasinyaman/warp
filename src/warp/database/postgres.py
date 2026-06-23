@@ -1,6 +1,4 @@
-"""
-PostgreSQL database adapter implementation.
-"""
+"""PostgreSQL database adapter implementation."""
 from typing import Any
 
 import asyncpg

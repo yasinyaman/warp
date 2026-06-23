@@ -1,6 +1,4 @@
-"""
-Logging configuration for production.
-"""
+"""Logging configuration for production."""
 import json
 import logging
 import sys
@@ -11,6 +9,7 @@ class JSONFormatter(logging.Formatter):
     """JSON log formatter for production environments."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """Format a log record as a single JSON line."""
         log_data = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "level": record.levelname,
@@ -45,6 +44,7 @@ class ColoredFormatter(logging.Formatter):
     RESET = "\033[0m"
 
     def format(self, record: logging.LogRecord) -> str:
+        """Format a log record with ANSI color codes for the level."""
         color = self.COLORS.get(record.levelname, self.RESET)
         record.levelname = f"{color}{record.levelname}{self.RESET}"
         return super().format(record)
@@ -55,8 +55,7 @@ def setup_logging(
     json_format: bool = False,
     log_file: str | None = None
 ) -> None:
-    """
-    Configure logging for the application.
+    """Configure logging for the application.
 
     Args:
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
@@ -101,8 +100,7 @@ def setup_logging(
 
 
 def get_logger(name: str) -> logging.Logger:
-    """
-    Get a logger instance.
+    """Get a logger instance.
 
     Args:
         name: Logger name (usually __name__).

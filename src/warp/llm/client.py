@@ -78,6 +78,7 @@ class OpenAIProvider(LLMProvider):
     """OpenAI API provider (GPT-4, GPT-4o, etc.)."""
 
     def __init__(self, api_key: str, model: str = "gpt-4o-mini", base_url: str = ""):
+        """Initialize the OpenAI async client."""
         try:
             from openai import AsyncOpenAI
         except ImportError as e:
@@ -100,6 +101,7 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int = 4096,
         response_format: str | None = None,
     ) -> str:
+        """Generate a completion via the OpenAI chat API."""
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -127,6 +129,7 @@ class OpenAIProvider(LLMProvider):
             _raise_quota_or_rate_limit("OpenAI", e)
 
     async def close(self) -> None:
+        """Close the underlying async client."""
         await self.client.close()
 
 
@@ -134,6 +137,7 @@ class AnthropicProvider(LLMProvider):
     """Anthropic API provider (Claude models)."""
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-4-5-20250929", base_url: str = ""):
+        """Initialize the Anthropic async client."""
         try:
             from anthropic import AsyncAnthropic
         except ImportError as e:
@@ -156,6 +160,7 @@ class AnthropicProvider(LLMProvider):
         max_tokens: int = 4096,
         response_format: str | None = None,
     ) -> str:
+        """Generate a completion via the Anthropic Messages API."""
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
@@ -178,6 +183,7 @@ class AnthropicProvider(LLMProvider):
             _raise_quota_or_rate_limit("Anthropic", e)
 
     async def close(self) -> None:
+        """Close the underlying async client."""
         await self.client.close()
 
 
@@ -189,6 +195,7 @@ class GeminiProvider(LLMProvider):
     """
 
     def __init__(self, api_key: str, model: str = "gemini-1.5-flash", base_url: str = ""):
+        """Initialize the google-genai client."""
         try:
             from google import genai
             from google.genai import types
@@ -212,6 +219,7 @@ class GeminiProvider(LLMProvider):
         max_tokens: int = 4096,
         response_format: str | None = None,
     ) -> str:
+        """Generate a completion via the Gemini API."""
         types = self._types
         config = types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -238,6 +246,7 @@ class GeminiProvider(LLMProvider):
             _raise_quota_or_rate_limit("Gemini", e)
 
     async def close(self) -> None:
+        """Close the provider (Gemini keeps no persistent client)."""
         pass
 
 
@@ -250,6 +259,7 @@ class OllamaProvider(LLMProvider):
         base_url: str = "http://localhost:11434",
         api_key: str = "",
     ):
+        """Initialize the Ollama HTTP client."""
         try:
             import httpx
         except ImportError as e:
@@ -289,6 +299,7 @@ class OllamaProvider(LLMProvider):
         max_tokens: int = 4096,
         response_format: str | None = None,
     ) -> str:
+        """Generate a completion via the Ollama HTTP API."""
         payload: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,
@@ -353,6 +364,7 @@ class OllamaProvider(LLMProvider):
             raise LLMGenerationError(f"Ollama generation failed: {e}") from e
 
     async def close(self) -> None:
+        """Close the Ollama HTTP client."""
         await self.client.aclose()
 
 
@@ -437,6 +449,7 @@ class LLMClient:
         temperature: float = 0.3,
         max_tokens: int = 4096,
     ):
+        """Store the provider and default generation parameters."""
         self.provider = provider
         self.temperature = temperature
         self.max_tokens = max_tokens

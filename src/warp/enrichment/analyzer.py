@@ -57,6 +57,7 @@ class EnrichedAnalyzer:
         schema: str = "public",
         database_name: str = "",
     ):
+        """Wire up readers, i18n, and optional cross-reference for analysis."""
         self.adapter = adapter
         self.config = config
         self.llm_client = llm_client
@@ -85,7 +86,7 @@ class EnrichedAnalyzer:
                 exclude_db=database_name,
             )
 
-    async def analyze(
+    async def analyze(  # noqa: C901, PLR0912, PLR0915
         self,
         table_names: list[str] | None = None,
         auto_approve: bool = False,
@@ -358,8 +359,7 @@ class EnrichedAnalyzer:
     def _samples_for_llm(
         self, samples: TableSamples | None
     ) -> TableSamples | None:
-        """
-        Apply privacy controls to sample data before it is sent to the LLM.
+        """Apply privacy controls to sample data before it is sent to the LLM.
 
         - Cloud providers (openai/anthropic/gemini) receive no raw samples
           unless ``analysis.share_samples_with_cloud_llm`` is enabled.
@@ -386,7 +386,7 @@ class EnrichedAnalyzer:
 
         return samples
 
-    def _build_enriched_entry(
+    def _build_enriched_entry(  # noqa: C901, PLR0913, PLR0912
         self,
         table_name: str,
         result: dict[str, Any],

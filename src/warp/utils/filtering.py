@@ -1,6 +1,4 @@
-"""
-Filtering utilities for parsing query parameters into filter conditions.
-"""
+"""Filtering utilities for parsing query parameters into filter conditions."""
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -8,8 +6,7 @@ from typing import Any
 
 @dataclass
 class FilterCondition:
-    """
-    Represents a single filter condition.
+    """Represents a single filter condition.
 
     Attributes:
         column: Column name to filter on.
@@ -26,8 +23,7 @@ class FilterCondition:
 
 
 class FilterParser:
-    """
-    Parses query parameters into filter conditions.
+    """Parses query parameters into filter conditions.
 
     Supports multiple filter formats:
     1. Simple: ?filter[status]=active  -> status = 'active'
@@ -55,8 +51,7 @@ class FilterParser:
     FILTER_PATTERN = re.compile(r"filter\[(\w+)\](?:\[(\w+)\])?")
 
     def __init__(self, allowed_columns: list[str] | None = None):
-        """
-        Initialize the filter parser.
+        """Initialize the filter parser.
 
         Args:
             allowed_columns: Optional list of allowed column names.
@@ -65,8 +60,7 @@ class FilterParser:
         self.allowed_columns = set(allowed_columns) if allowed_columns else None
 
     def parse(self, query_params: dict[str, str]) -> list[FilterCondition]:
-        """
-        Parse query parameters into filter conditions.
+        """Parse query parameters into filter conditions.
 
         Args:
             query_params: Dictionary of query parameters.
@@ -123,8 +117,7 @@ class FilterParser:
 
     @staticmethod
     def _convert_value(value: str) -> Any:
-        """
-        Attempt to convert string value to appropriate Python type.
+        """Attempt to convert string value to appropriate Python type.
 
         Tries to convert to: int, float, bool, or keeps as string.
         """
@@ -156,8 +149,7 @@ def parse_filters_from_request(
     query_params: dict[str, str],
     allowed_columns: list[str] | None = None
 ) -> list[tuple[str, str, Any]]:
-    """
-    Convenience function to parse filters from request query params.
+    """Convenience function to parse filters from request query params.
 
     Args:
         query_params: Dictionary of query parameters.

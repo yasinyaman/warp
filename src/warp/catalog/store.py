@@ -416,7 +416,7 @@ class CatalogFileStore:
 
         return overrides
 
-    def apply_overrides(
+    def apply_overrides(  # noqa: C901, PLR0912
         self,
         db_name: str,
         overrides: dict[str, dict[str, Any]],

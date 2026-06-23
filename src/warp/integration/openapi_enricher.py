@@ -20,6 +20,7 @@ class OpenAPIEnricher:
     """Enriches warp's OpenAPI spec with catalog descriptions."""
 
     def __init__(self, catalog: DatabaseCatalog, lang: str = "en"):
+        """Store the catalog and target language for enrichment."""
         self.catalog = catalog
         self.lang = lang
 
@@ -130,7 +131,7 @@ class OpenAPIEnricher:
             self._enrich_parameters(operation, table)
             self._enrich_request_body(operation, table)
 
-    def _build_operation_description(
+    def _build_operation_description(  # noqa: C901
         self, table: TableCatalogEntry, method: str
     ) -> str:
         """Build a rich markdown description block for an operation."""
@@ -299,7 +300,7 @@ class OpenAPIEnricher:
     # Component schema enrichment
     # ------------------------------------------------------------------
 
-    def _enrich_schemas(self, spec: dict[str, Any]) -> None:
+    def _enrich_schemas(self, spec: dict[str, Any]) -> None:  # noqa: C901, PLR0912
         """Enrich component schemas with full catalog info."""
         components = spec.get("components", {})
         schemas = components.get("schemas", {})

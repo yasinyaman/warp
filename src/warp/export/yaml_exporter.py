@@ -20,6 +20,7 @@ class YamlExporter(JsonExporter):
         output_path: str | Path,
         lang: str | None = None,
     ) -> Path:
+        """Write the catalog to ``output_path`` and return the path."""
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -34,6 +35,7 @@ class YamlExporter(JsonExporter):
         catalog: DatabaseCatalog,
         lang: str | None = None,
     ) -> str:
+        """Render the catalog as a YAML string."""
         data = self._filter_language(catalog, lang) if lang else catalog.model_dump(mode="json")
 
         return yaml.dump(

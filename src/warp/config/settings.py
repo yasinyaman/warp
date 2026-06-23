@@ -1,6 +1,4 @@
-"""
-Configuration loader with YAML support and environment variable interpolation.
-"""
+"""Configuration loader with YAML support and environment variable interpolation."""
 import os
 import re
 from pathlib import Path
@@ -27,8 +25,7 @@ class DatabaseConfig(BaseModel):
     readonly_password: str = ""
 
     def readonly_config(self) -> dict[str, Any] | None:
-        """
-        Build an adapter config for the read-only connection, or None.
+        """Build an adapter config for the read-only connection, or None.
 
         Returns a copy of this config with the username/password swapped for the
         read-only credentials, or None when no read-only user is configured.
@@ -147,8 +144,8 @@ class Settings(BaseModel):
 
 
 def interpolate_env_vars(value: Any) -> Any:
-    """
-    Recursively interpolate environment variables in configuration values.
+    """Recursively interpolate environment variables in configuration values.
+
     Supports ${VAR_NAME} and ${VAR_NAME:default} syntax.
     """
     if isinstance(value, str):
@@ -171,8 +168,7 @@ def interpolate_env_vars(value: Any) -> Any:
 
 
 def load_config(config_path: str | None = None) -> Settings:
-    """
-    Load configuration from YAML file with environment variable interpolation.
+    """Load configuration from YAML file with environment variable interpolation.
 
     Args:
         config_path: Path to the YAML configuration file.
@@ -211,8 +207,7 @@ _settings: Settings | None = None
 
 
 def get_settings(config_path: str | None = None) -> Settings:
-    """
-    Get or initialize the global settings instance.
+    """Get or initialize the global settings instance.
 
     Args:
         config_path: Optional path to configuration file.
@@ -220,15 +215,14 @@ def get_settings(config_path: str | None = None) -> Settings:
     Returns:
         Settings instance.
     """
-    global _settings
+    global _settings  # noqa: PLW0603
     if _settings is None:
         _settings = load_config(config_path)
     return _settings
 
 
 def reload_settings(config_path: str | None = None) -> Settings:
-    """
-    Reload settings from configuration file.
+    """Reload settings from configuration file.
 
     Args:
         config_path: Optional path to configuration file.
@@ -236,7 +230,7 @@ def reload_settings(config_path: str | None = None) -> Settings:
     Returns:
         New Settings instance.
     """
-    global _settings
+    global _settings  # noqa: PLW0603
     _settings = load_config(config_path)
     return _settings
 
@@ -246,8 +240,7 @@ def validate_production_config(
     app_env: str,
     cors_origins: list[str] | None = None,
 ) -> list[str]:
-    """
-    Check security-sensitive configuration for production deployments.
+    """Check security-sensitive configuration for production deployments.
 
     Returns a list of human-readable violation messages. The list is only
     populated when ``app_env == "production"``; in any other environment the

@@ -146,18 +146,38 @@ select = [
     "C4",     # flake8-comprehensions
     "UP",     # pyupgrade
     "SIM",    # flake8-simplify
+    "D",      # pydocstyle
+    "PL",     # pylint
+    "C901",   # mccabe complexity
     # ARG (flake8-unused-arguments) intentionally omitted: this codebase is
     # built on FastAPI handlers, an LLM provider interface, abstract DB adapters
     # and test mocks whose signatures are contract-imposed, so it fires almost
     # entirely on false positives.
 ]
 ignore = [
-    "E501",   # line too long (handled by black)
-    "B008",   # do not perform function calls in argument defaults
+    "E501",     # line too long (handled by black)
+    "B008",     # do not perform function calls in argument defaults
+    "PLC0415",  # import-outside-top-level: intentional here for lazy-importing
+                # optional LLM SDKs (openai/anthropic/google-genai) and uvicorn.
+    "PLR2004",  # magic-value-comparison: mostly HTTP status codes and length/
+                # truncation thresholds here; low value, high noise.
 ]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-branches = 15
+max-statements = 60
+max-returns = 8
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports in __init__
+"tests/**" = ["D", "PL", "C901"]  # tests don't need docstrings/complexity rules
 
 [tool.mypy]
 python_version = "3.11"

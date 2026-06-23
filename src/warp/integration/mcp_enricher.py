@@ -16,6 +16,7 @@ class MCPEnricher:
     """Enriches stargate MCPServer with catalog descriptions."""
 
     def __init__(self, catalog: DatabaseCatalog, lang: str = "en"):
+        """Store the catalog and target language for enrichment."""
         self.catalog = catalog
         self.lang = lang
 

@@ -1,13 +1,10 @@
-"""
-Sorting utilities for parsing sort parameters.
-"""
+"""Sorting utilities for parsing sort parameters."""
 from dataclasses import dataclass
 
 
 @dataclass
 class SortField:
-    """
-    Represents a single sort field.
+    """Represents a single sort field.
 
     Attributes:
         column: Column name to sort by.
@@ -31,8 +28,7 @@ class SortField:
 
 
 class SortParser:
-    """
-    Parses sort query parameter into sort fields.
+    """Parses sort query parameter into sort fields.
 
     Supports multiple sort formats:
     1. Single field: ?sort=name -> ORDER BY name ASC
@@ -46,8 +42,7 @@ class SortParser:
     """
 
     def __init__(self, allowed_columns: list[str] | None = None):
-        """
-        Initialize the sort parser.
+        """Initialize the sort parser.
 
         Args:
             allowed_columns: Optional list of allowed column names.
@@ -56,8 +51,7 @@ class SortParser:
         self.allowed_columns = set(allowed_columns) if allowed_columns else None
 
     def parse(self, sort_param: str) -> list[SortField]:
-        """
-        Parse sort parameter string into sort fields.
+        """Parse sort parameter string into sort fields.
 
         Args:
             sort_param: Sort parameter string (e.g., "name:asc,created_at:desc")
@@ -110,8 +104,7 @@ def parse_sort_from_request(
     allowed_columns: list[str] | None = None,
     default_sort: list[tuple[str, str]] | None = None
 ) -> list[tuple[str, str]]:
-    """
-    Convenience function to parse sort parameter from request.
+    """Convenience function to parse sort parameter from request.
 
     Args:
         sort_param: Sort parameter string from query string.

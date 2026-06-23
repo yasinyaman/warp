@@ -1,5 +1,4 @@
-"""
-Dialect-aware SQL builder shared by the database adapters.
+"""Dialect-aware SQL builder shared by the database adapters.
 
 This is the single source of truth for constructing CRUD SQL. It centralizes the
 two things that differ between PostgreSQL and MySQL — placeholder style
@@ -21,6 +20,7 @@ class SafeQueryBuilder:
     """Builds parameterized SQL strings for a given SQL dialect."""
 
     def __init__(self, dialect: str) -> None:
+        """Create a builder for the given dialect ("postgresql" or "mysql")."""
         self.dialect = dialect
 
     # --- dialect primitives -------------------------------------------------
@@ -35,6 +35,7 @@ class SafeQueryBuilder:
 
     @property
     def supports_returning(self) -> bool:
+        """Whether this dialect supports a ``RETURNING`` clause."""
         return self.dialect == "postgresql"
 
     @property
@@ -51,8 +52,7 @@ class SafeQueryBuilder:
     def where_clause(
         self, column: str, operator: str, value: Any, index: int
     ) -> tuple[str, int, list[Any]]:
-        """
-        Build a single WHERE condition.
+        """Build a single WHERE condition.
 
         Returns ``(clause, next_index, params)``. ``next_index`` is the running
         placeholder index (used by PostgreSQL; harmless for MySQL).
@@ -146,6 +146,7 @@ class SafeQueryBuilder:
         return count_sql, select_sql, params
 
     def build_insert(self, table: str, data: dict[str, Any]) -> tuple[str, list[Any]]:
+        """Build an INSERT statement (with ``RETURNING *`` on PostgreSQL)."""
         tbl = self.quote(table)
         columns = list(data.keys())
         quoted_cols = ", ".join(self.quote(c) for c in columns)
@@ -161,6 +162,7 @@ class SafeQueryBuilder:
         id_value: Any,
         columns: list[str] | None,
     ) -> tuple[str, list[Any]]:
+        """Build a single-row SELECT by primary key."""
         cols = self._select_columns(columns)
         sql = (
             f"SELECT {cols} FROM {self.quote(table)} "
@@ -175,6 +177,7 @@ class SafeQueryBuilder:
         id_value: Any,
         data: dict[str, Any],
     ) -> tuple[str, list[Any]]:
+        """Build an UPDATE-by-id statement (``RETURNING *`` on PostgreSQL)."""
         tbl = self.quote(table)
         set_parts: list[str] = []
         params: list[Any] = []
@@ -192,6 +195,7 @@ class SafeQueryBuilder:
     def build_delete(
         self, table: str, id_column: str, id_value: Any
     ) -> tuple[str, list[Any]]:
+        """Build a DELETE-by-id statement (``RETURNING`` id on PostgreSQL)."""
         col = self.quote(id_column)
         returning = f" RETURNING {col}" if self.supports_returning else ""
         sql = f"DELETE FROM {self.quote(table)} WHERE {col} = {self._placeholder(1)}{returning}"

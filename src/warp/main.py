@@ -1,5 +1,4 @@
-"""
-Warp Engine - Main Application Entry Point
+"""Warp Engine - Main Application Entry Point.
 
 Automatically generates REST CRUD endpoints from database schema.
 Production-ready with connection retry, proper error handling, and logging.
@@ -58,8 +57,7 @@ async def connect_with_retry(
     max_retries: int = 5,
     retry_delay: float = 2.0
 ) -> None:
-    """
-    Connect to database with exponential backoff retry.
+    """Connect to database with exponential backoff retry.
 
     Args:
         adapter: Database adapter to connect.
@@ -93,9 +91,8 @@ async def connect_with_retry(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """
-    Application lifespan handler.
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912, PLR0915
+    """Application lifespan handler.
 
     Handles startup (database connection, schema discovery) and
     shutdown (cleanup) events.
@@ -263,9 +260,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logger.error(f"Error disconnecting read-only {db_name}: {e}")
 
 
-def create_app() -> FastAPI:
-    """
-    Create and configure the FastAPI application.
+def create_app() -> FastAPI:  # noqa: C901
+    """Create and configure the FastAPI application.
 
     Returns:
         Configured FastAPI application instance.
@@ -375,8 +371,7 @@ GET /api/v1/users?limit=20&offset=40
     # FastAPI cannot build a response model from).
     @app.get("/health", tags=["Health"], response_model=None)
     async def health_check() -> dict[str, Any] | JSONResponse:
-        """
-        Health check endpoint for container orchestration.
+        """Health check endpoint for container orchestration.
 
         Returns:
             - 200: Service is healthy
@@ -408,8 +403,7 @@ GET /api/v1/users?limit=20&offset=40
     # Readiness probe (Kubernetes)
     @app.get("/ready", tags=["Health"], response_model=None)
     async def readiness_check() -> dict[str, Any] | JSONResponse:
-        """
-        Readiness probe for Kubernetes.
+        """Readiness probe for Kubernetes.
 
         Returns 200 only when the application is fully ready to serve traffic.
         """
@@ -424,8 +418,7 @@ GET /api/v1/users?limit=20&offset=40
     # Liveness probe (Kubernetes)
     @app.get("/live", tags=["Health"])
     async def liveness_check() -> dict[str, Any]:
-        """
-        Liveness probe for Kubernetes.
+        """Liveness probe for Kubernetes.
 
         Returns 200 if the application process is alive.
         """

@@ -1,6 +1,4 @@
-"""
-MySQL database adapter implementation.
-"""
+"""MySQL database adapter implementation."""
 from typing import Any
 
 import aiomysql

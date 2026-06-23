@@ -246,7 +246,7 @@ def show_info(ctx: click.Context, database: str, lang: str) -> None:
 @click.option("--lang", default="en", help="Language for display and editing")
 @click.option("--auto-approve", is_flag=True, help="Approve all without prompting")
 @click.pass_context
-def review_catalog(ctx: click.Context, database: str, lang: str, auto_approve: bool) -> None:
+def review_catalog(ctx: click.Context, database: str, lang: str, auto_approve: bool) -> None:  # noqa: C901, PLR0912, PLR0915
     """Interactive table-by-table review of a draft catalog.
 
     Review LLM-generated descriptions and edit any field before approving.

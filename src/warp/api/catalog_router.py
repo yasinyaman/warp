@@ -207,7 +207,7 @@ def _refresh_openapi_enrichment(
         app.openapi_schema = None
 
 
-def create_catalog_router(
+def create_catalog_router(  # noqa: C901, PLR0915
     store: CatalogFileStore,
     config: Any = None,
     adapters: dict[str, Any] | None = None,

@@ -1,6 +1,4 @@
-"""
-Authentication and authorization module for API endpoints.
-"""
+"""Authentication and authorization module for API endpoints."""
 import hashlib
 import secrets
 from collections.abc import Awaitable, Callable
@@ -26,6 +24,7 @@ class AuthenticatedUser:
     """Represents an authenticated API user."""
 
     def __init__(self, api_key_config: ApiKeyConfig):
+        """Store the identity and permissions from the API-key config."""
         self.name = api_key_config.name
         # Deliberately do NOT retain the plaintext API key on the user object.
         self.permissions = api_key_config.permissions
@@ -38,8 +37,7 @@ class AuthenticatedUser:
 
 
 class AuthManager:
-    """
-    Manages API authentication and authorization.
+    """Manages API authentication and authorization.
 
     Usage:
         auth_manager = AuthManager(auth_config)
@@ -51,6 +49,7 @@ class AuthManager:
     """
 
     def __init__(self, auth_config: AuthConfig):
+        """Index API keys by hash and set up the header scheme."""
         self.config = auth_config
         self.enabled = auth_config.enabled
         self.header_name = auth_config.header_name
@@ -77,8 +76,7 @@ class AuthManager:
         return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
     def _get_api_key_config(self, api_key: str | None) -> ApiKeyConfig | None:
-        """
-        Look up the config for a presented key using a timing-safe comparison.
+        """Look up the config for a presented key using a timing-safe comparison.
 
         Uses ``secrets.compare_digest`` against the stored hashes and scans all
         configured keys without short-circuiting, so neither the comparison nor
@@ -102,8 +100,7 @@ class AuthManager:
         request: Request,
         api_key: str | None = None
     ) -> AuthenticatedUser | None:
-        """
-        Get the current authenticated user from API key.
+        """Get the current authenticated user from API key.
 
         Returns None if auth is disabled or path is public.
         Raises HTTPException if auth is required but invalid.
@@ -139,8 +136,7 @@ class AuthManager:
         return AuthenticatedUser(key_config)
 
     def require(self, permission: Permission) -> Callable[..., Awaitable[AuthenticatedUser | None]]:
-        """
-        Create a dependency that requires a specific permission.
+        """Create a dependency that requires a specific permission.
 
         Usage:
             @router.get("/items", dependencies=[Depends(auth.require(Permission.READ))])
@@ -176,8 +172,7 @@ class AuthManager:
         return permission_checker
 
     def require_any(self, permissions: list[Permission]) -> Callable[..., Awaitable[AuthenticatedUser | None]]:
-        """
-        Create a dependency that requires any of the specified permissions.
+        """Create a dependency that requires any of the specified permissions.
 
         Usage:
             @router.put("/items/{id}", dependencies=[Depends(auth.require_any([Permission.UPDATE, Permission.ALL]))])
@@ -217,7 +212,7 @@ _auth_manager: AuthManager | None = None
 
 def init_auth_manager(auth_config: AuthConfig) -> AuthManager:
     """Initialize the global auth manager."""
-    global _auth_manager
+    global _auth_manager  # noqa: PLW0603
     _auth_manager = AuthManager(auth_config)
     return _auth_manager
 

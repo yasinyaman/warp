@@ -1,3 +1,5 @@
+"""Request utilities: filtering, sorting, and pagination."""
+
 from .filtering import FilterCondition, FilterParser
 from .pagination import PaginationParams, paginate_response
 from .sorting import SortField, SortParser

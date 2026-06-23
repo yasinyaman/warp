@@ -1,6 +1,4 @@
-"""
-Schema analyzer for discovering and analyzing database structures.
-"""
+"""Schema analyzer for discovering and analyzing database structures."""
 from typing import Any
 
 from pydantic import BaseModel, Field, create_model
@@ -125,8 +123,7 @@ DB_TYPE_MAPPING = {
 
 
 class SchemaAnalyzer:
-    """
-    Analyzes database schema and generates Pydantic models.
+    """Analyzes database schema and generates Pydantic models.
 
     Usage:
         analyzer = SchemaAnalyzer(db_adapter)
@@ -141,8 +138,7 @@ class SchemaAnalyzer:
         db_adapter: DatabaseAdapter,
         excluded_tables: list[str] | None = None
     ):
-        """
-        Initialize the schema analyzer.
+        """Initialize the schema analyzer.
 
         Args:
             db_adapter: Database adapter instance.
@@ -153,8 +149,7 @@ class SchemaAnalyzer:
         self._pydantic_models: dict[str, type[BaseModel]] = {}
 
     async def analyze(self) -> DatabaseSchema:
-        """
-        Analyze the complete database schema.
+        """Analyze the complete database schema.
 
         Returns:
             DatabaseSchema containing all table schemas.
@@ -172,8 +167,7 @@ class SchemaAnalyzer:
         return schema
 
     async def analyze_table(self, table_name: str) -> TableSchema:
-        """
-        Analyze a single table's schema.
+        """Analyze a single table's schema.
 
         Args:
             table_name: Name of the table to analyze.
@@ -211,8 +205,7 @@ class SchemaAnalyzer:
         for_create: bool = False,
         for_update: bool = False
     ) -> type[BaseModel]:
-        """
-        Generate a Pydantic model from table schema.
+        """Generate a Pydantic model from table schema.
 
         Args:
             table_schema: TableSchema to convert.
@@ -281,8 +274,7 @@ class SchemaAnalyzer:
         self,
         table_schema: TableSchema
     ) -> dict[str, type[BaseModel]]:
-        """
-        Generate all CRUD-related Pydantic models for a table.
+        """Generate all CRUD-related Pydantic models for a table.
 
         Returns dictionary with:
         - 'base': Full model with all fields

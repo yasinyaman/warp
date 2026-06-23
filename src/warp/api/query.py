@@ -1,6 +1,4 @@
-"""
-Raw SQL query endpoint.
-"""
+"""Raw SQL query endpoint."""
 import re
 from typing import Any
 
@@ -32,15 +30,13 @@ class QueryResponse(BaseModel):
 
 
 class QueryValidator:
-    """
-    Validates SQL queries against whitelist.
+    """Validates SQL queries against whitelist.
 
     Security measure to prevent dangerous SQL operations.
     """
 
     def __init__(self, whitelist: list[str] | None = None):
-        """
-        Initialize the validator.
+        """Initialize the validator.
 
         Args:
             whitelist: List of allowed SQL commands (e.g., ['SELECT', 'INSERT']).
@@ -49,8 +45,7 @@ class QueryValidator:
         self.whitelist = [cmd.upper() for cmd in (whitelist or ["SELECT"])]
 
     def validate(self, query: str) -> bool:
-        """
-        Validate a SQL query against the whitelist.
+        """Validate a SQL query against the whitelist.
 
         Args:
             query: SQL query string.
@@ -102,8 +97,7 @@ def create_query_router(
     enabled: bool = True,
     auth_manager: AuthManager | None = None
 ) -> APIRouter:
-    """
-    Create a router for raw SQL query execution.
+    """Create a router for raw SQL query execution.
 
     Security: this endpoint is disabled by default and, when enabled, should be
     pointed at a database account with a read-only role so that even a bypass of

@@ -1,5 +1,4 @@
-"""
-Centralized SQL identifier validation and quoting.
+"""Centralized SQL identifier validation and quoting.
 
 Every dynamic identifier (table or column name) that gets interpolated into a
 SQL string MUST pass through :func:`sanitize_identifier` / :func:`quote_identifier`.
@@ -16,8 +15,7 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def sanitize_identifier(name: str) -> str:
-    """
-    Validate a SQL identifier (table/column name).
+    """Validate a SQL identifier (table/column name).
 
     Args:
         name: The identifier to validate.
@@ -37,8 +35,7 @@ def sanitize_identifier(name: str) -> str:
 
 
 def quote_identifier(name: str, dialect: str = "postgresql") -> str:
-    """
-    Validate and quote an identifier for the given SQL dialect.
+    """Validate and quote an identifier for the given SQL dialect.
 
     Args:
         name: The identifier to validate and quote.

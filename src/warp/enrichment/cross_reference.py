@@ -21,6 +21,7 @@ class CrossReferenceProvider:
         max_table_refs: int = 3,
         max_column_refs: int = 2,
     ):
+        """Store the catalog store and cross-reference limits."""
         self.store = store
         self.exclude_db = exclude_db
         self.max_table_refs = max_table_refs

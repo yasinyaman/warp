@@ -1,3 +1,5 @@
+"""Core building blocks: exceptions and logging."""
+
 from .exceptions import (
     AutoCrudException,
     ConfigurationError,

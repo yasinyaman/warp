@@ -1,6 +1,4 @@
-"""
-Custom exceptions for Auto CRUD API.
-"""
+"""Custom exceptions for Auto CRUD API."""
 from typing import Any
 
 
@@ -13,6 +11,7 @@ class AutoCrudException(Exception):
         details: dict[str, Any] | None = None,
         status_code: int = 500
     ):
+        """Initialize the exception with a message, details, and HTTP status."""
         self.message = message
         self.details = details or {}
         self.status_code = status_code
@@ -31,6 +30,7 @@ class DatabaseConnectionError(AutoCrudException):
     """Raised when database connection fails."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details payload."""
         super().__init__(
             message=message,
             details=details,
@@ -42,6 +42,7 @@ class DatabaseQueryError(AutoCrudException):
     """Raised when a database query fails."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details payload."""
         super().__init__(
             message=message,
             details=details,
@@ -53,6 +54,7 @@ class ConfigurationError(AutoCrudException):
     """Raised when configuration is invalid."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details payload."""
         super().__init__(
             message=message,
             details=details,
@@ -64,6 +66,7 @@ class ValidationError(AutoCrudException):
     """Raised when validation fails."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details payload."""
         super().__init__(
             message=message,
             details=details,
@@ -75,6 +78,7 @@ class NotFoundError(AutoCrudException):
     """Raised when a resource is not found."""
 
     def __init__(self, resource: str, identifier: Any):
+        """Build the error for a missing `resource` with the given identifier."""
         super().__init__(
             message=f"{resource} not found",
             details={"resource": resource, "identifier": str(identifier)},
@@ -89,6 +93,7 @@ class CatalogError(AutoCrudException):
     """Catalog storage or retrieval errors."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details payload."""
         super().__init__(message=message, details=details, status_code=500)
 
 
@@ -96,6 +101,7 @@ class CatalogNotFoundError(CatalogError):
     """Raised when a catalog is not found."""
 
     def __init__(self, db_name: str):
+        """Build the error for a missing catalog `db_name`."""
         super().__init__(
             message=f"Catalog not found: {db_name}",
             details={"database": db_name},
@@ -107,6 +113,7 @@ class TableNotFoundInCatalogError(CatalogError):
     """Raised when a table is not found in a catalog."""
 
     def __init__(self, table_name: str, db_name: str = ""):
+        """Build the error for a table missing from a catalog."""
         msg = f"Table not found: {table_name}"
         if db_name:
             msg += f" in catalog {db_name}"
@@ -122,6 +129,7 @@ class ColumnNotFoundInCatalogError(CatalogError):
     """Raised when a column is not found in a table catalog."""
 
     def __init__(self, column_name: str, table_name: str, db_name: str = ""):
+        """Build the error for a column missing from a table catalog."""
         msg = f"Column not found: {column_name} in table {table_name}"
         if db_name:
             msg += f" in catalog {db_name}"
@@ -138,6 +146,7 @@ class CatalogNotDraftError(CatalogError):
     """Raised when attempting to edit a catalog that is not in draft status."""
 
     def __init__(self, db_name: str):
+        """Build the error for editing a catalog that is not in draft status."""
         super().__init__(
             message=f"Catalog is not in draft status: {db_name}. Only draft catalogs can be edited.",
             details={"database": db_name},
@@ -149,6 +158,7 @@ class LLMError(AutoCrudException):
     """LLM provider errors."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details payload."""
         super().__init__(message=message, details=details, status_code=500)
 
 
@@ -156,6 +166,7 @@ class LLMProviderNotFoundError(LLMError):
     """Raised when LLM provider is not available."""
 
     def __init__(self, provider: str):
+        """Build the error for an unavailable LLM `provider`."""
         super().__init__(
             message=f"LLM provider not found: {provider}",
             details={"provider": provider},
@@ -173,6 +184,7 @@ class AnalysisError(AutoCrudException):
     """Schema analysis errors."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details payload."""
         super().__init__(message=message, details=details, status_code=500)
 
 
@@ -180,6 +192,7 @@ class ExportError(AutoCrudException):
     """Export related errors."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details payload."""
         super().__init__(message=message, details=details, status_code=500)
 
 
@@ -187,4 +200,5 @@ class I18nError(AutoCrudException):
     """Internationalization errors."""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
+        """Initialize the error with a message and optional details payload."""
         super().__init__(message=message, details=details, status_code=500)

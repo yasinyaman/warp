@@ -1,6 +1,4 @@
-"""
-Database factory for creating database adapters.
-"""
+"""Database factory for creating database adapters."""
 from typing import Any
 
 from .base import DatabaseAdapter
@@ -17,8 +15,7 @@ ADAPTERS: dict[str, type[DatabaseAdapter]] = {
 
 
 class DatabaseFactory:
-    """
-    Factory class for creating database adapters.
+    """Factory class for creating database adapters.
 
     Usage:
         adapter = DatabaseFactory.create(config)
@@ -31,8 +28,7 @@ class DatabaseFactory:
 
     @staticmethod
     def create(config: dict[str, Any]) -> DatabaseAdapter:
-        """
-        Create a database adapter based on configuration.
+        """Create a database adapter based on configuration.
 
         Args:
             config: Database configuration dictionary containing:
@@ -60,8 +56,7 @@ class DatabaseFactory:
 
     @staticmethod
     def register(db_type: str, adapter_class: type[DatabaseAdapter]) -> None:
-        """
-        Register a new database adapter type.
+        """Register a new database adapter type.
 
         Args:
             db_type: Database type name (e.g., 'sqlite', 'oracle').
@@ -75,8 +70,7 @@ class DatabaseFactory:
 
     @staticmethod
     def get_supported_types() -> list[str]:
-        """
-        Get list of supported database types.
+        """Get list of supported database types.
 
         Returns:
             List of supported database type names.

@@ -1,5 +1,4 @@
-"""
-Warp - Auto-discovery REST CRUD API Generator
+"""Warp - Auto-discovery REST CRUD API Generator.
 
 Automatically generates REST API endpoints from database schema.
 Supports PostgreSQL and MySQL with extensible adapter pattern.

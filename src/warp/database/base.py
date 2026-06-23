@@ -1,5 +1,5 @@
-"""
-Abstract database adapter interface.
+"""Abstract database adapter interface.
+
 All database implementations must inherit from this class.
 """
 from abc import ABC, abstractmethod
@@ -7,8 +7,7 @@ from typing import Any
 
 
 class DatabaseAdapter(ABC):
-    """
-    Abstract base class for database adapters.
+    """Abstract base class for database adapters.
 
     This class defines the interface that all database implementations must follow.
     To add support for a new database, create a new class that inherits from this
@@ -16,8 +15,7 @@ class DatabaseAdapter(ABC):
     """
 
     def __init__(self, config: dict[str, Any]):
-        """
-        Initialize the adapter with configuration.
+        """Initialize the adapter with configuration.
 
         Args:
             config: Database configuration dictionary containing:
@@ -30,8 +28,7 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     async def connect(self) -> None:
-        """
-        Establish connection to the database.
+        """Establish connection to the database.
 
         Should create a connection pool for better performance.
         """
@@ -39,15 +36,12 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     async def disconnect(self) -> None:
-        """
-        Close all connections and cleanup resources.
-        """
+        """Close all connections and cleanup resources."""
         pass
 
     @abstractmethod
     async def get_tables(self) -> list[str]:
-        """
-        Get list of all table names in the database.
+        """Get list of all table names in the database.
 
         Returns:
             List of table names.
@@ -56,8 +50,7 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     async def get_table_schema(self, table: str) -> dict[str, Any]:
-        """
-        Get detailed schema information for a specific table.
+        """Get detailed schema information for a specific table.
 
         Args:
             table: Name of the table to analyze.
@@ -77,8 +70,7 @@ class DatabaseAdapter(ABC):
         query: str,
         params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
-        """
-        Execute a raw SQL query.
+        """Execute a raw SQL query.
 
         Args:
             query: SQL query string.
@@ -95,8 +87,7 @@ class DatabaseAdapter(ABC):
         table: str,
         data: dict[str, Any]
     ) -> dict[str, Any]:
-        """
-        Insert a new record into a table.
+        """Insert a new record into a table.
 
         Args:
             table: Table name.
@@ -116,8 +107,7 @@ class DatabaseAdapter(ABC):
         pagination: dict[str, int] | None = None,
         sort: list[tuple[str, str]] | None = None
     ) -> tuple[list[dict[str, Any]], int]:
-        """
-        Select records from a table with filtering, pagination, and sorting.
+        """Select records from a table with filtering, pagination, and sorting.
 
         Args:
             table: Table name.
@@ -140,8 +130,7 @@ class DatabaseAdapter(ABC):
         id_value: Any,
         columns: list[str] | None = None
     ) -> dict[str, Any] | None:
-        """
-        Select a single record by its ID.
+        """Select a single record by its ID.
 
         Args:
             table: Table name.
@@ -162,8 +151,7 @@ class DatabaseAdapter(ABC):
         id_value: Any,
         data: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """
-        Update an existing record.
+        """Update an existing record.
 
         Args:
             table: Table name.
@@ -183,8 +171,7 @@ class DatabaseAdapter(ABC):
         id_column: str,
         id_value: Any
     ) -> bool:
-        """
-        Delete a record by its ID.
+        """Delete a record by its ID.
 
         Args:
             table: Table name.

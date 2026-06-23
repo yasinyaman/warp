@@ -24,6 +24,7 @@ class Pipeline:
     """End-to-end pipeline for database catalog generation and enrichment."""
 
     def __init__(self, config: Settings):
+        """Store config and open the catalog store."""
         self.config = config
         self.store = CatalogFileStore(config.settings.catalog.storage_path)
 
@@ -116,6 +117,7 @@ class PipelineResult:
     """Result from a pipeline run."""
 
     def __init__(self, catalog: DatabaseCatalog):
+        """Store the generated catalog and initialize result fields."""
         self.catalog = catalog
         self.enriched_openapi_path: str | None = None
         self.enriched_mcp_server: Any = None

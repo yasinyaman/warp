@@ -1,6 +1,4 @@
-"""
-Schema models for representing database table structures.
-"""
+"""Schema models for representing database table structures."""
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -37,8 +35,7 @@ class IndexSchema(BaseModel):
 
 
 class TableSchema(BaseModel):
-    """
-    Complete schema representation for a database table.
+    """Complete schema representation for a database table.
 
     Contains all metadata needed to generate API endpoints and
     Pydantic models dynamically.

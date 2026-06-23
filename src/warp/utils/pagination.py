@@ -1,6 +1,4 @@
-"""
-Pagination utilities for API responses.
-"""
+"""Pagination utilities for API responses."""
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,8 +7,7 @@ T = TypeVar("T")
 
 
 class PaginationParams(BaseModel):
-    """
-    Pagination parameters extracted from query string.
+    """Pagination parameters extracted from query string.
 
     Usage:
         @app.get("/items")
@@ -36,8 +33,7 @@ class PaginationParams(BaseModel):
 
     @classmethod
     def from_page(cls, page: int, page_size: int) -> "PaginationParams":
-        """
-        Create pagination params from page number and size.
+        """Create pagination params from page number and size.
 
         Args:
             page: Page number (1-indexed).
@@ -51,8 +47,7 @@ class PaginationParams(BaseModel):
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
-    """
-    Generic paginated response wrapper.
+    """Generic paginated response wrapper.
 
     Contains:
     - items: List of records
@@ -99,8 +94,7 @@ def paginate_response(
     total: int,
     pagination: PaginationParams
 ) -> PaginatedResponse[Any]:
-    """
-    Create a paginated response from items.
+    """Create a paginated response from items.
 
     Args:
         items: List of items for current page.
@@ -123,8 +117,7 @@ def create_pagination_links(
     pagination: PaginationParams,
     total: int
 ) -> dict[str, str | None]:
-    """
-    Create pagination links for HATEOAS.
+    """Create pagination links for HATEOAS.
 
     Args:
         base_url: Base URL for the endpoint.

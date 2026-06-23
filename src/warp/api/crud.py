@@ -1,6 +1,4 @@
-"""
-Generic CRUD operations for database tables.
-"""
+"""Generic CRUD operations for database tables."""
 from typing import Any
 
 from pydantic import BaseModel
@@ -12,8 +10,7 @@ from ..utils.pagination import PaginatedResponse, PaginationParams, paginate_res
 
 
 class CRUDOperations:
-    """
-    Generic CRUD operations for any table.
+    """Generic CRUD operations for any table.
 
     Provides a reusable interface for Create, Read, Update, Delete operations
     that works with any database adapter and table schema.
@@ -26,8 +23,7 @@ class CRUDOperations:
         response_model: type[BaseModel] | None = None,
         readonly_columns: list[str] | None = None
     ):
-        """
-        Initialize CRUD operations.
+        """Initialize CRUD operations.
 
         Args:
             db: Database adapter instance.
@@ -60,8 +56,7 @@ class CRUDOperations:
         pagination: PaginationParams | None = None,
         sort: list[tuple[str, str]] | None = None
     ) -> PaginatedResponse[Any]:
-        """
-        Get all records with filtering, pagination, and sorting.
+        """Get all records with filtering, pagination, and sorting.
 
         Args:
             columns: Optional list of columns to select.
@@ -89,8 +84,7 @@ class CRUDOperations:
         id_value: Any,
         columns: list[str] | None = None
     ) -> dict[str, Any] | None:
-        """
-        Get a single record by its primary key.
+        """Get a single record by its primary key.
 
         Args:
             id_value: Primary key value.
@@ -107,8 +101,7 @@ class CRUDOperations:
         )
 
     async def create(self, data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Create a new record.
+        """Create a new record.
 
         Args:
             data: Dictionary of column-value pairs.
@@ -134,8 +127,7 @@ class CRUDOperations:
         id_value: Any,
         data: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """
-        Update an existing record.
+        """Update an existing record.
 
         Args:
             id_value: Primary key value.
@@ -161,8 +153,7 @@ class CRUDOperations:
         )
 
     async def delete(self, id_value: Any) -> bool:
-        """
-        Delete a record by its primary key.
+        """Delete a record by its primary key.
 
         Args:
             id_value: Primary key value.
@@ -177,8 +168,7 @@ class CRUDOperations:
         )
 
     async def exists(self, id_value: Any) -> bool:
-        """
-        Check if a record exists.
+        """Check if a record exists.
 
         Args:
             id_value: Primary key value.
@@ -193,8 +183,7 @@ class CRUDOperations:
         self,
         filters: list[tuple[str, str, Any]] | None = None
     ) -> int:
-        """
-        Count records matching filters.
+        """Count records matching filters.
 
         Args:
             filters: Optional list of filter tuples.
@@ -215,8 +204,7 @@ class CRUDOperations:
         allowed: set[str],
         action: str
     ) -> None:
-        """
-        Reject attempts to write read-only, auto-generated, or unknown columns.
+        """Reject attempts to write read-only, auto-generated, or unknown columns.
 
         Raises:
             ValidationError: If ``data`` contains any column not in ``allowed``.

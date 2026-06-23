@@ -1,6 +1,4 @@
-"""
-Dynamic router factory for generating CRUD endpoints for database tables.
-"""
+"""Dynamic router factory for generating CRUD endpoints for database tables."""
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -21,8 +19,7 @@ logger = get_logger(__name__)
 
 
 def convert_id_type(value: str, column_type: str) -> Any:
-    """
-    Convert string id to the appropriate type based on column type.
+    """Convert string id to the appropriate type based on column type.
 
     Args:
         value: The string value to convert.
@@ -50,8 +47,7 @@ def convert_id_type(value: str, column_type: str) -> Any:
 
 
 class RouterFactory:
-    """
-    Factory for creating CRUD routers for database tables.
+    """Factory for creating CRUD routers for database tables.
 
     Automatically generates REST endpoints for each table:
     - GET /{table} - List with pagination, filtering, sorting
@@ -71,8 +67,7 @@ class RouterFactory:
         auth_manager: AuthManager | None = None,
         readonly_columns: list[str] | None = None
     ):
-        """
-        Initialize the router factory.
+        """Initialize the router factory.
 
         Args:
             db: Database adapter instance.
@@ -92,13 +87,12 @@ class RouterFactory:
         self.readonly_columns = readonly_columns or []
         self._crud_instances: dict[str, CRUDOperations] = {}
 
-    def create_router(
+    def create_router(  # noqa: C901, PLR0915
         self,
         table_schema: TableSchema,
         models: dict[str, type[BaseModel]] | None = None
     ) -> APIRouter:
-        """
-        Create a CRUD router for a single table.
+        """Create a CRUD router for a single table.
 
         Args:
             table_schema: Schema of the table.
@@ -359,7 +353,6 @@ Retrieve a paginated list of {table_name} records.
                     detail=f"{table_name} with {pk_column}={id} not found"
                 )
 
-            return None
 
         return router
 
@@ -367,8 +360,7 @@ Retrieve a paginated list of {table_name} records.
         self,
         table_schemas: dict[str, TableSchema]
     ) -> list[APIRouter]:
-        """
-        Create routers for all tables.
+        """Create routers for all tables.
 
         Args:
             table_schemas: Dictionary of table name to TableSchema.

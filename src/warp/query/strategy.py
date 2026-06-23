@@ -47,6 +47,7 @@ class QueryStrategy:
         llm_client: LLMClient,
         lang: str = "en",
     ):
+        """Store the catalog, LLM client, and target language."""
         self.catalog = catalog
         self.llm_client = llm_client
         self.lang = lang

@@ -19,7 +19,9 @@ class DatabaseAdapterProtocol(Protocol):
         self,
         query: str,
         params: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]: ...
+    ) -> list[dict[str, Any]]:
+        """Run a SQL query and return rows as dicts."""
+        ...
 
 
 @dataclass
@@ -109,6 +111,7 @@ class CommentReader:
         schema: str = "public",
         database: str = "",
     ):
+        """Store the adapter and dialect/schema/database context."""
         self.adapter = adapter
         self.db_type = db_type.lower()
         self.schema = schema
@@ -177,7 +180,7 @@ class CommentReader:
             column_comments=column_comments,
         )
 
-    async def read_all_comments(
+    async def read_all_comments(  # noqa: C901, PLR0912
         self, table_names: list[str] | None = None
     ) -> dict[str, TableComments]:
         """Read all comments for multiple tables efficiently."""
