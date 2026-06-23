@@ -1,19 +1,17 @@
 """
 Tests for configuration loading and settings.
 """
-import os
 import pytest
 import yaml
-from pathlib import Path
 
 from warp.config.settings import (
-    Settings,
-    DatabaseConfig,
-    SettingsConfig,
-    PaginationConfig,
     CatalogConfig,
-    load_config,
+    DatabaseConfig,
+    PaginationConfig,
+    Settings,
+    SettingsConfig,
     interpolate_env_vars,
+    load_config,
 )
 
 

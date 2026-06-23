@@ -1,7 +1,7 @@
 """
 Schema models for representing database table structures.
 """
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -10,15 +10,15 @@ class ColumnSchema(BaseModel):
     """Represents a database column."""
     name: str
     type: str
-    full_type: Optional[str] = None
+    full_type: str | None = None
     nullable: bool = True
-    default: Optional[Any] = None
-    max_length: Optional[int] = None
-    precision: Optional[int] = None
-    scale: Optional[int] = None
-    key: Optional[str] = None
-    extra: Optional[str] = None
-    udt_name: Optional[str] = None  # PostgreSQL specific
+    default: Any | None = None
+    max_length: int | None = None
+    precision: int | None = None
+    scale: int | None = None
+    key: str | None = None
+    extra: str | None = None
+    udt_name: str | None = None  # PostgreSQL specific
 
 
 class ForeignKeySchema(BaseModel):
@@ -26,13 +26,13 @@ class ForeignKeySchema(BaseModel):
     column: str
     references_table: str
     references_column: str
-    constraint_name: Optional[str] = None
+    constraint_name: str | None = None
 
 
 class IndexSchema(BaseModel):
     """Represents a database index."""
     name: str
-    columns: List[str]
+    columns: list[str]
     unique: bool = False
 
 
@@ -44,13 +44,13 @@ class TableSchema(BaseModel):
     Pydantic models dynamically.
     """
     table_name: str
-    columns: List[ColumnSchema] = Field(default_factory=list)
-    primary_key: Optional[Union[str, List[str]]] = None
-    foreign_keys: List[ForeignKeySchema] = Field(default_factory=list)
-    indexes: List[IndexSchema] = Field(default_factory=list)
+    columns: list[ColumnSchema] = Field(default_factory=list)
+    primary_key: str | list[str] | None = None
+    foreign_keys: list[ForeignKeySchema] = Field(default_factory=list)
+    indexes: list[IndexSchema] = Field(default_factory=list)
 
     @property
-    def pk_column(self) -> Optional[str]:
+    def pk_column(self) -> str | None:
         """Get the primary key column name (first one if composite)."""
         if isinstance(self.primary_key, str):
             return self.primary_key
@@ -63,18 +63,18 @@ class TableSchema(BaseModel):
         """Check if table has a composite primary key."""
         return isinstance(self.primary_key, list) and len(self.primary_key) > 1
 
-    def get_column(self, name: str) -> Optional[ColumnSchema]:
+    def get_column(self, name: str) -> ColumnSchema | None:
         """Get a column by name."""
         for col in self.columns:
             if col.name == name:
                 return col
         return None
 
-    def get_column_names(self) -> List[str]:
+    def get_column_names(self) -> list[str]:
         """Get list of all column names."""
         return [col.name for col in self.columns]
 
-    def get_required_columns(self) -> List[str]:
+    def get_required_columns(self) -> list[str]:
         """Get list of non-nullable columns without defaults."""
         return [
             col.name for col in self.columns
@@ -84,10 +84,9 @@ class TableSchema(BaseModel):
             and "nextval" not in (col.default or "").lower()
         ]
 
-    def get_insertable_columns(self) -> List[str]:
+    def get_insertable_columns(self) -> list[str]:
         """Get columns that can be inserted (excluding auto-generated)."""
         excluded = set()
-        pk = self.pk_column
 
         for col in self.columns:
             # Exclude auto-increment columns
@@ -103,12 +102,12 @@ class TableSchema(BaseModel):
 class DatabaseSchema(BaseModel):
     """Complete schema for a database."""
     database_name: str
-    tables: Dict[str, TableSchema] = Field(default_factory=dict)
+    tables: dict[str, TableSchema] = Field(default_factory=dict)
 
-    def get_table(self, name: str) -> Optional[TableSchema]:
+    def get_table(self, name: str) -> TableSchema | None:
         """Get a table schema by name."""
         return self.tables.get(name)
 
-    def get_table_names(self) -> List[str]:
+    def get_table_names(self) -> list[str]:
         """Get list of all table names."""
         return list(self.tables.keys())

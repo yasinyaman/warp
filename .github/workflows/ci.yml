@@ -50,11 +50,10 @@ jobs:
           enable-cache: true
       - name: Install project
         run: uv pip install --system -e ".[dev,llm]"
-      # These do not yet pass cleanly on the codebase; reported but non-blocking.
-      # Flip continue-on-error to false once the backlog is cleared.
       - name: Ruff
         run: ruff check src/ tests/
-        continue-on-error: true
+      # mypy --strict does not yet pass cleanly; reported but non-blocking.
+      # Flip continue-on-error to false once the backlog is cleared.
       - name: Mypy (strict)
         run: mypy src/
         continue-on-error: true

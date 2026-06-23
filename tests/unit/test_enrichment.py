@@ -1,17 +1,14 @@
 """Tests for enrichment modules: CommentReader and EnrichedAnalyzer."""
 
 import json
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from warp.catalog.models import LocalizedText
 from warp.config.settings import Settings
 from warp.enrichment.analyzer import EnrichedAnalyzer
 from warp.enrichment.comment_reader import CommentReader, TableComments
 from warp.llm.client import LLMClient, LLMProvider
-
 
 # ===========================================
 # Mock Classes

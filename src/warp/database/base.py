@@ -3,7 +3,7 @@ Abstract database adapter interface.
 All database implementations must inherit from this class.
 """
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 class DatabaseAdapter(ABC):
@@ -15,7 +15,7 @@ class DatabaseAdapter(ABC):
     and implements all abstract methods.
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Initialize the adapter with configuration.
 
@@ -45,7 +45,7 @@ class DatabaseAdapter(ABC):
         pass
 
     @abstractmethod
-    async def get_tables(self) -> List[str]:
+    async def get_tables(self) -> list[str]:
         """
         Get list of all table names in the database.
 
@@ -55,7 +55,7 @@ class DatabaseAdapter(ABC):
         pass
 
     @abstractmethod
-    async def get_table_schema(self, table: str) -> Dict[str, Any]:
+    async def get_table_schema(self, table: str) -> dict[str, Any]:
         """
         Get detailed schema information for a specific table.
 
@@ -75,8 +75,8 @@ class DatabaseAdapter(ABC):
     async def execute_query(
         self,
         query: str,
-        params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Execute a raw SQL query.
 
@@ -93,8 +93,8 @@ class DatabaseAdapter(ABC):
     async def insert(
         self,
         table: str,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Insert a new record into a table.
 
@@ -111,11 +111,11 @@ class DatabaseAdapter(ABC):
     async def select(
         self,
         table: str,
-        columns: Optional[List[str]] = None,
-        filters: Optional[List[Tuple[str, str, Any]]] = None,
-        pagination: Optional[Dict[str, int]] = None,
-        sort: Optional[List[Tuple[str, str]]] = None
-    ) -> Tuple[List[Dict[str, Any]], int]:
+        columns: list[str] | None = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        pagination: dict[str, int] | None = None,
+        sort: list[tuple[str, str]] | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
         """
         Select records from a table with filtering, pagination, and sorting.
 
@@ -138,8 +138,8 @@ class DatabaseAdapter(ABC):
         table: str,
         id_column: str,
         id_value: Any,
-        columns: Optional[List[str]] = None
-    ) -> Optional[Dict[str, Any]]:
+        columns: list[str] | None = None
+    ) -> dict[str, Any] | None:
         """
         Select a single record by its ID.
 
@@ -160,8 +160,8 @@ class DatabaseAdapter(ABC):
         table: str,
         id_column: str,
         id_value: Any,
-        data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        data: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """
         Update an existing record.
 

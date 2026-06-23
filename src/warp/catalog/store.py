@@ -7,7 +7,6 @@ Provides cross-catalog search capabilities.
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -17,7 +16,6 @@ from warp.catalog.models import (
     CatalogStatus,
     ColumnCatalogEntry,
     DatabaseCatalog,
-    LocalizedText,
     RelationshipInfo,
     TableCatalogEntry,
     TableReviewStatus,
@@ -110,7 +108,7 @@ class CatalogFileStore:
         except Exception as e:
             raise CatalogError(f"Failed to save catalog: {e}")
 
-    def load(self, db_name: str) -> Optional[DatabaseCatalog]:
+    def load(self, db_name: str) -> DatabaseCatalog | None:
         """Load a database catalog from disk.
 
         Tries JSON first, then YAML.
@@ -163,9 +161,12 @@ class CatalogFileStore:
         """
         catalogs = []
         for item in self.base_path.iterdir():
-            if item.is_dir() and not item.name.startswith("_"):
-                if (item / "catalog.json").exists() or (item / "catalog.yaml").exists():
-                    catalogs.append(item.name)
+            if (
+                item.is_dir()
+                and not item.name.startswith("_")
+                and ((item / "catalog.json").exists() or (item / "catalog.yaml").exists())
+            ):
+                catalogs.append(item.name)
         return sorted(catalogs)
 
     def delete(self, db_name: str) -> bool:
@@ -294,8 +295,8 @@ class CatalogFileStore:
                 table.description.set(lang, val)
                 table.user_overrides.setdefault("description", {})[lang] = val
             elif isinstance(val, dict):
-                for l, t in val.items():
-                    table.description.set(l, t)
+                for lang_code, text in val.items():
+                    table.description.set(lang_code, text)
                 table.user_overrides["description"] = {
                     **table.user_overrides.get("description", {}),
                     **val,
@@ -307,8 +308,8 @@ class CatalogFileStore:
                 table.human_name.set(lang, val)
                 table.user_overrides.setdefault("human_name", {})[lang] = val
             elif isinstance(val, dict):
-                for l, t in val.items():
-                    table.human_name.set(l, t)
+                for lang_code, text in val.items():
+                    table.human_name.set(lang_code, text)
                 table.user_overrides["human_name"] = {
                     **table.user_overrides.get("human_name", {}),
                     **val,
@@ -361,8 +362,8 @@ class CatalogFileStore:
                 column.description.set(lang, val)
                 column.user_overrides.setdefault("description", {})[lang] = val
             elif isinstance(val, dict):
-                for l, t in val.items():
-                    column.description.set(l, t)
+                for lang_code, text in val.items():
+                    column.description.set(lang_code, text)
                 column.user_overrides["description"] = {
                     **column.user_overrides.get("description", {}),
                     **val,
@@ -589,11 +590,8 @@ class CatalogFileStore:
 
     def _load_file(self, file_path: Path) -> DatabaseCatalog:
         """Load catalog from a specific file."""
-        with open(file_path, "r", encoding="utf-8") as f:
-            if file_path.suffix == ".yaml":
-                data = yaml.safe_load(f)
-            else:
-                data = json.load(f)
+        with open(file_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) if file_path.suffix == ".yaml" else json.load(f)
 
         return DatabaseCatalog(**data)
 
@@ -602,7 +600,7 @@ class CatalogFileStore:
         index_path = self.base_path / self.INDEX_FILE
         if index_path.exists():
             try:
-                with open(index_path, "r", encoding="utf-8") as f:
+                with open(index_path, encoding="utf-8") as f:
                     data = json.load(f)
                 return CatalogIndex(**data)
             except Exception:
@@ -657,7 +655,4 @@ class CatalogFileStore:
         """Check if two normalized names are similar."""
         if name1 == name2:
             return True
-        if len(name1) >= 3 and len(name2) >= 3:
-            if name1 in name2 or name2 in name1:
-                return True
-        return False
+        return bool(len(name1) >= 3 and len(name2) >= 3 and (name1 in name2 or name2 in name1))

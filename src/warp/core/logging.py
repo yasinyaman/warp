@@ -1,10 +1,9 @@
 """
 Logging configuration for production.
 """
+import json
 import logging
 import sys
-from typing import Optional
-import json
 from datetime import datetime
 
 
@@ -54,7 +53,7 @@ class ColoredFormatter(logging.Formatter):
 def setup_logging(
     level: str = "INFO",
     json_format: bool = False,
-    log_file: Optional[str] = None
+    log_file: str | None = None
 ) -> None:
     """
     Configure logging for the application.

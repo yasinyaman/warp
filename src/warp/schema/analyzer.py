@@ -1,10 +1,18 @@
 """
 Schema analyzer for discovering and analyzing database structures.
 """
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
 from pydantic import BaseModel, Field, create_model
 
+from ..database.base import DatabaseAdapter
+from .models import (
+    ColumnSchema,
+    DatabaseSchema,
+    ForeignKeySchema,
+    IndexSchema,
+    TableSchema,
+)
 
 # Example values for different data types (used in OpenAPI docs)
 TYPE_EXAMPLES = {
@@ -17,7 +25,7 @@ TYPE_EXAMPLES = {
     "int": 1,
     "tinyint": 1,
     "mediumint": 100,
-    
+
     # Float types
     "real": 3.14,
     "double precision": 3.14159265359,
@@ -25,11 +33,11 @@ TYPE_EXAMPLES = {
     "decimal": 199.99,
     "float": 3.14,
     "double": 3.14159265359,
-    
+
     # Boolean
     "boolean": True,
     "bit": True,
-    
+
     # String types
     "character varying": "example text",
     "varchar": "example text",
@@ -39,7 +47,7 @@ TYPE_EXAMPLES = {
     "tinytext": "Short text",
     "mediumtext": "Medium length text content",
     "longtext": "Long text content for detailed descriptions",
-    
+
     # Date/Time types
     "date": "2024-01-15",
     "timestamp": "2024-01-15T10:30:00Z",
@@ -50,29 +58,19 @@ TYPE_EXAMPLES = {
     "time without time zone": "10:30:00",
     "datetime": "2024-01-15T10:30:00",
     "year": 2024,
-    
+
     # Special types
     "uuid": "550e8400-e29b-41d4-a716-446655440000",
     "json": {"key": "value", "nested": {"data": 123}},
     "jsonb": {"key": "value", "items": [1, 2, 3]},
     "enum": "active",
     "set": "option1,option2",
-    
+
     # Binary types
     "bytea": "base64_encoded_data",
     "blob": "binary_data",
     "array": [1, 2, 3],
 }
-
-from ..database.base import DatabaseAdapter
-from .models import (
-    ColumnSchema,
-    DatabaseSchema,
-    ForeignKeySchema,
-    IndexSchema,
-    TableSchema,
-)
-
 
 # Mapping from database types to Python types for Pydantic model generation
 DB_TYPE_MAPPING = {
@@ -141,7 +139,7 @@ class SchemaAnalyzer:
     def __init__(
         self,
         db_adapter: DatabaseAdapter,
-        excluded_tables: Optional[List[str]] = None
+        excluded_tables: list[str] | None = None
     ):
         """
         Initialize the schema analyzer.
@@ -152,7 +150,7 @@ class SchemaAnalyzer:
         """
         self.db = db_adapter
         self.excluded_tables = set(excluded_tables or [])
-        self._pydantic_models: Dict[str, Type[BaseModel]] = {}
+        self._pydantic_models: dict[str, type[BaseModel]] = {}
 
     async def analyze(self) -> DatabaseSchema:
         """
@@ -209,10 +207,10 @@ class SchemaAnalyzer:
     def generate_pydantic_model(
         self,
         table_schema: TableSchema,
-        model_name: Optional[str] = None,
+        model_name: str | None = None,
         for_create: bool = False,
         for_update: bool = False
-    ) -> Type[BaseModel]:
+    ) -> type[BaseModel]:
         """
         Generate a Pydantic model from table schema.
 
@@ -238,7 +236,7 @@ class SchemaAnalyzer:
         if cache_key in self._pydantic_models:
             return self._pydantic_models[cache_key]
 
-        fields: Dict[str, Any] = {}
+        fields: dict[str, Any] = {}
 
         for col in table_schema.columns:
             # Skip auto-generated columns for create models
@@ -258,7 +256,7 @@ class SchemaAnalyzer:
             description = self._build_field_description(col)
 
             if is_optional:
-                python_type = Optional[python_type]
+                python_type = python_type | None
                 field_info = Field(
                     default=None,
                     description=description,
@@ -282,7 +280,7 @@ class SchemaAnalyzer:
     def generate_crud_models(
         self,
         table_schema: TableSchema
-    ) -> Dict[str, Type[BaseModel]]:
+    ) -> dict[str, type[BaseModel]]:
         """
         Generate all CRUD-related Pydantic models for a table.
 
@@ -337,7 +335,7 @@ class SchemaAnalyzer:
         """Get an example value for the column based on its type and name."""
         db_type = col.type.lower()
         col_name = col.name.lower()
-        
+
         # Smart examples based on column name patterns
         name_based_examples = {
             "email": "user@example.com",
@@ -390,52 +388,52 @@ class SchemaAnalyzer:
             "file": "document.pdf",
             "filename": "report_2024.xlsx",
         }
-        
+
         # Check for name-based example first
         for pattern, example in name_based_examples.items():
             if pattern in col_name:
                 return example
-        
+
         # Check for ID fields
         if col_name == "id" or col_name.endswith("_id"):
             return 1
-        
+
         # Check for created/updated timestamps
         if "created" in col_name or "updated" in col_name or "modified" in col_name:
             return "2024-01-15T10:30:00Z"
-        
+
         # Check for boolean-like names
         if col_name.startswith("is_") or col_name.startswith("has_") or col_name.startswith("can_"):
             return True
-        
+
         # Fall back to type-based example
         if db_type in TYPE_EXAMPLES:
             return TYPE_EXAMPLES[db_type]
-        
+
         # Check udt_name for PostgreSQL
         if col.udt_name and col.udt_name.lower() in TYPE_EXAMPLES:
             return TYPE_EXAMPLES[col.udt_name.lower()]
-        
+
         return "example"
 
     def _build_field_description(self, col: ColumnSchema) -> str:
         """Build a description string for the field."""
         parts = []
-        
+
         # Type info
         type_str = col.full_type or col.type
         parts.append(f"Type: {type_str}")
-        
+
         # Constraints
         if not col.nullable:
             parts.append("Required")
         else:
             parts.append("Optional")
-        
+
         # Max length
         if col.max_length:
             parts.append(f"Max length: {col.max_length}")
-        
+
         # Default value
         if col.default:
             # Clean up default value display
@@ -443,7 +441,7 @@ class SchemaAnalyzer:
             if "nextval" in default_display.lower():
                 default_display = "Auto-generated"
             parts.append(f"Default: {default_display}")
-        
+
         return " | ".join(parts)
 
     @staticmethod

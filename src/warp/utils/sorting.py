@@ -2,7 +2,6 @@
 Sorting utilities for parsing sort parameters.
 """
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 
 @dataclass
@@ -26,7 +25,7 @@ class SortField:
                 "Must be 'asc' or 'desc'"
             )
 
-    def to_tuple(self) -> Tuple[str, str]:
+    def to_tuple(self) -> tuple[str, str]:
         """Convert to tuple format for database adapter."""
         return (self.column, self.direction)
 
@@ -46,7 +45,7 @@ class SortParser:
     - '-' = descending
     """
 
-    def __init__(self, allowed_columns: Optional[List[str]] = None):
+    def __init__(self, allowed_columns: list[str] | None = None):
         """
         Initialize the sort parser.
 
@@ -56,7 +55,7 @@ class SortParser:
         """
         self.allowed_columns = set(allowed_columns) if allowed_columns else None
 
-    def parse(self, sort_param: str) -> List[SortField]:
+    def parse(self, sort_param: str) -> list[SortField]:
         """
         Parse sort parameter string into sort fields.
 
@@ -107,10 +106,10 @@ class SortParser:
 
 
 def parse_sort_from_request(
-    sort_param: Optional[str],
-    allowed_columns: Optional[List[str]] = None,
-    default_sort: Optional[List[Tuple[str, str]]] = None
-) -> List[Tuple[str, str]]:
+    sort_param: str | None,
+    allowed_columns: list[str] | None = None,
+    default_sort: list[tuple[str, str]] | None = None
+) -> list[tuple[str, str]]:
     """
     Convenience function to parse sort parameter from request.
 

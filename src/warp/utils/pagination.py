@@ -1,7 +1,7 @@
 """
 Pagination utilities for API responses.
 """
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -30,7 +30,7 @@ class PaginationParams(BaseModel):
             return 1
         return (self.offset // self.limit) + 1
 
-    def to_dict(self) -> Dict[str, int]:
+    def to_dict(self) -> dict[str, int]:
         """Convert to dictionary for database adapter."""
         return {"limit": self.limit, "offset": self.offset}
 
@@ -62,7 +62,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
     - page: Current page number
     - pages: Total number of pages
     """
-    items: List[Any] = Field(default_factory=list)
+    items: list[Any] = Field(default_factory=list)
     total: int = Field(default=0, description="Total number of records")
     limit: int = Field(default=50, description="Records per page")
     offset: int = Field(default=0, description="Current offset")
@@ -95,7 +95,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
 
 
 def paginate_response(
-    items: List[Any],
+    items: list[Any],
     total: int,
     pagination: PaginationParams
 ) -> PaginatedResponse:
@@ -122,7 +122,7 @@ def create_pagination_links(
     base_url: str,
     pagination: PaginationParams,
     total: int
-) -> Dict[str, Optional[str]]:
+) -> dict[str, str | None]:
     """
     Create pagination links for HATEOAS.
 

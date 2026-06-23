@@ -1,9 +1,6 @@
 """Tests for catalog models."""
 
 import json
-from datetime import datetime
-
-import pytest
 
 from warp.catalog.models import (
     CatalogIndex,

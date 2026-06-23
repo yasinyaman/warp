@@ -4,7 +4,7 @@ Tests for CRUD operations.
 import pytest
 
 from warp.api.crud import CRUDOperations
-from warp.schema.models import TableSchema, ColumnSchema
+from warp.schema.models import ColumnSchema, TableSchema
 from warp.utils.pagination import PaginationParams
 
 

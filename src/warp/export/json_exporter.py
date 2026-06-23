@@ -30,10 +30,7 @@ class JsonExporter(CatalogExporter):
         catalog: DatabaseCatalog,
         lang: str | None = None,
     ) -> str:
-        if lang:
-            data = self._filter_language(catalog, lang)
-        else:
-            data = catalog.model_dump(mode="json")
+        data = self._filter_language(catalog, lang) if lang else catalog.model_dump(mode="json")
 
         return json.dumps(data, indent=2, ensure_ascii=False)
 

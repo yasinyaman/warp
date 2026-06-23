@@ -1,7 +1,7 @@
 """
 PostgreSQL database adapter implementation.
 """
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import asyncpg
 
@@ -33,7 +33,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
             await self._pool.close()
             self._pool = None
 
-    async def get_tables(self) -> List[str]:
+    async def get_tables(self) -> list[str]:
         """Get all table names from public schema."""
         query = """
             SELECT table_name
@@ -46,7 +46,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
             rows = await conn.fetch(query)
             return [row["table_name"] for row in rows]
 
-    async def get_table_schema(self, table: str) -> Dict[str, Any]:
+    async def get_table_schema(self, table: str) -> dict[str, Any]:
         """Get detailed schema information for a table."""
         schema = {
             "table_name": table,
@@ -168,8 +168,8 @@ class PostgreSQLAdapter(DatabaseAdapter):
     async def execute_query(
         self,
         query: str,
-        params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute a raw SQL query."""
         async with self._pool.acquire() as conn:
             if params:
@@ -190,11 +190,11 @@ class PostgreSQLAdapter(DatabaseAdapter):
     async def insert(
         self,
         table: str,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Insert a new record."""
         safe_table = self._sanitize_identifier(table)
-        columns = [self._sanitize_identifier(c) for c in data.keys()]
+        columns = [self._sanitize_identifier(c) for c in data]
         placeholders = [f"${i+1}" for i in range(len(columns))]
         values = list(data.values())
 
@@ -211,14 +211,14 @@ class PostgreSQLAdapter(DatabaseAdapter):
     async def select(
         self,
         table: str,
-        columns: Optional[List[str]] = None,
-        filters: Optional[List[Tuple[str, str, Any]]] = None,
-        pagination: Optional[Dict[str, int]] = None,
-        sort: Optional[List[Tuple[str, str]]] = None
-    ) -> Tuple[List[Dict[str, Any]], int]:
+        columns: list[str] | None = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        pagination: dict[str, int] | None = None,
+        sort: list[tuple[str, str]] | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
         """Select records with filtering, pagination, and sorting."""
         safe_table = self._sanitize_identifier(table)
-        
+
         # Build SELECT clause
         if columns:
             safe_cols = [self._sanitize_identifier(c) for c in columns]
@@ -270,18 +270,18 @@ class PostgreSQLAdapter(DatabaseAdapter):
         table: str,
         id_column: str,
         id_value: Any,
-        columns: Optional[List[str]] = None
-    ) -> Optional[Dict[str, Any]]:
+        columns: list[str] | None = None
+    ) -> dict[str, Any] | None:
         """Select a single record by ID."""
         safe_table = self._sanitize_identifier(table)
         safe_id_col = self._sanitize_identifier(id_column)
-        
+
         if columns:
             safe_cols = [self._sanitize_identifier(c) for c in columns]
             select_cols = ', '.join(f'"{c}"' for c in safe_cols)
         else:
             select_cols = "*"
-            
+
         query = f'SELECT {select_cols} FROM "{safe_table}" WHERE "{safe_id_col}" = $1'
 
         async with self._pool.acquire() as conn:
@@ -293,8 +293,8 @@ class PostgreSQLAdapter(DatabaseAdapter):
         table: str,
         id_column: str,
         id_value: Any,
-        data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        data: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Update an existing record."""
         if not data:
             return await self.select_by_id(table, id_column, id_value)
@@ -332,7 +332,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
         """Delete a record by ID."""
         safe_table = self._sanitize_identifier(table)
         safe_id_col = self._sanitize_identifier(id_column)
-        
+
         query = f'DELETE FROM "{safe_table}" WHERE "{safe_id_col}" = $1 RETURNING "{safe_id_col}"'
 
         async with self._pool.acquire() as conn:
@@ -349,7 +349,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
         operator: str,
         value: Any,
         param_idx: int
-    ) -> Tuple[str, int, List[Any]]:
+    ) -> tuple[str, int, list[Any]]:
         """Build a WHERE clause component."""
         col = f'"{self._sanitize_identifier(column)}"'
         params = []
@@ -383,7 +383,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
             params.append(value)
             param_idx += 1
         elif operator == "in":
-            if isinstance(value, (list, tuple)):
+            if isinstance(value, list | tuple):
                 placeholders = [f"${param_idx + i}" for i in range(len(value))]
                 clause = f"{col} IN ({', '.join(placeholders)})"
                 params.extend(value)

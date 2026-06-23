@@ -1,14 +1,14 @@
 """
 Generic CRUD operations for database tables.
 """
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any
 
 from pydantic import BaseModel
 
 from ..core.exceptions import ValidationError
 from ..database.base import DatabaseAdapter
 from ..schema.models import TableSchema
-from ..utils.pagination import PaginationParams, PaginatedResponse, paginate_response
+from ..utils.pagination import PaginatedResponse, PaginationParams, paginate_response
 
 
 class CRUDOperations:
@@ -23,8 +23,8 @@ class CRUDOperations:
         self,
         db: DatabaseAdapter,
         table_schema: TableSchema,
-        response_model: Optional[Type[BaseModel]] = None,
-        readonly_columns: Optional[List[str]] = None
+        response_model: type[BaseModel] | None = None,
+        readonly_columns: list[str] | None = None
     ):
         """
         Initialize CRUD operations.
@@ -55,10 +55,10 @@ class CRUDOperations:
 
     async def get_all(
         self,
-        columns: Optional[List[str]] = None,
-        filters: Optional[List[Tuple[str, str, Any]]] = None,
-        pagination: Optional[PaginationParams] = None,
-        sort: Optional[List[Tuple[str, str]]] = None
+        columns: list[str] | None = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        pagination: PaginationParams | None = None,
+        sort: list[tuple[str, str]] | None = None
     ) -> PaginatedResponse:
         """
         Get all records with filtering, pagination, and sorting.
@@ -87,8 +87,8 @@ class CRUDOperations:
     async def get_by_id(
         self,
         id_value: Any,
-        columns: Optional[List[str]] = None
-    ) -> Optional[Dict[str, Any]]:
+        columns: list[str] | None = None
+    ) -> dict[str, Any] | None:
         """
         Get a single record by its primary key.
 
@@ -106,7 +106,7 @@ class CRUDOperations:
             columns=columns
         )
 
-    async def create(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def create(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         Create a new record.
 
@@ -132,8 +132,8 @@ class CRUDOperations:
     async def update(
         self,
         id_value: Any,
-        data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        data: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """
         Update an existing record.
 
@@ -191,7 +191,7 @@ class CRUDOperations:
 
     async def count(
         self,
-        filters: Optional[List[Tuple[str, str, Any]]] = None
+        filters: list[tuple[str, str, Any]] | None = None
     ) -> int:
         """
         Count records matching filters.
@@ -211,7 +211,7 @@ class CRUDOperations:
 
     def _reject_non_writable(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         allowed: set,
         action: str
     ) -> None:

@@ -5,12 +5,12 @@ so that downstream tools (LLMs, code generators) get rich context about
 every table, column, relationship, and data shape.
 """
 
-import re
 import json
+import re
 from pathlib import Path
 from typing import Any
 
-from warp.catalog.models import DatabaseCatalog, TableCatalogEntry, ColumnCatalogEntry
+from warp.catalog.models import ColumnCatalogEntry, DatabaseCatalog, TableCatalogEntry
 from warp.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -97,7 +97,7 @@ class OpenAPIEnricher:
         self, path: str, methods: dict, table: TableCatalogEntry
     ) -> None:
         """Enrich all operations under a single path."""
-        table_desc = table.description.get(self.lang)
+        table.description.get(self.lang)
         human_name = table.human_name.get(self.lang) or table.table_name
 
         for method, operation in methods.items():
@@ -106,9 +106,12 @@ class OpenAPIEnricher:
 
             # --- Summary ---
             existing_summary = operation.get("summary", "")
-            if human_name and human_name != table.table_name:
-                if human_name not in existing_summary:
-                    operation["summary"] = f"{existing_summary} ({human_name})"
+            if (
+                human_name
+                and human_name != table.table_name
+                and human_name not in existing_summary
+            ):
+                operation["summary"] = f"{existing_summary} ({human_name})"
 
             # --- Description: build rich markdown block ---
             rich_desc = self._build_operation_description(table, method)

@@ -1,6 +1,6 @@
+from .filtering import FilterCondition, FilterParser
 from .pagination import PaginationParams, paginate_response
-from .filtering import FilterParser, FilterCondition
-from .sorting import SortParser, SortField
+from .sorting import SortField, SortParser
 
 __all__ = [
     "PaginationParams",

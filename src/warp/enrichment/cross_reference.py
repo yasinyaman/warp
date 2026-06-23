@@ -56,7 +56,7 @@ class CrossReferenceProvider:
         column_refs = self._find_similar_columns(column_names)
         if column_refs:
             parts.append("Previously analyzed similar columns:")
-            for col_name, refs in column_refs.items():
+            for _col_name, refs in column_refs.items():
                 for db_name, tname, col in refs:
                     desc = str(col.description) if not col.description.is_empty else ""
                     sem = f" [type: {col.semantic_type}]" if col.semantic_type else ""

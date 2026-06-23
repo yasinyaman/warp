@@ -5,9 +5,6 @@ import json
 import pytest
 import yaml
 
-from warp.export.json_exporter import JsonExporter
-from warp.export.markdown_exporter import MarkdownExporter, get_exporter
-from warp.export.yaml_exporter import YamlExporter
 from warp.catalog.models import (
     ColumnCatalogEntry,
     DatabaseCatalog,
@@ -16,6 +13,9 @@ from warp.catalog.models import (
     RelationshipInfo,
     TableCatalogEntry,
 )
+from warp.export.json_exporter import JsonExporter
+from warp.export.markdown_exporter import MarkdownExporter, get_exporter
+from warp.export.yaml_exporter import YamlExporter
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@ Configuration loader with YAML support and environment variable interpolation.
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ class DatabaseConfig(BaseModel):
     database: str
     username: str
     password: str = ""
-    options: Dict[str, Any] = Field(default_factory=dict)
+    options: dict[str, Any] = Field(default_factory=dict)
 
 
 class PaginationConfig(BaseModel):
@@ -32,7 +32,7 @@ class ApiKeyConfig(BaseModel):
     """API Key configuration with permissions."""
     key: str
     name: str = "default"
-    permissions: List[str] = Field(default_factory=lambda: ["read"])
+    permissions: list[str] = Field(default_factory=lambda: ["read"])
     # Permissions: read, create, update, delete, query (for raw queries)
     # Or use "all" for full access
 
@@ -41,9 +41,9 @@ class AuthConfig(BaseModel):
     """Authentication configuration."""
     enabled: bool = False
     header_name: str = "X-API-Key"
-    api_keys: List[ApiKeyConfig] = Field(default_factory=list)
+    api_keys: list[ApiKeyConfig] = Field(default_factory=list)
     # Public endpoints that don't require auth (e.g., health check)
-    public_paths: List[str] = Field(default_factory=lambda: ["/health", "/docs", "/redoc", "/openapi.json"])
+    public_paths: list[str] = Field(default_factory=lambda: ["/health", "/docs", "/redoc", "/openapi.json"])
 
 
 class CatalogConfig(BaseModel):
@@ -59,8 +59,8 @@ class AnalysisConfig(BaseModel):
     """Schema analysis configuration."""
     sample_limit: int = 5
     include_row_count: bool = True
-    excluded_tables: List[str] = Field(default_factory=list)
-    excluded_schemas: List[str] = Field(
+    excluded_tables: list[str] = Field(default_factory=list)
+    excluded_schemas: list[str] = Field(
         default_factory=lambda: ["information_schema", "pg_catalog"]
     )
     # Privacy: sending raw sample rows to a *cloud* LLM is opt-in. When False,
@@ -68,7 +68,7 @@ class AnalysisConfig(BaseModel):
     share_samples_with_cloud_llm: bool = False
     # Mask PII-looking column values before sending samples to any LLM.
     mask_pii_samples: bool = True
-    pii_column_patterns: List[str] = Field(
+    pii_column_patterns: list[str] = Field(
         default_factory=lambda: [
             "email", "mail", "phone", "tel", "mobile", "ssn", "password",
             "passwd", "secret", "token", "api_key", "apikey", "credit_card",
@@ -86,13 +86,13 @@ class LLMConfig(BaseModel):
     base_url: str = ""
     temperature: float = 0.3
     max_tokens: int = 4096
-    language_prompts: Dict[str, str] = Field(default_factory=dict)
+    language_prompts: dict[str, str] = Field(default_factory=dict)
 
 
 class I18nConfig(BaseModel):
     """Internationalization configuration."""
     default_language: str = "en"
-    languages: List[str] = Field(default_factory=lambda: ["en"])
+    languages: list[str] = Field(default_factory=lambda: ["en"])
     fallback_language: str = "en"
     auto_translate: bool = True
     translation_strategy: str = "single"  # single | multi
@@ -101,13 +101,13 @@ class I18nConfig(BaseModel):
 class SettingsConfig(BaseModel):
     """Application settings."""
     auto_discover_tables: bool = True
-    excluded_tables: List[str] = Field(default_factory=list)
+    excluded_tables: list[str] = Field(default_factory=list)
     pagination: PaginationConfig = Field(default_factory=PaginationConfig)
     enable_raw_query: bool = False  # default off; opt-in only, refused in production
-    raw_query_whitelist: List[str] = Field(default_factory=lambda: ["SELECT"])
+    raw_query_whitelist: list[str] = Field(default_factory=lambda: ["SELECT"])
     # Columns clients may never write (mass-assignment protection). The primary
     # key and auto-generated columns are always protected in addition to these.
-    readonly_columns: List[str] = Field(
+    readonly_columns: list[str] = Field(
         default_factory=lambda: ["created_at", "updated_at"]
     )
     api_prefix: str = "/api/v1"
@@ -122,7 +122,7 @@ class SettingsConfig(BaseModel):
 
 class Settings(BaseModel):
     """Main configuration container."""
-    databases: List[DatabaseConfig] = Field(default_factory=list)
+    databases: list[DatabaseConfig] = Field(default_factory=list)
     settings: SettingsConfig = Field(default_factory=SettingsConfig)
 
 
@@ -150,7 +150,7 @@ def interpolate_env_vars(value: Any) -> Any:
     return value
 
 
-def load_config(config_path: Optional[str] = None) -> Settings:
+def load_config(config_path: str | None = None) -> Settings:
     """
     Load configuration from YAML file with environment variable interpolation.
 
@@ -171,7 +171,7 @@ def load_config(config_path: Optional[str] = None) -> Settings:
     if not config_path.exists():
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         raw_config = yaml.safe_load(f)
 
     # Interpolate environment variables
@@ -187,10 +187,10 @@ def load_config(config_path: Optional[str] = None) -> Settings:
 
 
 # Global settings instance (initialized on first access)
-_settings: Optional[Settings] = None
+_settings: Settings | None = None
 
 
-def get_settings(config_path: Optional[str] = None) -> Settings:
+def get_settings(config_path: str | None = None) -> Settings:
     """
     Get or initialize the global settings instance.
 
@@ -206,7 +206,7 @@ def get_settings(config_path: Optional[str] = None) -> Settings:
     return _settings
 
 
-def reload_settings(config_path: Optional[str] = None) -> Settings:
+def reload_settings(config_path: str | None = None) -> Settings:
     """
     Reload settings from configuration file.
 
@@ -224,8 +224,8 @@ def reload_settings(config_path: Optional[str] = None) -> Settings:
 def validate_production_config(
     settings: Settings,
     app_env: str,
-    cors_origins: Optional[List[str]] = None,
-) -> List[str]:
+    cors_origins: list[str] | None = None,
+) -> list[str]:
     """
     Check security-sensitive configuration for production deployments.
 
@@ -244,7 +244,7 @@ def validate_production_config(
     Returns:
         A list of violation messages (empty when the configuration is safe).
     """
-    violations: List[str] = []
+    violations: list[str] = []
 
     if app_env != "production":
         return violations

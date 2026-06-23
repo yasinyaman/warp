@@ -12,7 +12,6 @@ Commands:
 
 import asyncio
 import sys
-from pathlib import Path
 
 import click
 
@@ -51,12 +50,12 @@ def analyze(ctx, database, tables, lang, fmt, output, auto_approve):
 
 
 async def _run_analyze(ctx, database, tables, lang, fmt, output, auto_approve=False):
+    from warp.catalog.store import CatalogFileStore
     from warp.config.settings import load_config
     from warp.core.logging import setup_logging
     from warp.database.factory import DatabaseFactory
     from warp.enrichment.analyzer import EnrichedAnalyzer
     from warp.export.markdown_exporter import get_exporter
-    from warp.catalog.store import CatalogFileStore
     from warp.llm.client import LLMClient
 
     config = load_config(ctx.obj["config_path"])
@@ -134,8 +133,8 @@ async def _run_analyze(ctx, database, tables, lang, fmt, output, auto_approve=Fa
 @click.pass_context
 def export_catalog(ctx, database, fmt, output, lang):
     """Export an existing catalog."""
-    from warp.config.settings import load_config
     from warp.catalog.store import CatalogFileStore
+    from warp.config.settings import load_config
     from warp.export.markdown_exporter import get_exporter
 
     config = load_config(ctx.obj["config_path"])
@@ -155,8 +154,8 @@ def export_catalog(ctx, database, fmt, output, lang):
 @click.pass_context
 def list_catalogs(ctx):
     """List available catalogs."""
-    from warp.config.settings import load_config
     from warp.catalog.store import CatalogFileStore
+    from warp.config.settings import load_config
 
     config = load_config(ctx.obj["config_path"])
     store = CatalogFileStore(config.settings.catalog.storage_path)
@@ -188,8 +187,8 @@ def list_catalogs(ctx):
 @click.pass_context
 def show_info(ctx, database, lang):
     """Show catalog info."""
-    from warp.config.settings import load_config
     from warp.catalog.store import CatalogFileStore
+    from warp.config.settings import load_config
 
     config = load_config(ctx.obj["config_path"])
     store = CatalogFileStore(config.settings.catalog.storage_path)
@@ -231,9 +230,9 @@ def review_catalog(ctx, database, lang, auto_approve):
 
     Review LLM-generated descriptions and edit any field before approving.
     """
-    from warp.config.settings import load_config
-    from warp.catalog.store import CatalogFileStore
     from warp.catalog.models import CatalogStatus, TableReviewStatus
+    from warp.catalog.store import CatalogFileStore
+    from warp.config.settings import load_config
 
     config = load_config(ctx.obj["config_path"])
     store = CatalogFileStore(config.settings.catalog.storage_path)
@@ -445,8 +444,8 @@ def _interactive_edit_table(store, db_name, table_name, table, lang):
 @click.pass_context
 def enrich_openapi(ctx, database, input_path, output, lang):
     """Enrich OpenAPI spec with catalog descriptions."""
-    from warp.config.settings import load_config
     from warp.catalog.store import CatalogFileStore
+    from warp.config.settings import load_config
     from warp.integration.openapi_enricher import OpenAPIEnricher
 
     config = load_config(ctx.obj["config_path"])

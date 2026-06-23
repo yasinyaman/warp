@@ -5,16 +5,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from warp.integration.mcp_enricher import MCPEnricher
-from warp.integration.openapi_enricher import OpenAPIEnricher
 from warp.catalog.models import (
     ColumnCatalogEntry,
     DatabaseCatalog,
-    ForeignKeyInfo,
     LocalizedText,
     RelationshipInfo,
     TableCatalogEntry,
 )
+from warp.integration.mcp_enricher import MCPEnricher
+from warp.integration.openapi_enricher import OpenAPIEnricher
 
 
 @pytest.fixture

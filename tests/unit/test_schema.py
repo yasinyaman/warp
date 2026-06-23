@@ -1,19 +1,17 @@
 """
 Tests for schema models and analyzer.
 """
-import pytest
-from typing import Optional
-from pydantic import BaseModel
 
+import pytest
+
+from warp.schema.analyzer import DB_TYPE_MAPPING, SchemaAnalyzer
 from warp.schema.models import (
     ColumnSchema,
+    DatabaseSchema,
     ForeignKeySchema,
     IndexSchema,
     TableSchema,
-    DatabaseSchema,
 )
-from warp.schema.analyzer import SchemaAnalyzer, DB_TYPE_MAPPING
-
 
 # ===========================================
 # ColumnSchema Tests
@@ -340,40 +338,40 @@ class TestDBTypeMapping:
 
     def test_integer_types(self):
         """Test integer type mappings."""
-        assert DB_TYPE_MAPPING["integer"] == int
-        assert DB_TYPE_MAPPING["bigint"] == int
-        assert DB_TYPE_MAPPING["smallint"] == int
-        assert DB_TYPE_MAPPING["int"] == int
+        assert DB_TYPE_MAPPING["integer"] is int
+        assert DB_TYPE_MAPPING["bigint"] is int
+        assert DB_TYPE_MAPPING["smallint"] is int
+        assert DB_TYPE_MAPPING["int"] is int
 
     def test_float_types(self):
         """Test float type mappings."""
-        assert DB_TYPE_MAPPING["real"] == float
-        assert DB_TYPE_MAPPING["double precision"] == float
-        assert DB_TYPE_MAPPING["numeric"] == float
-        assert DB_TYPE_MAPPING["decimal"] == float
+        assert DB_TYPE_MAPPING["real"] is float
+        assert DB_TYPE_MAPPING["double precision"] is float
+        assert DB_TYPE_MAPPING["numeric"] is float
+        assert DB_TYPE_MAPPING["decimal"] is float
 
     def test_string_types(self):
         """Test string type mappings."""
-        assert DB_TYPE_MAPPING["character varying"] == str
-        assert DB_TYPE_MAPPING["varchar"] == str
-        assert DB_TYPE_MAPPING["text"] == str
-        assert DB_TYPE_MAPPING["uuid"] == str
+        assert DB_TYPE_MAPPING["character varying"] is str
+        assert DB_TYPE_MAPPING["varchar"] is str
+        assert DB_TYPE_MAPPING["text"] is str
+        assert DB_TYPE_MAPPING["uuid"] is str
 
     def test_boolean_types(self):
         """Test boolean type mappings."""
-        assert DB_TYPE_MAPPING["boolean"] == bool
-        assert DB_TYPE_MAPPING["bit"] == bool
+        assert DB_TYPE_MAPPING["boolean"] is bool
+        assert DB_TYPE_MAPPING["bit"] is bool
 
     def test_json_types(self):
         """Test JSON type mappings."""
-        assert DB_TYPE_MAPPING["json"] == dict
-        assert DB_TYPE_MAPPING["jsonb"] == dict
+        assert DB_TYPE_MAPPING["json"] is dict
+        assert DB_TYPE_MAPPING["jsonb"] is dict
 
     def test_datetime_types(self):
         """Test datetime type mappings (stored as strings)."""
-        assert DB_TYPE_MAPPING["timestamp"] == str
-        assert DB_TYPE_MAPPING["date"] == str
-        assert DB_TYPE_MAPPING["datetime"] == str
+        assert DB_TYPE_MAPPING["timestamp"] is str
+        assert DB_TYPE_MAPPING["date"] is str
+        assert DB_TYPE_MAPPING["datetime"] is str
 
 
 class TestPascalCaseConversion:

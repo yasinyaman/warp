@@ -270,6 +270,6 @@ class SampleReader:
         """Serialize a database value to JSON-compatible format."""
         if value is None:
             return None
-        if isinstance(value, (str, int, float, bool)):
+        if isinstance(value, str | int | float | bool):
             return value
         return str(value)

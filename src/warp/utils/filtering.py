@@ -3,7 +3,7 @@ Filtering utilities for parsing query parameters into filter conditions.
 """
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 
 @dataclass
@@ -20,7 +20,7 @@ class FilterCondition:
     operator: str
     value: Any
 
-    def to_tuple(self) -> Tuple[str, str, Any]:
+    def to_tuple(self) -> tuple[str, str, Any]:
         """Convert to tuple format for database adapter."""
         return (self.column, self.operator, self.value)
 
@@ -54,7 +54,7 @@ class FilterParser:
     # Pattern for filter[column] or filter[column][operator]
     FILTER_PATTERN = re.compile(r"filter\[(\w+)\](?:\[(\w+)\])?")
 
-    def __init__(self, allowed_columns: Optional[List[str]] = None):
+    def __init__(self, allowed_columns: list[str] | None = None):
         """
         Initialize the filter parser.
 
@@ -64,7 +64,7 @@ class FilterParser:
         """
         self.allowed_columns = set(allowed_columns) if allowed_columns else None
 
-    def parse(self, query_params: Dict[str, str]) -> List[FilterCondition]:
+    def parse(self, query_params: dict[str, str]) -> list[FilterCondition]:
         """
         Parse query parameters into filter conditions.
 
@@ -153,9 +153,9 @@ class FilterParser:
 
 
 def parse_filters_from_request(
-    query_params: Dict[str, str],
-    allowed_columns: Optional[List[str]] = None
-) -> List[Tuple[str, str, Any]]:
+    query_params: dict[str, str],
+    allowed_columns: list[str] | None = None
+) -> list[tuple[str, str, Any]]:
     """
     Convenience function to parse filters from request query params.
 

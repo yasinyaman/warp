@@ -1,10 +1,9 @@
 """Tests for internationalization module."""
 
-import pytest
 
+from warp.catalog.models import LocalizedText
 from warp.config.settings import Settings
 from warp.i18n.localization import LocalizationManager
-from warp.catalog.models import LocalizedText
 
 
 class TestLocalizationManager:

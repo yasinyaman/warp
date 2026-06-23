@@ -2,7 +2,7 @@
 Raw SQL query endpoint.
 """
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 class QueryRequest(BaseModel):
     """Request model for raw SQL query execution."""
     query: str = Field(..., description="SQL query to execute")
-    params: Optional[Dict[str, Any]] = Field(
+    params: dict[str, Any] | None = Field(
         default=None,
         description="Named parameters for the query (e.g., {'name': 'John'})"
     )
@@ -26,9 +26,9 @@ class QueryRequest(BaseModel):
 class QueryResponse(BaseModel):
     """Response model for query results."""
     success: bool = True
-    rows: List[Dict[str, Any]] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
     row_count: int = 0
-    message: Optional[str] = None
+    message: str | None = None
 
 
 class QueryValidator:
@@ -38,7 +38,7 @@ class QueryValidator:
     Security measure to prevent dangerous SQL operations.
     """
 
-    def __init__(self, whitelist: Optional[List[str]] = None):
+    def __init__(self, whitelist: list[str] | None = None):
         """
         Initialize the validator.
 
@@ -98,9 +98,9 @@ class QueryValidator:
 
 def create_query_router(
     db: DatabaseAdapter,
-    whitelist: Optional[List[str]] = None,
+    whitelist: list[str] | None = None,
     enabled: bool = True,
-    auth_manager: Optional[AuthManager] = None
+    auth_manager: AuthManager | None = None
 ) -> APIRouter:
     """
     Create a router for raw SQL query execution.
@@ -123,7 +123,7 @@ def create_query_router(
     validator = QueryValidator(whitelist)
 
     # Auth dependencies
-    def get_auth_deps(permission: Permission) -> List:
+    def get_auth_deps(permission: Permission) -> list:
         if auth_manager and auth_manager.enabled:
             return [Depends(auth_manager.require(permission))]
         return []

@@ -1,7 +1,7 @@
 """
 Custom exceptions for Auto CRUD API.
 """
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class AutoCrudException(Exception):
@@ -10,7 +10,7 @@ class AutoCrudException(Exception):
     def __init__(
         self,
         message: str,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
         status_code: int = 500
     ):
         self.message = message
@@ -18,7 +18,7 @@ class AutoCrudException(Exception):
         self.status_code = status_code
         super().__init__(self.message)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert exception to dictionary for API response."""
         return {
             "error": self.__class__.__name__,
@@ -30,7 +30,7 @@ class AutoCrudException(Exception):
 class DatabaseConnectionError(AutoCrudException):
     """Raised when database connection fails."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             details=details,
@@ -41,7 +41,7 @@ class DatabaseConnectionError(AutoCrudException):
 class DatabaseQueryError(AutoCrudException):
     """Raised when a database query fails."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             details=details,
@@ -52,7 +52,7 @@ class DatabaseQueryError(AutoCrudException):
 class ConfigurationError(AutoCrudException):
     """Raised when configuration is invalid."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             details=details,
@@ -63,7 +63,7 @@ class ConfigurationError(AutoCrudException):
 class ValidationError(AutoCrudException):
     """Raised when validation fails."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(
             message=message,
             details=details,
@@ -88,7 +88,7 @@ class NotFoundError(AutoCrudException):
 class CatalogError(AutoCrudException):
     """Catalog storage or retrieval errors."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message=message, details=details, status_code=500)
 
 
@@ -148,7 +148,7 @@ class CatalogNotDraftError(CatalogError):
 class LLMError(AutoCrudException):
     """LLM provider errors."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message=message, details=details, status_code=500)
 
 
@@ -172,19 +172,19 @@ class LLMGenerationError(LLMError):
 class AnalysisError(AutoCrudException):
     """Schema analysis errors."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message=message, details=details, status_code=500)
 
 
 class ExportError(AutoCrudException):
     """Export related errors."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message=message, details=details, status_code=500)
 
 
 class I18nError(AutoCrudException):
     """Internationalization errors."""
 
-    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         super().__init__(message=message, details=details, status_code=500)

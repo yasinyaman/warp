@@ -1,7 +1,7 @@
 """
 MySQL database adapter implementation.
 """
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import aiomysql
 
@@ -34,7 +34,7 @@ class MySQLAdapter(DatabaseAdapter):
             await self._pool.wait_closed()
             self._pool = None
 
-    async def get_tables(self) -> List[str]:
+    async def get_tables(self) -> list[str]:
         """Get all table names from the database."""
         query = """
             SELECT table_name
@@ -43,13 +43,12 @@ class MySQLAdapter(DatabaseAdapter):
               AND table_type = 'BASE TABLE'
             ORDER BY table_name
         """
-        async with self._pool.acquire() as conn:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(query, (self.config["database"],))
-                rows = await cur.fetchall()
-                return [row["TABLE_NAME"] for row in rows]
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(query, (self.config["database"],))
+            rows = await cur.fetchall()
+            return [row["TABLE_NAME"] for row in rows]
 
-    async def get_table_schema(self, table: str) -> Dict[str, Any]:
+    async def get_table_schema(self, table: str) -> dict[str, Any]:
         """Get detailed schema information for a table."""
         schema = {
             "table_name": table,
@@ -61,10 +60,9 @@ class MySQLAdapter(DatabaseAdapter):
 
         db_name = self.config["database"]
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                # Get column information
-                columns_query = """
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
+            # Get column information
+            columns_query = """
                     SELECT
                         COLUMN_NAME,
                         DATA_TYPE,
@@ -81,34 +79,34 @@ class MySQLAdapter(DatabaseAdapter):
                       AND TABLE_NAME = %s
                     ORDER BY ORDINAL_POSITION
                 """
-                await cur.execute(columns_query, (db_name, table))
-                columns = await cur.fetchall()
+            await cur.execute(columns_query, (db_name, table))
+            columns = await cur.fetchall()
 
-                for col in columns:
-                    schema["columns"].append({
-                        "name": col["COLUMN_NAME"],
-                        "type": col["DATA_TYPE"],
-                        "full_type": col["COLUMN_TYPE"],
-                        "nullable": col["IS_NULLABLE"] == "YES",
-                        "default": col["COLUMN_DEFAULT"],
-                        "max_length": col["CHARACTER_MAXIMUM_LENGTH"],
-                        "precision": col["NUMERIC_PRECISION"],
-                        "scale": col["NUMERIC_SCALE"],
-                        "key": col["COLUMN_KEY"],
-                        "extra": col["EXTRA"]
-                    })
+            for col in columns:
+                schema["columns"].append({
+                    "name": col["COLUMN_NAME"],
+                    "type": col["DATA_TYPE"],
+                    "full_type": col["COLUMN_TYPE"],
+                    "nullable": col["IS_NULLABLE"] == "YES",
+                    "default": col["COLUMN_DEFAULT"],
+                    "max_length": col["CHARACTER_MAXIMUM_LENGTH"],
+                    "precision": col["NUMERIC_PRECISION"],
+                    "scale": col["NUMERIC_SCALE"],
+                    "key": col["COLUMN_KEY"],
+                    "extra": col["EXTRA"]
+                })
 
-                    # Check for primary key
-                    if col["COLUMN_KEY"] == "PRI":
-                        if schema["primary_key"] is None:
-                            schema["primary_key"] = col["COLUMN_NAME"]
-                        elif isinstance(schema["primary_key"], str):
-                            schema["primary_key"] = [schema["primary_key"], col["COLUMN_NAME"]]
-                        else:
-                            schema["primary_key"].append(col["COLUMN_NAME"])
+                # Check for primary key
+                if col["COLUMN_KEY"] == "PRI":
+                    if schema["primary_key"] is None:
+                        schema["primary_key"] = col["COLUMN_NAME"]
+                    elif isinstance(schema["primary_key"], str):
+                        schema["primary_key"] = [schema["primary_key"], col["COLUMN_NAME"]]
+                    else:
+                        schema["primary_key"].append(col["COLUMN_NAME"])
 
-                # Get foreign keys
-                fk_query = """
+            # Get foreign keys
+            fk_query = """
                     SELECT
                         COLUMN_NAME,
                         REFERENCED_TABLE_NAME,
@@ -119,19 +117,19 @@ class MySQLAdapter(DatabaseAdapter):
                       AND TABLE_NAME = %s
                       AND REFERENCED_TABLE_NAME IS NOT NULL
                 """
-                await cur.execute(fk_query, (db_name, table))
-                fks = await cur.fetchall()
+            await cur.execute(fk_query, (db_name, table))
+            fks = await cur.fetchall()
 
-                for fk in fks:
-                    schema["foreign_keys"].append({
-                        "column": fk["COLUMN_NAME"],
-                        "references_table": fk["REFERENCED_TABLE_NAME"],
-                        "references_column": fk["REFERENCED_COLUMN_NAME"],
-                        "constraint_name": fk["CONSTRAINT_NAME"]
-                    })
+            for fk in fks:
+                schema["foreign_keys"].append({
+                    "column": fk["COLUMN_NAME"],
+                    "references_table": fk["REFERENCED_TABLE_NAME"],
+                    "references_column": fk["REFERENCED_COLUMN_NAME"],
+                    "constraint_name": fk["CONSTRAINT_NAME"]
+                })
 
-                # Get indexes
-                idx_query = """
+            # Get indexes
+            idx_query = """
                     SELECT
                         INDEX_NAME,
                         COLUMN_NAME,
@@ -143,55 +141,54 @@ class MySQLAdapter(DatabaseAdapter):
                       AND INDEX_NAME != 'PRIMARY'
                     ORDER BY INDEX_NAME, SEQ_IN_INDEX
                 """
-                await cur.execute(idx_query, (db_name, table))
-                indexes = await cur.fetchall()
+            await cur.execute(idx_query, (db_name, table))
+            indexes = await cur.fetchall()
 
-                # Group index columns
-                idx_map = {}
-                for idx in indexes:
-                    name = idx["INDEX_NAME"]
-                    if name not in idx_map:
-                        idx_map[name] = {
-                            "name": name,
-                            "columns": [],
-                            "unique": idx["NON_UNIQUE"] == 0
-                        }
-                    idx_map[name]["columns"].append(idx["COLUMN_NAME"])
+            # Group index columns
+            idx_map = {}
+            for idx in indexes:
+                name = idx["INDEX_NAME"]
+                if name not in idx_map:
+                    idx_map[name] = {
+                        "name": name,
+                        "columns": [],
+                        "unique": idx["NON_UNIQUE"] == 0
+                    }
+                idx_map[name]["columns"].append(idx["COLUMN_NAME"])
 
-                schema["indexes"] = list(idx_map.values())
+            schema["indexes"] = list(idx_map.values())
 
         return schema
 
     async def execute_query(
         self,
         query: str,
-        params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Execute a raw SQL query."""
-        async with self._pool.acquire() as conn:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                if params:
-                    # Convert named params to positional for MySQL
-                    param_list = []
-                    new_query = query
-                    for key, value in params.items():
-                        new_query = new_query.replace(f":{key}", "%s")
-                        param_list.append(value)
-                    await cur.execute(new_query, param_list)
-                else:
-                    await cur.execute(query)
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
+            if params:
+                # Convert named params to positional for MySQL
+                param_list = []
+                new_query = query
+                for key, value in params.items():
+                    new_query = new_query.replace(f":{key}", "%s")
+                    param_list.append(value)
+                await cur.execute(new_query, param_list)
+            else:
+                await cur.execute(query)
 
-                rows = await cur.fetchall()
-                return list(rows)
+            rows = await cur.fetchall()
+            return list(rows)
 
     async def insert(
         self,
         table: str,
-        data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Insert a new record."""
         safe_table = self._sanitize_identifier(table)
-        columns = [self._sanitize_identifier(c) for c in data.keys()]
+        columns = [self._sanitize_identifier(c) for c in data]
         placeholders = ["%s"] * len(columns)
         values = list(data.values())
 
@@ -200,29 +197,28 @@ class MySQLAdapter(DatabaseAdapter):
             VALUES ({', '.join(placeholders)})
         """
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(query, values)
-                last_id = cur.lastrowid
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(query, values)
+            last_id = cur.lastrowid
 
-                # Fetch the inserted record
-                if last_id:
-                    await cur.execute(f"SELECT * FROM `{safe_table}` WHERE id = %s", (last_id,))
-                    row = await cur.fetchone()
-                    return row if row else data
-                return data
+            # Fetch the inserted record
+            if last_id:
+                await cur.execute(f"SELECT * FROM `{safe_table}` WHERE id = %s", (last_id,))
+                row = await cur.fetchone()
+                return row if row else data
+            return data
 
     async def select(
         self,
         table: str,
-        columns: Optional[List[str]] = None,
-        filters: Optional[List[Tuple[str, str, Any]]] = None,
-        pagination: Optional[Dict[str, int]] = None,
-        sort: Optional[List[Tuple[str, str]]] = None
-    ) -> Tuple[List[Dict[str, Any]], int]:
+        columns: list[str] | None = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        pagination: dict[str, int] | None = None,
+        sort: list[tuple[str, str]] | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
         """Select records with filtering, pagination, and sorting."""
         safe_table = self._sanitize_identifier(table)
-        
+
         # Build SELECT clause
         if columns:
             safe_cols = [self._sanitize_identifier(c) for c in columns]
@@ -249,67 +245,65 @@ class MySQLAdapter(DatabaseAdapter):
             order_parts = [f'`{col}` {dir.upper()}' for col, dir in safe_sort]
             order_sql = f"ORDER BY {', '.join(order_parts)}"
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                # Count query
-                count_query = f"SELECT COUNT(*) as cnt FROM `{safe_table}` {where_sql}"
-                await cur.execute(count_query, params)
-                count_row = await cur.fetchone()
-                total = count_row["cnt"] if count_row else 0
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
+            # Count query
+            count_query = f"SELECT COUNT(*) as cnt FROM `{safe_table}` {where_sql}"
+            await cur.execute(count_query, params)
+            count_row = await cur.fetchone()
+            total = count_row["cnt"] if count_row else 0
 
-                # Main query with pagination
-                limit_sql = ""
-                if pagination:
-                    limit = pagination.get("limit", 50)
-                    offset = pagination.get("offset", 0)
-                    limit_sql = f"LIMIT {limit} OFFSET {offset}"
+            # Main query with pagination
+            limit_sql = ""
+            if pagination:
+                limit = pagination.get("limit", 50)
+                offset = pagination.get("offset", 0)
+                limit_sql = f"LIMIT {limit} OFFSET {offset}"
 
-                query = f"SELECT {select_cols} FROM `{safe_table}` {where_sql} {order_sql} {limit_sql}"
-                await cur.execute(query, params)
-                rows = await cur.fetchall()
+            query = f"SELECT {select_cols} FROM `{safe_table}` {where_sql} {order_sql} {limit_sql}"
+            await cur.execute(query, params)
+            rows = await cur.fetchall()
 
-                return list(rows), total
+            return list(rows), total
 
     async def select_by_id(
         self,
         table: str,
         id_column: str,
         id_value: Any,
-        columns: Optional[List[str]] = None
-    ) -> Optional[Dict[str, Any]]:
+        columns: list[str] | None = None
+    ) -> dict[str, Any] | None:
         """Select a single record by ID."""
         safe_table = self._sanitize_identifier(table)
         safe_id_col = self._sanitize_identifier(id_column)
-        
+
         if columns:
             safe_cols = [self._sanitize_identifier(c) for c in columns]
             select_cols = ', '.join(f'`{c}`' for c in safe_cols)
         else:
             select_cols = "*"
-            
+
         query = f"SELECT {select_cols} FROM `{safe_table}` WHERE `{safe_id_col}` = %s"
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(query, (id_value,))
-                row = await cur.fetchone()
-                return row
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(query, (id_value,))
+            row = await cur.fetchone()
+            return row
 
     async def update(
         self,
         table: str,
         id_column: str,
         id_value: Any,
-        data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        data: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Update an existing record."""
         if not data:
             return await self.select_by_id(table, id_column, id_value)
 
         safe_table = self._sanitize_identifier(table)
         safe_id_col = self._sanitize_identifier(id_column)
-        
-        set_clauses = [f'`{self._sanitize_identifier(col)}` = %s' for col in data.keys()]
+
+        set_clauses = [f'`{self._sanitize_identifier(col)}` = %s' for col in data]
         values = list(data.values())
         values.append(id_value)
 
@@ -319,13 +313,12 @@ class MySQLAdapter(DatabaseAdapter):
             WHERE `{safe_id_col}` = %s
         """
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(query, values)
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(query, values)
 
-                if cur.rowcount > 0:
-                    return await self.select_by_id(table, id_column, id_value)
-                return None
+            if cur.rowcount > 0:
+                return await self.select_by_id(table, id_column, id_value)
+            return None
 
     async def delete(
         self,
@@ -336,13 +329,12 @@ class MySQLAdapter(DatabaseAdapter):
         """Delete a record by ID."""
         safe_table = self._sanitize_identifier(table)
         safe_id_col = self._sanitize_identifier(id_column)
-        
+
         query = f"DELETE FROM `{safe_table}` WHERE `{safe_id_col}` = %s"
 
-        async with self._pool.acquire() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(query, (id_value,))
-                return cur.rowcount > 0
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(query, (id_value,))
+            return cur.rowcount > 0
 
     def _sanitize_identifier(self, name: str) -> str:
         """Validate a SQL identifier (delegates to the shared sanitizer)."""
@@ -353,7 +345,7 @@ class MySQLAdapter(DatabaseAdapter):
         column: str,
         operator: str,
         value: Any
-    ) -> Tuple[str, List[Any]]:
+    ) -> tuple[str, list[Any]]:
         """Build a WHERE clause component."""
         col = f'`{self._sanitize_identifier(column)}`'
         params = []
@@ -380,7 +372,7 @@ class MySQLAdapter(DatabaseAdapter):
             clause = f"{col} LIKE %s"
             params.append(value)
         elif operator == "in":
-            if isinstance(value, (list, tuple)):
+            if isinstance(value, list | tuple):
                 placeholders = ", ".join(["%s"] * len(value))
                 clause = f"{col} IN ({placeholders})"
                 params.extend(value)

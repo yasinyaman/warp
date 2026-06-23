@@ -8,14 +8,12 @@ Provides REST endpoints for catalog operations:
 - Enrich OpenAPI spec
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from warp.catalog.models import DatabaseCatalog
 from warp.catalog.store import CatalogFileStore
-from warp.core.exceptions import CatalogNotFoundError
 from warp.core.logging import get_logger
 from warp.export.markdown_exporter import get_exporter
 from warp.integration.openapi_enricher import OpenAPIEnricher
@@ -29,8 +27,8 @@ logger = get_logger(__name__)
 class AnalyzeRequest(BaseModel):
     """Request body for catalog analysis."""
     database: str = Field(..., description="Database config name")
-    tables: Optional[List[str]] = Field(default=None, description="Specific tables to analyze")
-    lang: Optional[str] = Field(default=None, description="Language override")
+    tables: list[str] | None = Field(default=None, description="Specific tables to analyze")
+    lang: str | None = Field(default=None, description="Language override")
     format: str = Field(default="json", description="Storage format: json or yaml")
     auto_approve: bool = Field(default=False, description="Auto-approve catalog after analysis (skip review)")
 
@@ -39,7 +37,7 @@ class AnalyzeResponse(BaseModel):
     """Response from catalog analysis."""
     database: str
     table_count: int
-    languages: List[str]
+    languages: list[str]
     status: str = "draft"
 
 
@@ -48,14 +46,14 @@ class CatalogListEntry(BaseModel):
     database_name: str
     database_type: str = "postgresql"
     table_count: int = 0
-    languages: List[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
     version: str = "1.0.0"
     status: str = "draft"
 
 
 class CatalogListResponse(BaseModel):
     """Response for catalog list."""
-    catalogs: List[CatalogListEntry]
+    catalogs: list[CatalogListEntry]
     total: int
 
 
@@ -64,10 +62,10 @@ class CatalogInfoResponse(BaseModel):
     database_name: str
     database_type: str
     table_count: int
-    languages: List[str]
-    tables: List[Dict[str, Any]]
-    llm_provider: Optional[str] = None
-    llm_model: Optional[str] = None
+    languages: list[str]
+    tables: list[dict[str, Any]]
+    llm_provider: str | None = None
+    llm_model: str | None = None
 
 
 class ExportRequest(BaseModel):
@@ -78,19 +76,19 @@ class ExportRequest(BaseModel):
 
 class TableEditRequest(BaseModel):
     """Partial update for a table's editable fields."""
-    description: Optional[Dict[str, str]] = Field(
+    description: dict[str, str] | None = Field(
         default=None,
         description="Localized description updates, e.g. {'en': 'New desc'}",
     )
-    human_name: Optional[Dict[str, str]] = Field(
+    human_name: dict[str, str] | None = Field(
         default=None,
         description="Localized human name updates",
     )
-    tags: Optional[List[str]] = Field(
+    tags: list[str] | None = Field(
         default=None,
         description="Replace tags list",
     )
-    relationships: Optional[List[Dict[str, Any]]] = Field(
+    relationships: list[dict[str, Any]] | None = Field(
         default=None,
         description="Replace relationships list",
     )
@@ -98,15 +96,15 @@ class TableEditRequest(BaseModel):
 
 class ColumnEditRequest(BaseModel):
     """Partial update for a column's editable fields."""
-    description: Optional[Dict[str, str]] = Field(
+    description: dict[str, str] | None = Field(
         default=None,
         description="Localized description updates",
     )
-    semantic_type: Optional[str] = Field(
+    semantic_type: str | None = Field(
         default=None,
         description="Semantic type override",
     )
-    tags: Optional[List[str]] = Field(
+    tags: list[str] | None = Field(
         default=None,
         description="Replace tags list",
     )
@@ -114,7 +112,7 @@ class ColumnEditRequest(BaseModel):
 
 class ApproveRequest(BaseModel):
     """Request to approve tables or entire catalog."""
-    tables: Optional[List[str]] = Field(
+    tables: list[str] | None = Field(
         default=None,
         description="Specific table names to approve. If None, approve all.",
     )
@@ -126,30 +124,30 @@ class DraftInfoResponse(BaseModel):
     database_type: str
     status: str
     table_count: int
-    languages: List[str]
-    review_summary: Dict[str, int]
-    tables: List[Dict[str, Any]]
+    languages: list[str]
+    review_summary: dict[str, int]
+    tables: list[dict[str, Any]]
 
 
 class TableReviewDetail(BaseModel):
     """Detailed table info for review."""
     table_name: str
-    human_name: Dict[str, str]
-    description: Dict[str, str]
+    human_name: dict[str, str]
+    description: dict[str, str]
     review_status: str
-    tags: List[str]
+    tags: list[str]
     column_count: int
-    row_count: Optional[int] = None
-    columns: List[Dict[str, Any]]
-    relationships: List[Dict[str, Any]]
-    user_overrides: Dict[str, Any] = Field(default_factory=dict)
+    row_count: int | None = None
+    columns: list[dict[str, Any]]
+    relationships: list[dict[str, Any]]
+    user_overrides: dict[str, Any] = Field(default_factory=dict)
 
 
 def _refresh_openapi_enrichment(
     app: FastAPI,
     store: CatalogFileStore,
     config: Any,
-    adapters: Dict[str, Any],
+    adapters: dict[str, Any],
 ) -> None:
     """Rebuild OpenAPI enrichment after catalog changes.
 
@@ -211,7 +209,7 @@ def _refresh_openapi_enrichment(
 def create_catalog_router(
     store: CatalogFileStore,
     config: Any = None,
-    adapters: Dict[str, Any] | None = None,
+    adapters: dict[str, Any] | None = None,
     app: FastAPI | None = None,
 ) -> APIRouter:
     """Create the catalog API router.

@@ -4,6 +4,7 @@ Supports OpenAI, Anthropic, Gemini, and Ollama providers.
 Each provider implements the same LLMProvider protocol.
 """
 
+import contextlib
 import os
 import time
 from abc import ABC, abstractmethod
@@ -314,10 +315,8 @@ class OllamaProvider(LLMProvider):
             if response.status_code == 404:
                 # Ollama returns 404 when the model is not found
                 body = {}
-                try:
+                with contextlib.suppress(Exception):
                     body = response.json()
-                except Exception:
-                    pass
                 error_msg = body.get("error", "")
                 raise LLMGenerationError(
                     f"Ollama model '{self.model}' not found. "

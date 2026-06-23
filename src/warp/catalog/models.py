@@ -8,7 +8,7 @@ the enriched, LLM-augmented view of the database structure.
 from collections import Counter
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -73,7 +73,7 @@ class ForeignKeyInfo(BaseModel):
     column: str = Field(..., description="Source column name")
     references_table: str = Field(..., description="Referenced table name")
     references_column: str = Field(..., description="Referenced column name")
-    constraint_name: Optional[str] = Field(default=None, description="FK constraint name")
+    constraint_name: str | None = Field(default=None, description="FK constraint name")
 
 
 class IndexInfo(BaseModel):
@@ -109,33 +109,33 @@ class ColumnCatalogEntry(BaseModel):
 
     name: str = Field(..., description="Column name")
     data_type: str = Field(..., description="SQL data type")
-    full_type: Optional[str] = Field(default=None, description="Full SQL type with length/precision")
+    full_type: str | None = Field(default=None, description="Full SQL type with length/precision")
     description: LocalizedText = Field(
         default_factory=LocalizedText,
         description="Column description (merged from DB comment + LLM)",
     )
-    semantic_type: Optional[str] = Field(
+    semantic_type: str | None = Field(
         default=None,
         description="Semantic type: email, user_id, amount, status, phone, url, etc.",
     )
     nullable: bool = Field(default=True, description="Is nullable")
     is_primary_key: bool = Field(default=False, description="Is part of primary key")
     is_foreign_key: bool = Field(default=False, description="Is a foreign key column")
-    references: Optional[str] = Field(
+    references: str | None = Field(
         default=None,
         description="FK reference in format 'table.column'",
     )
-    default_value: Optional[str] = Field(default=None, description="Default value expression")
+    default_value: str | None = Field(default=None, description="Default value expression")
     tags: list[str] = Field(default_factory=list, description="Column tags")
     sample_values: list[Any] = Field(
         default_factory=list,
         description="Sample values from the database",
     )
-    db_comment: Optional[str] = Field(
+    db_comment: str | None = Field(
         default=None,
         description="Original comment from database (COMMENT ON COLUMN)",
     )
-    generated_description: Optional[LocalizedText] = Field(
+    generated_description: LocalizedText | None = Field(
         default=None,
         description="LLM-generated description (before merging)",
     )
@@ -166,7 +166,7 @@ class TableCatalogEntry(BaseModel):
         default_factory=list,
         description="Column catalog entries",
     )
-    primary_key: Optional[str | list[str]] = Field(
+    primary_key: str | list[str] | None = Field(
         default=None,
         description="Primary key column(s)",
     )
@@ -182,16 +182,16 @@ class TableCatalogEntry(BaseModel):
         default_factory=list,
         description="Enriched relationship descriptions",
     )
-    row_count: Optional[int] = Field(
+    row_count: int | None = Field(
         default=None,
         description="Approximate row count",
     )
     tags: list[str] = Field(default_factory=list, description="Table tags")
-    db_comment: Optional[str] = Field(
+    db_comment: str | None = Field(
         default=None,
         description="Original comment from database (COMMENT ON TABLE)",
     )
-    generated_description: Optional[LocalizedText] = Field(
+    generated_description: LocalizedText | None = Field(
         default=None,
         description="LLM-generated description (before merging)",
     )
@@ -205,7 +205,7 @@ class TableCatalogEntry(BaseModel):
         "Keys: description, human_name, tags, relationships, columns (nested)",
     )
 
-    def get_column(self, name: str) -> Optional[ColumnCatalogEntry]:
+    def get_column(self, name: str) -> ColumnCatalogEntry | None:
         """Get a column by name."""
         for col in self.columns:
             if col.name == name:
@@ -217,7 +217,7 @@ class TableCatalogEntry(BaseModel):
         return [col.name for col in self.columns]
 
     @property
-    def pk_column(self) -> Optional[str]:
+    def pk_column(self) -> str | None:
         """Get primary key column name (first if composite)."""
         if isinstance(self.primary_key, str):
             return self.primary_key
@@ -249,7 +249,7 @@ class DatabaseCatalog(BaseModel):
         default_factory=lambda: datetime.now(UTC),
         description="When this catalog was generated",
     )
-    updated_at: Optional[datetime] = Field(
+    updated_at: datetime | None = Field(
         default=None,
         description="When this catalog was last updated",
     )
@@ -258,11 +258,11 @@ class DatabaseCatalog(BaseModel):
         default_factory=lambda: ["en"],
         description="Languages available in this catalog",
     )
-    llm_provider: Optional[str] = Field(
+    llm_provider: str | None = Field(
         default=None,
         description="LLM provider used for generation (e.g., openai, anthropic)",
     )
-    llm_model: Optional[str] = Field(
+    llm_model: str | None = Field(
         default=None,
         description="LLM model used for generation",
     )
@@ -271,7 +271,7 @@ class DatabaseCatalog(BaseModel):
         description="Catalog status: draft or approved",
     )
 
-    def get_table(self, name: str) -> Optional[TableCatalogEntry]:
+    def get_table(self, name: str) -> TableCatalogEntry | None:
         """Get a table catalog entry by name."""
         return self.tables.get(name)
 
@@ -307,7 +307,7 @@ class CatalogIndexEntry(BaseModel):
     table_count: int = 0
     languages: list[str] = Field(default_factory=lambda: ["en"])
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
     file_path: str = ""
     version: str = "1.0.0"
     status: str = Field(default="draft", description="Catalog status: draft or approved")

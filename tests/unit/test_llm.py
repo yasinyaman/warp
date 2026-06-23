@@ -5,10 +5,10 @@ import pytest
 from warp.config.settings import Settings
 from warp.core.exceptions import LLMProviderNotFoundError
 from warp.llm.client import (
+    PROVIDER_REGISTRY,
     LLMClient,
     LLMProvider,
     create_llm_provider,
-    PROVIDER_REGISTRY,
 )
 
 

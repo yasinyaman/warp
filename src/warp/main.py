@@ -8,26 +8,24 @@ import asyncio
 import os
 import time
 from contextlib import asynccontextmanager
-from typing import Dict, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from warp import __version__
+from warp.api.auth import init_auth_manager
+from warp.api.catalog_router import _refresh_openapi_enrichment, create_catalog_router
+from warp.api.query import create_query_router
+from warp.api.router_factory import RouterFactory
+from warp.catalog.store import CatalogFileStore
 from warp.config.settings import Settings, load_config, validate_production_config
 from warp.core.exceptions import AutoCrudException, ConfigurationError, DatabaseConnectionError
-from warp.core.logging import setup_logging, get_logger
+from warp.core.logging import get_logger, setup_logging
 from warp.database.base import DatabaseAdapter
 from warp.database.factory import DatabaseFactory
 from warp.schema.analyzer import SchemaAnalyzer
 from warp.schema.models import DatabaseSchema
-from warp.api.router_factory import RouterFactory
-from warp.api.query import create_query_router
-from warp.api.auth import AuthManager, init_auth_manager
-from warp.api.catalog_router import create_catalog_router, _refresh_openapi_enrichment
-from warp.catalog.store import CatalogFileStore
-
 
 # Environment configuration
 APP_ENV = os.getenv("APP_ENV", "development")
@@ -43,9 +41,9 @@ logger = get_logger(__name__)
 # Application state
 class AppState:
     """Container for application state."""
-    settings: Optional[Settings] = None
-    databases: Dict[str, DatabaseAdapter] = {}
-    schemas: Dict[str, DatabaseSchema] = {}
+    settings: Settings | None = None
+    databases: dict[str, DatabaseAdapter] = {}
+    schemas: dict[str, DatabaseSchema] = {}
     is_ready: bool = False
 
 
@@ -158,7 +156,7 @@ async def lifespan(app: FastAPI):
                 # Create routers for all tables
                 # Use db_name when multiple databases are configured
                 use_db_name = db_name if len(state.settings.databases) > 1 else None
-                
+
                 router_factory = RouterFactory(
                     db=adapter,
                     schema_analyzer=analyzer,
@@ -170,10 +168,10 @@ async def lifespan(app: FastAPI):
                 )
 
                 routers = router_factory.create_routers_for_all_tables(schema.tables)
-                
+
                 # Use db_name prefix when multiple databases are configured
                 db_prefix = f"/{db_name}" if len(state.settings.databases) > 1 else ""
-                
+
                 for router in routers:
                     app.include_router(
                         router,
@@ -251,7 +249,6 @@ def create_app() -> FastAPI:
     """
     # Determine docs URL based on environment
     docs_url = "/docs" if APP_ENV != "production" else None
-    redoc_url = "/redoc" if APP_ENV != "production" else None
 
     app = FastAPI(
         title="Warp Engine",
@@ -301,7 +298,7 @@ GET /api/v1/users?limit=20&offset=40
 
     # Custom /docs and /redoc with cache-busting for OpenAPI JSON
     if docs_url:
-        from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+        from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
         @app.get("/docs", include_in_schema=False)
         async def custom_swagger_ui():

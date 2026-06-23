@@ -1,7 +1,7 @@
 """
 Dynamic router factory for generating CRUD endpoints for database tables.
 """
-from typing import Any, Dict, List, Optional, Type
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -12,7 +12,7 @@ from ..database.base import DatabaseAdapter
 from ..schema.analyzer import SchemaAnalyzer
 from ..schema.models import TableSchema
 from ..utils.filtering import parse_filters_from_request
-from ..utils.pagination import PaginationParams, PaginatedResponse
+from ..utils.pagination import PaginatedResponse, PaginationParams
 from ..utils.sorting import parse_sort_from_request
 from .auth import AuthManager, Permission
 from .crud import CRUDOperations
@@ -23,28 +23,28 @@ logger = get_logger(__name__)
 def convert_id_type(value: str, column_type: str) -> Any:
     """
     Convert string id to the appropriate type based on column type.
-    
+
     Args:
         value: The string value to convert.
         column_type: The database column type.
-    
+
     Returns:
         The converted value.
     """
     column_type_lower = column_type.lower()
-    
+
     # Integer types
     if any(t in column_type_lower for t in ['int', 'serial', 'bigint', 'smallint']):
         return int(value)
-    
+
     # Float types
     if any(t in column_type_lower for t in ['float', 'double', 'decimal', 'numeric', 'real']):
         return float(value)
-    
+
     # UUID type
     if 'uuid' in column_type_lower:
         return str(value)  # Keep as string for UUID
-    
+
     # Default to string
     return value
 
@@ -67,9 +67,9 @@ class RouterFactory:
         schema_analyzer: SchemaAnalyzer,
         default_limit: int = 50,
         max_limit: int = 1000,
-        db_name: Optional[str] = None,
-        auth_manager: Optional[AuthManager] = None,
-        readonly_columns: Optional[List[str]] = None
+        db_name: str | None = None,
+        auth_manager: AuthManager | None = None,
+        readonly_columns: list[str] | None = None
     ):
         """
         Initialize the router factory.
@@ -90,12 +90,12 @@ class RouterFactory:
         self.db_name = db_name
         self.auth_manager = auth_manager
         self.readonly_columns = readonly_columns or []
-        self._crud_instances: Dict[str, CRUDOperations] = {}
+        self._crud_instances: dict[str, CRUDOperations] = {}
 
     def create_router(
         self,
         table_schema: TableSchema,
-        models: Optional[Dict[str, Type[BaseModel]]] = None
+        models: dict[str, type[BaseModel]] | None = None
     ) -> APIRouter:
         """
         Create a CRUD router for a single table.
@@ -111,7 +111,7 @@ class RouterFactory:
         table_name = table_schema.table_name
         pk_column = table_schema.pk_column or "id"
         column_names = table_schema.get_column_names()
-        
+
         # Get PK column type for proper type conversion
         pk_col_schema = table_schema.get_column(pk_column)
         pk_type = pk_col_schema.type if pk_col_schema else "integer"
@@ -127,7 +127,7 @@ class RouterFactory:
         tag_name = table_name.replace("_", " ").title()
         if self.db_name:
             tag_name = f"{self.db_name} - {tag_name}"
-        
+
         router = APIRouter(
             prefix=f"/{table_name}",
             tags=[tag_name]
@@ -139,7 +139,7 @@ class RouterFactory:
         UpdateModel = models.get("update")
 
         # Auth dependencies
-        def get_auth_deps(permission: Permission) -> List:
+        def get_auth_deps(permission: Permission) -> list:
             if self.auth_manager and self.auth_manager.enabled:
                 return [Depends(self.auth_manager.require(permission))]
             return []
@@ -187,11 +187,11 @@ Retrieve a paginated list of {table_name} records.
                 ge=0,
                 description="Number of records to skip"
             ),
-            sort: Optional[str] = Query(
+            sort: str | None = Query(
                 default=None,
                 description="Sort order (e.g., 'name:asc,created_at:desc')"
             ),
-            fields: Optional[str] = Query(
+            fields: str | None = Query(
                 default=None,
                 description="Comma-separated list of fields to return"
             )
@@ -234,14 +234,14 @@ Retrieve a paginated list of {table_name} records.
         )
         async def get_record(
             id: str,
-            fields: Optional[str] = Query(
+            fields: str | None = Query(
                 default=None,
                 description="Comma-separated list of fields to return"
             )
         ):
             # Convert id to proper type
             typed_id = convert_id_type(id, pk_type)
-            
+
             # Parse fields
             columns = None
             if fields:
@@ -288,7 +288,7 @@ Retrieve a paginated list of {table_name} records.
         async def update_record(id: str, data: UpdateModel):
             # Convert id to proper type
             typed_id = convert_id_type(id, pk_type)
-            
+
             # Check if exists
             if not await crud.exists(typed_id):
                 raise HTTPException(
@@ -317,7 +317,7 @@ Retrieve a paginated list of {table_name} records.
         async def patch_record(id: str, data: UpdateModel):
             # Convert id to proper type
             typed_id = convert_id_type(id, pk_type)
-            
+
             # Check if exists
             if not await crud.exists(typed_id):
                 raise HTTPException(
@@ -346,7 +346,7 @@ Retrieve a paginated list of {table_name} records.
         async def delete_record(id: str):
             # Convert id to proper type
             typed_id = convert_id_type(id, pk_type)
-            
+
             deleted = await crud.delete(typed_id)
 
             if not deleted:
@@ -361,8 +361,8 @@ Retrieve a paginated list of {table_name} records.
 
     def create_routers_for_all_tables(
         self,
-        table_schemas: Dict[str, TableSchema]
-    ) -> List[APIRouter]:
+        table_schemas: dict[str, TableSchema]
+    ) -> list[APIRouter]:
         """
         Create routers for all tables.
 
@@ -374,7 +374,7 @@ Retrieve a paginated list of {table_name} records.
         """
         routers = []
 
-        for table_name, schema in table_schemas.items():
+        for _table_name, schema in table_schemas.items():
             router = self.create_router(schema)
             routers.append(router)
 

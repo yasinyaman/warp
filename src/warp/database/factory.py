@@ -1,15 +1,13 @@
 """
 Database factory for creating database adapters.
 """
-from typing import Dict, Type
 
 from .base import DatabaseAdapter
-from .postgres import PostgreSQLAdapter
 from .mysql import MySQLAdapter
-
+from .postgres import PostgreSQLAdapter
 
 # Registry of available database adapters
-ADAPTERS: Dict[str, Type[DatabaseAdapter]] = {
+ADAPTERS: dict[str, type[DatabaseAdapter]] = {
     "postgresql": PostgreSQLAdapter,
     "postgres": PostgreSQLAdapter,
     "mysql": MySQLAdapter,
@@ -60,7 +58,7 @@ class DatabaseFactory:
         return adapter_class(config)
 
     @staticmethod
-    def register(db_type: str, adapter_class: Type[DatabaseAdapter]) -> None:
+    def register(db_type: str, adapter_class: type[DatabaseAdapter]) -> None:
         """
         Register a new database adapter type.
 
