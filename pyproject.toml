@@ -6,7 +6,7 @@ readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 authors = [
-    { name = "Warp Team" }
+    { name = "Yasin Yaman", email = "yasnyaman@gmail.com" }
 ]
 keywords = [
     "fastapi",
@@ -23,7 +23,7 @@ classifiers = [
     "Environment :: Web Environment",
     "Framework :: FastAPI",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -75,10 +75,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourorg/warp"
-Documentation = "https://github.com/yourorg/warp#readme"
-Repository = "https://github.com/yourorg/warp"
-Issues = "https://github.com/yourorg/warp/issues"
+Homepage = "https://github.com/yasinyaman/warp"
+Documentation = "https://github.com/yasinyaman/warp#readme"
+Repository = "https://github.com/yasinyaman/warp"
+Issues = "https://github.com/yasinyaman/warp/issues"
 
 [project.scripts]
 warp = "warp.main:main"

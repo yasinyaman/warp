@@ -27,7 +27,7 @@ Warp connects to your database, discovers tables and columns, and generates a fu
 ### Using Docker Compose
 
 ```bash
-git clone https://github.com/yourorg/warp.git
+git clone https://github.com/yasinyaman/warp.git
 cd warp
 
 # Start all services (API + PostgreSQL + MySQL + Adminer)
@@ -95,7 +95,7 @@ settings:
   pagination:
     default_limit: 50
     max_limit: 1000
-  enable_raw_query: true
+  enable_raw_query: false   # opt-in only; refused at startup in production
   api_prefix: /api/v1
 
   # Catalog Intelligence
@@ -464,7 +464,7 @@ warp/
 
 ```bash
 # Clone repository
-git clone https://github.com/yourorg/warp.git
+git clone https://github.com/yasinyaman/warp.git
 cd warp
 
 # Create virtual environment
@@ -513,6 +513,35 @@ docker-compose up -d --build
 | `OPENAI_API_KEY` | - | OpenAI API key (fallback if LLM_API_KEY not set) |
 | `ANTHROPIC_API_KEY` | - | Anthropic API key (fallback if LLM_API_KEY not set) |
 | `GOOGLE_API_KEY` | - | Google/Gemini API key (fallback if LLM_API_KEY not set) |
+
+## Production Deployment (secure defaults)
+
+Warp fails safe: when `APP_ENV=production` the app **refuses to start** with
+unsafe configuration. Production checklist:
+
+1. **Secrets via environment, never in the repo.** Copy `.env.example` → `.env`
+   (gitignored) and set strong values. Never commit real credentials/keys.
+2. **`APP_ENV=production`** — disables `/docs` & `/redoc`, switches logs to JSON,
+   and enables the startup safety checks below.
+3. **Authentication on** — `settings.auth.enabled: true` with real API keys via
+   `API_KEY_*` env vars. Startup is refused if auth is off in production.
+4. **Explicit CORS allowlist** — `CORS_ORIGINS=https://app.example.com,...`.
+   `*` is rejected in production (credentials are only sent with an explicit
+   allowlist).
+5. **Raw SQL endpoint off** — `enable_raw_query: false` (default). Startup is
+   refused if enabled in production; if you must enable it, point the connection
+   at a **read-only** database role.
+6. **Run the production image** — the `Dockerfile` is multi-stage, runs as a
+   non-root user, ships no dev dependencies, and has no `--reload`. Mount a
+   hardened `config/database.yaml` and pass secrets via the environment.
+7. **Reproducible installs** — `uv pip sync requirements.lock` for deterministic,
+   hash-verified dependencies.
+8. **Least-privilege DB account** — grant only what the API needs; restrict
+   write access to tables that should be writable.
+
+Parameterized queries, mass-assignment protection, timing-safe API-key checks,
+and PII masking before any cloud LLM call are on by default — see
+[SECURITY.md](SECURITY.md). To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
