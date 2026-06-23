@@ -350,7 +350,9 @@ GET /api/v1/users?limit=20&offset=40
         )
 
     # Health check endpoint (Kubernetes/Docker compatible)
-    @app.get("/health", tags=["Health"])
+    # response_model=None: the handler returns dict | JSONResponse (a union that
+    # FastAPI cannot build a response model from).
+    @app.get("/health", tags=["Health"], response_model=None)
     async def health_check() -> dict[str, Any] | JSONResponse:
         """
         Health check endpoint for container orchestration.
@@ -383,7 +385,7 @@ GET /api/v1/users?limit=20&offset=40
         return response
 
     # Readiness probe (Kubernetes)
-    @app.get("/ready", tags=["Health"])
+    @app.get("/ready", tags=["Health"], response_model=None)
     async def readiness_check() -> dict[str, Any] | JSONResponse:
         """
         Readiness probe for Kubernetes.
