@@ -47,12 +47,14 @@ pip install -e ".[dev,llm]"
 #### Reproducible installs (pinned + hashed)
 
 `pyproject.toml` keeps flexible `>=` ranges for library consumers. For
-reproducible environments (CI, Docker, audits), `requirements.lock` pins exact
-versions with hashes. Regenerate it with [uv](https://docs.astral.sh/uv/):
+reproducible environments, two hash-pinned lock files are committed:
+`requirements.lock` (all extras; CI and local dev) and `requirements-prod.lock`
+(runtime + `llm` only; the Docker image). Install from them with
+[uv](https://docs.astral.sh/uv/) and regenerate with `make lock`:
 
 ```bash
-uv pip compile pyproject.toml --all-extras --universal --generate-hashes -o requirements.lock
-uv pip sync requirements.lock        # or: pip install --require-hashes -r requirements.lock
+uv pip sync --require-hashes requirements.lock   # or: pip install --require-hashes -r requirements.lock
+uv pip install --no-deps -e .
 ```
 
 ```bash

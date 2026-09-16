@@ -1,15 +1,20 @@
 # Warp Engine - Production Dockerfile (multi-stage)
 #
-# Stage 1 (builder) compiles dependencies into an isolated venv using build
-# tooling that is NOT shipped in the final image. Stage 2 (runtime) copies only
-# the venv + application code, runs as a non-root user, and has no dev extras
-# and no hot-reload.
+# Stage 1 (builder) installs the *runtime* dependency set from the hashed,
+# universal lock file (`requirements-prod.lock`, generated with
+# `make lock`) into an isolated venv using uv. Every wheel is hash-verified,
+# so the image is reproducible and tamper-evident (see ADR-0003).
+# Stage 2 (runtime) copies only the venv + application code, runs as a
+# non-root user, and has no dev extras and no hot-reload.
 #
 # For local development the hot-reload command and source mounts are provided by
 # docker-compose.yml, which overrides APP_ENV and the container command.
 
 # ---- Stage 1: builder ----
 FROM python:3.11-slim AS builder
+
+# uv: pinned release, copied from the official distroless image.
+COPY --from=ghcr.io/astral-sh/uv:0.12.15 /uv /bin/uv
 
 WORKDIR /app
 
@@ -18,13 +23,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install runtime dependencies (+ llm extra) into a self-contained venv.
-# The "dev" extra (pytest/ruff/mypy/...) is intentionally NOT installed.
+# 1) Dependencies only, from the hashed runtime lock (cached layer).
+COPY requirements-prod.lock ./
+RUN uv venv /opt/venv \
+    && uv pip sync --python /opt/venv/bin/python --require-hashes requirements-prod.lock
+
+# 2) The application itself, without re-resolving dependencies.
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN python -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
-    && /opt/venv/bin/pip install --no-cache-dir ".[llm]"
+RUN uv pip install --python /opt/venv/bin/python --no-deps --no-cache .
 
 # ---- Stage 2: runtime ----
 FROM python:3.11-slim AS runtime
