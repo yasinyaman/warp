@@ -230,6 +230,30 @@ fail_under = 80
 root_package = "warp"
 include_external_packages = true
 
+# Entry points and the composition root sit on top; adapters may only reach
+# down into the application and domain; the application knows nothing about
+# adapters; the domain knows nothing about anything.
+[[tool.importlinter.contracts]]
+name = "hexagonal layers"
+type = "layers"
+layers = [
+    "warp.main | warp.cli",
+    "warp.infrastructure",
+    "warp.adapters",
+    "warp.application",
+    "warp.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "inbound and outbound adapters are independent"
+type = "independence"
+modules = ["warp.adapters.inbound", "warp.adapters.outbound"]
+
+[[tool.importlinter.contracts]]
+name = "http and cli adapters are independent"
+type = "independence"
+modules = ["warp.adapters.inbound.http", "warp.adapters.inbound.cli"]
+
 [[tool.importlinter.contracts]]
 name = "domain is framework-free and imports nothing above it"
 type = "forbidden"

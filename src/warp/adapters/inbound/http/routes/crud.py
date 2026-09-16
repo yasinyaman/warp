@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from warp.adapters.inbound.http.auth import AuthManager, Permission
-from warp.adapters.outbound.db.base import DatabaseAdapter
+from warp.application.ports.database import DatabaseGateway
 from warp.application.services.crud import CRUDOperations
 from warp.application.services.schema_discovery import SchemaAnalyzer
 from warp.domain.errors import ValidationError
@@ -60,7 +60,7 @@ class RouterFactory:
 
     def __init__(
         self,
-        db: DatabaseAdapter,
+        db: DatabaseGateway,
         schema_analyzer: SchemaAnalyzer,
         default_limit: int = 50,
         max_limit: int = 1000,

@@ -11,9 +11,9 @@ from pathlib import Path
 import yaml
 from click.testing import CliRunner
 
-from warp.adapters.inbound.cli.main import main
 from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
 from warp.application.services.catalog_review import CatalogReviewService
+from warp.cli import main  # the entry point: container factory injected
 from warp.domain.catalog import (
     ColumnCatalogEntry,
     DatabaseCatalog,

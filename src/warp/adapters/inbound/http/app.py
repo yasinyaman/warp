@@ -1,72 +1,69 @@
-"""Warp Engine - Main Application Entry Point.
+"""FastAPI application factory and lifespan (inbound HTTP adapter).
 
-Automatically generates REST CRUD endpoints from database schema.
-Production-ready with connection retry, proper error handling, and logging.
+`create_app()` takes a *container factory* so that this module never builds
+outbound adapters itself; `warp.main` supplies the factory from the
+composition root.
 """
 
 import asyncio
 import logging
-import os
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.types import Lifespan
 
 from warp import __version__
-from warp.adapters.inbound.http.auth import AuthManager, Permission, init_auth_manager
+from warp.adapters.inbound.http.auth import AuthManager, Permission
 from warp.adapters.inbound.http.routes.catalog import (
     _refresh_openapi_enrichment,
     create_catalog_router,
 )
 from warp.adapters.inbound.http.routes.crud import RouterFactory
 from warp.adapters.inbound.http.routes.query import create_query_router
-from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-from warp.adapters.outbound.db.base import DatabaseAdapter
-from warp.adapters.outbound.db.factory import DatabaseFactory
-from warp.application.config import Settings, validate_production_config
+from warp.application.config import RuntimeEnv, Settings, validate_production_config
+from warp.application.container import Container
+from warp.application.ports.database import DatabaseGateway
 from warp.application.services.schema_discovery import SchemaAnalyzer
 from warp.domain.errors import ConfigurationError, DatabaseConnectionError, WarpError
 from warp.domain.schema import DatabaseSchema
-from warp.infrastructure.config_loader import load_config
-from warp.infrastructure.logging import setup_logging
 
-# Environment configuration
-APP_ENV = os.getenv("APP_ENV", "development")
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-LOG_FORMAT = os.getenv("LOG_FORMAT", "json" if APP_ENV == "production" else "colored")
-CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()]
-
-# Setup logging
-setup_logging(level=LOG_LEVEL, json_format=(LOG_FORMAT == "json"))
 logger = logging.getLogger(__name__)
 
+ContainerFactory = Callable[[], Container]
 
-# Application state
-class AppState:
-    """Container for application state."""
 
+@dataclass
+class RuntimeContext:
+    """What the lifespan built; stored on `app.state.runtime`."""
+
+    env: RuntimeEnv
+    container: Container | None = None
     settings: Settings | None = None
     auth_manager: AuthManager | None = None
-    databases: dict[str, DatabaseAdapter] = {}
-    readonly_databases: dict[str, DatabaseAdapter] = {}
-    schemas: dict[str, DatabaseSchema] = {}
+    gateways: dict[str, DatabaseGateway] = field(default_factory=dict)
+    readonly_gateways: dict[str, DatabaseGateway] = field(default_factory=dict)
+    schemas: dict[str, DatabaseSchema] = field(default_factory=dict)
     is_ready: bool = False
 
 
-state = AppState()
+def runtime_of(app: FastAPI) -> RuntimeContext:
+    """The app's runtime context."""
+    return app.state.runtime  # type: ignore[no-any-return]
 
 
 async def connect_with_retry(
-    adapter: DatabaseAdapter, max_retries: int = 5, retry_delay: float = 2.0
+    gateway: DatabaseGateway, max_retries: int = 5, retry_delay: float = 2.0
 ) -> None:
     """Connect to database with exponential backoff retry.
 
     Args:
-        adapter: Database adapter to connect.
+        gateway: Database gateway to connect.
         max_retries: Maximum number of retry attempts.
         retry_delay: Initial delay between retries (doubles each attempt).
     """
@@ -74,208 +71,197 @@ async def connect_with_retry(
 
     for attempt in range(1, max_retries + 1):
         try:
-            logger.info(f"Connection attempt {attempt}/{max_retries} to {adapter.name}")
-            await adapter.connect()
-            logger.info(f"Successfully connected to {adapter.name}")
+            logger.info(f"Connection attempt {attempt}/{max_retries} to {gateway.name}")
+            await gateway.connect()
+            logger.info(f"Successfully connected to {gateway.name}")
             return
         except Exception as e:
             last_error = e
             if attempt < max_retries:
                 wait_time = retry_delay * (2 ** (attempt - 1))
                 logger.warning(
-                    f"Failed to connect to {adapter.name}: {e}. Retrying in {wait_time:.1f}s..."
+                    f"Failed to connect to {gateway.name}: {e}. Retrying in {wait_time:.1f}s..."
                 )
                 await asyncio.sleep(wait_time)
             else:
-                logger.error(f"All connection attempts to {adapter.name} failed")
+                logger.error(f"All connection attempts to {gateway.name} failed")
 
     raise DatabaseConnectionError(
-        f"Failed to connect to {adapter.name} after {max_retries} attempts",
+        f"Failed to connect to {gateway.name} after {max_retries} attempts",
         details={"last_error": str(last_error)},
     )
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912, PLR0915
-    """Application lifespan handler.
+async def _mount_database(  # noqa: PLR0913
+    app: FastAPI,
+    runtime: RuntimeContext,
+    container: Container,
+    db_config: Any,
+    auth_manager: AuthManager,
+    multi_db: bool,
+) -> None:
+    """Connect one configured database and mount its CRUD + raw-query routers."""
+    settings = container.settings.settings
+    db_name = db_config.name
+    logger.info(f"Connecting to database: {db_name} ({db_config.type})")
 
-    Handles startup (database connection, schema discovery) and
-    shutdown (cleanup) events.
-    """
-    logger.info(f"Starting Warp Engine v{__version__} (env={APP_ENV})...")
+    gateway = container.gateway_factory.create(db_config)
+    await connect_with_retry(gateway)
+    runtime.gateways[db_name] = gateway
 
-    # Load configuration
-    try:
-        config_path = os.getenv("CONFIG_PATH")
-        state.settings = load_config(config_path)
-        logger.info(f"Loaded configuration with {len(state.settings.databases)} database(s)")
-    except FileNotFoundError as e:
-        logger.error(f"Configuration error: {e}")
-        raise
+    if not settings.auto_discover_tables:
+        return
 
-    # Fail-safe: refuse to start in production with unsafe configuration.
-    violations = validate_production_config(state.settings, APP_ENV, CORS_ORIGINS)
-    if violations:
-        for violation in violations:
-            logger.error(f"Unsafe production configuration: {violation}")
-        raise ConfigurationError(
-            "Refusing to start in production with unsafe configuration",
-            details={"violations": violations},
-        )
+    analyzer = SchemaAnalyzer(gateway, excluded_tables=settings.excluded_tables)
+    schema = await analyzer.analyze()
+    runtime.schemas[db_name] = schema
 
-    # Initialize auth manager
-    auth_manager = init_auth_manager(state.settings.settings.auth)
-    state.auth_manager = auth_manager
-    if auth_manager.enabled:
-        logger.info(f"Authentication enabled with {auth_manager.api_key_count} API key(s)")
-    else:
-        logger.info("Authentication disabled - all endpoints are public")
+    table_names = schema.get_table_names()
+    logger.info(
+        f"Discovered {len(schema.tables)} tables in {db_name}: "
+        f"{', '.join(table_names[:10])}{'...' if len(table_names) > 10 else ''}"
+    )
 
-    # Connect to databases and discover schemas
-    for db_config in state.settings.databases:
-        db_name = db_config.name
-        logger.info(f"Connecting to database: {db_name} ({db_config.type})")
+    db_prefix = f"/{db_name}" if multi_db else ""
+    router_factory = RouterFactory(
+        db=gateway,
+        schema_analyzer=analyzer,
+        default_limit=settings.pagination.default_limit,
+        max_limit=settings.pagination.max_limit,
+        db_name=db_name if multi_db else None,
+        auth_manager=auth_manager,
+        readonly_columns=settings.readonly_columns,
+    )
+    for router in router_factory.create_routers_for_all_tables(schema.tables):
+        app.include_router(router, prefix=f"{settings.api_prefix}{db_prefix}")
 
-        try:
-            # Create adapter
-            adapter = DatabaseFactory.create(db_config.model_dump())
+    # Raw query endpoint: use a separate read-only connection when configured,
+    # so a whitelist bypass still cannot mutate data.
+    query_gateway = gateway
+    readonly_config = db_config.readonly_config()
+    if readonly_config and settings.enable_raw_query:
+        readonly_gateway = container.gateway_factory.create(readonly_config)
+        await connect_with_retry(readonly_gateway)
+        runtime.readonly_gateways[db_name] = readonly_gateway
+        query_gateway = readonly_gateway
+        logger.info(f"Raw query endpoint for {db_name} uses a read-only connection")
 
-            # Connect with retry mechanism
-            await connect_with_retry(adapter)
-            state.databases[db_name] = adapter
-
-            # Analyze schema
-            if state.settings.settings.auto_discover_tables:
-                analyzer = SchemaAnalyzer(
-                    adapter, excluded_tables=state.settings.settings.excluded_tables
-                )
-                schema = await analyzer.analyze()
-                state.schemas[db_name] = schema
-
-                table_names = schema.get_table_names()
-                logger.info(
-                    f"Discovered {len(schema.tables)} tables in {db_name}: "
-                    f"{', '.join(table_names[:10])}{'...' if len(table_names) > 10 else ''}"
-                )
-
-                # Create routers for all tables
-                # Use db_name when multiple databases are configured
-                use_db_name = db_name if len(state.settings.databases) > 1 else None
-
-                router_factory = RouterFactory(
-                    db=adapter,
-                    schema_analyzer=analyzer,
-                    default_limit=state.settings.settings.pagination.default_limit,
-                    max_limit=state.settings.settings.pagination.max_limit,
-                    db_name=use_db_name,
-                    auth_manager=auth_manager,
-                    readonly_columns=state.settings.settings.readonly_columns,
-                )
-
-                routers = router_factory.create_routers_for_all_tables(schema.tables)
-
-                # Use db_name prefix when multiple databases are configured
-                db_prefix = f"/{db_name}" if len(state.settings.databases) > 1 else ""
-
-                for router in routers:
-                    app.include_router(
-                        router, prefix=f"{state.settings.settings.api_prefix}{db_prefix}"
-                    )
-
-                # Raw query endpoint: use a separate read-only connection when
-                # configured, so a whitelist bypass still cannot mutate data.
-                query_adapter = adapter
-                readonly_config = db_config.readonly_config()
-                if readonly_config and state.settings.settings.enable_raw_query:
-                    readonly_adapter = DatabaseFactory.create(readonly_config)
-                    await connect_with_retry(readonly_adapter)
-                    state.readonly_databases[db_name] = readonly_adapter
-                    query_adapter = readonly_adapter
-                    logger.info(f"Raw query endpoint for {db_name} uses a read-only connection")
-
-                # Add raw query router
-                query_router = create_query_router(
-                    db=query_adapter,
-                    whitelist=state.settings.settings.raw_query_whitelist,
-                    enabled=state.settings.settings.enable_raw_query,
-                    auth_manager=auth_manager,
-                )
-                app.include_router(
-                    query_router,
-                    prefix=f"{state.settings.settings.api_prefix}{db_prefix}",
-                    tags=[f"{db_name} - Raw Query"]
-                    if len(state.settings.databases) > 1
-                    else ["Raw Query"],
-                )
-
-        except DatabaseConnectionError:
-            raise
-        except Exception as e:
-            logger.error(f"Failed to setup database {db_name}: {e}")
-            raise
-
-    # Register catalog router
-    catalog_store = None
-    try:
-        catalog_store = CatalogFileStore(
-            state.settings.settings.catalog.storage_path,
-            default_format=state.settings.settings.catalog.default_format,
-        )
-        catalog_router = create_catalog_router(
-            store=catalog_store,
-            config=state.settings,
-            adapters=state.databases,
-            app=app,
+    app.include_router(
+        create_query_router(
+            db=query_gateway,
+            whitelist=settings.raw_query_whitelist,
+            enabled=settings.enable_raw_query,
             auth_manager=auth_manager,
+        ),
+        prefix=f"{settings.api_prefix}{db_prefix}",
+        tags=[f"{db_name} - Raw Query"] if multi_db else ["Raw Query"],
+    )
+
+
+def _make_lifespan(  # noqa: C901
+    container_factory: ContainerFactory | None,
+) -> Lifespan[FastAPI]:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912, PLR0915
+        runtime = runtime_of(app)
+        env = runtime.env
+        logger.info(f"Starting Warp Engine v{__version__} (env={env.app_env})...")
+
+        if container_factory is None:
+            raise ConfigurationError(
+                "create_app() was called without a container_factory; "
+                "use warp.main:app or pass one explicitly"
+            )
+        container = container_factory()
+        runtime.container = container
+        runtime.settings = container.settings
+        logger.info(f"Loaded configuration with {len(container.settings.databases)} database(s)")
+
+        # Fail-safe: refuse to start in production with unsafe configuration.
+        violations = validate_production_config(
+            container.settings, env.app_env, list(env.cors_origins)
         )
-        app.include_router(
-            catalog_router,
-            prefix=state.settings.settings.api_prefix,
-        )
-        logger.info("Catalog API router registered")
-    except Exception as e:
-        logger.warning(f"Failed to initialize catalog router: {e}")
+        if violations:
+            for violation in violations:
+                logger.error(f"Unsafe production configuration: {violation}")
+            raise ConfigurationError(
+                "Refusing to start in production with unsafe configuration",
+                details={"violations": violations},
+            )
 
-    # Auto-enrich OpenAPI spec with catalog descriptions at startup
-    if catalog_store and state.databases:
+        auth_manager = AuthManager(container.settings.settings.auth)
+        runtime.auth_manager = auth_manager
+        if auth_manager.enabled:
+            logger.info(f"Authentication enabled with {auth_manager.api_key_count} API key(s)")
+        else:
+            logger.info("Authentication disabled - all endpoints are public")
+
+        multi_db = len(container.settings.databases) > 1
+        for db_config in container.settings.databases:
+            try:
+                await _mount_database(app, runtime, container, db_config, auth_manager, multi_db)
+            except DatabaseConnectionError:
+                raise
+            except Exception as e:
+                logger.error(f"Failed to setup database {db_config.name}: {e}")
+                raise
+
         try:
-            _refresh_openapi_enrichment(app, catalog_store, state.settings, state.databases)
+            app.include_router(
+                create_catalog_router(
+                    container=container,
+                    gateways=runtime.gateways,
+                    app=app,
+                    auth_manager=auth_manager,
+                ),
+                prefix=container.settings.settings.api_prefix,
+            )
+            logger.info("Catalog API router registered")
         except Exception as e:
-            logger.warning(f"Failed to setup OpenAPI auto-enrichment: {e}")
+            logger.warning(f"Failed to initialize catalog router: {e}")
 
-    state.is_ready = True
-    logger.info("Warp Engine started successfully!")
-    logger.info(f"API documentation available at: {state.settings.settings.docs_url}")
+        if runtime.gateways:
+            try:
+                _refresh_openapi_enrichment(app, container, runtime.gateways)
+            except Exception as e:
+                logger.warning(f"Failed to setup OpenAPI auto-enrichment: {e}")
 
-    yield
+        runtime.is_ready = True
+        logger.info("Warp Engine started successfully!")
+        logger.info(f"API documentation available at: {container.settings.settings.docs_url}")
 
-    # Shutdown: disconnect from databases
-    logger.info("Shutting down Warp Engine...")
-    state.is_ready = False
+        yield
 
-    for db_name, adapter in state.databases.items():
-        try:
-            await adapter.disconnect()
-            logger.info(f"Disconnected from {db_name}")
-        except Exception as e:
-            logger.error(f"Error disconnecting from {db_name}: {e}")
+        logger.info("Shutting down Warp Engine...")
+        runtime.is_ready = False
+        for label, gateways in (("", runtime.gateways), ("read-only ", runtime.readonly_gateways)):
+            for db_name, gateway in gateways.items():
+                try:
+                    await gateway.disconnect()
+                    logger.info(f"Disconnected {label}connection for {db_name}")
+                except Exception as e:
+                    logger.error(f"Error disconnecting {label}{db_name}: {e}")
 
-    for db_name, adapter in state.readonly_databases.items():
-        try:
-            await adapter.disconnect()
-            logger.info(f"Disconnected read-only connection for {db_name}")
-        except Exception as e:
-            logger.error(f"Error disconnecting read-only {db_name}: {e}")
+    return lifespan
 
 
-def create_app() -> FastAPI:  # noqa: C901
+def create_app(  # noqa: C901, PLR0915
+    container_factory: ContainerFactory | None = None,
+    env: RuntimeEnv | None = None,
+) -> FastAPI:
     """Create and configure the FastAPI application.
+
+    Args:
+        container_factory: Builds the `Container` when the app starts (lifespan).
+            Without it the app can be created (routes, docs, probes) but not
+            started.
+        env: Process environment; defaults to `RuntimeEnv.from_environ()`.
 
     Returns:
         Configured FastAPI application instance.
     """
-    # Determine docs URL based on environment
-    docs_url = "/docs" if APP_ENV != "production" else None
+    env = env or RuntimeEnv.from_environ()
+    docs_url = "/docs" if not env.is_production else None
 
     app = FastAPI(
         title="Warp Engine",
@@ -323,8 +309,9 @@ GET /api/v1/users?limit=20&offset=40
         # The spec route is registered explicitly below so it can be guarded
         # by the auth manager (it carries catalog descriptions/x-llm-context).
         openapi_url=None,
-        lifespan=lifespan,
+        lifespan=_make_lifespan(container_factory),
     )
+    app.state.runtime = RuntimeContext(env=env)
 
     @app.get("/openapi.json", include_in_schema=False)
     async def openapi_json(request: Request) -> JSONResponse:
@@ -334,7 +321,7 @@ GET /api/v1/users?limit=20&offset=40
         (the development default); otherwise a key with `read` permission is
         required, like any other endpoint.
         """
-        manager = state.auth_manager
+        manager = runtime_of(app).auth_manager
         if manager and manager.enabled:
             user = await manager.get_current_user(request)
             if user is not None and not user.has_permission(Permission.READ):
@@ -365,18 +352,17 @@ GET /api/v1/users?limit=20&offset=40
     # CORS middleware.
     # Browsers reject a "*" allowlist combined with credentials, so credentials
     # are only enabled when an explicit origin allowlist is configured.
-    allow_credentials = "*" not in CORS_ORIGINS
+    cors_origins = list(env.cors_origins)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=CORS_ORIGINS,
-        allow_credentials=allow_credentials,
+        allow_origins=cors_origins,
+        allow_credentials="*" not in cors_origins,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
-    # Global exception handler
     @app.exception_handler(WarpError)
-    async def auto_crud_exception_handler(request: Request, exc: WarpError) -> JSONResponse:
+    async def warp_error_handler(request: Request, exc: WarpError) -> JSONResponse:
         logger.error(f"Application error: {exc.message}")
         return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
@@ -388,7 +374,7 @@ GET /api/v1/users?limit=20&offset=40
             content={
                 "error": "InternalServerError",
                 "message": "An unexpected error occurred",
-                "details": {} if APP_ENV == "production" else {"error": str(exc)},
+                "details": {} if env.is_production else {"error": str(exc)},
             },
         )
 
@@ -403,27 +389,25 @@ GET /api/v1/users?limit=20&offset=40
             - 200: Service is healthy
             - 503: Service is unhealthy (database disconnected)
         """
+        runtime = runtime_of(app)
         db_status = {}
         all_healthy = True
 
-        for name, adapter in state.databases.items():
-            is_connected = adapter.is_connected
+        for name, gateway in runtime.gateways.items():
+            is_connected = gateway.is_connected
             db_status[name] = "connected" if is_connected else "disconnected"
             if not is_connected:
                 all_healthy = False
 
-        status = "healthy" if all_healthy and state.is_ready else "unhealthy"
-
+        status = "healthy" if all_healthy and runtime.is_ready else "unhealthy"
         response = {
             "status": status,
-            "ready": state.is_ready,
+            "ready": runtime.is_ready,
             "databases": db_status,
-            "environment": APP_ENV,
+            "environment": env.app_env,
         }
-
         if not all_healthy:
             return JSONResponse(status_code=503, content=response)
-
         return response
 
     # Readiness probe (Kubernetes)
@@ -433,11 +417,10 @@ GET /api/v1/users?limit=20&offset=40
 
         Returns 200 only when the application is fully ready to serve traffic.
         """
-        if not state.is_ready:
+        if not runtime_of(app).is_ready:
             return JSONResponse(
                 status_code=503, content={"ready": False, "message": "Application not ready"}
             )
-
         return {"ready": True}
 
     # Liveness probe (Kubernetes)
@@ -453,77 +436,40 @@ GET /api/v1/users?limit=20&offset=40
     @app.get("/info", tags=["Info"])
     async def api_info() -> dict[str, Any]:
         """Get API information and discovered tables."""
-        tables_info = {}
-        for db_name, schema in state.schemas.items():
-            tables_info[db_name] = {
-                "tables": schema.get_table_names(),
-                "table_count": len(schema.tables),
-            }
+        runtime = runtime_of(app)
+        tables_info = {
+            db_name: {"tables": schema.get_table_names(), "table_count": len(schema.tables)}
+            for db_name, schema in runtime.schemas.items()
+        }
 
-        # Catalog info
-        catalog_info = {}
-        if state.settings:
+        catalog_info: dict[str, Any] = {"available_catalogs": [], "catalog_count": 0}
+        settings = runtime.settings
+        if runtime.container is not None and settings is not None:
             try:
-                _store = CatalogFileStore(
-                    state.settings.settings.catalog.storage_path,
-                    default_format=state.settings.settings.catalog.default_format,
-                )
-                catalog_names = _store.list_catalogs()
+                names = runtime.container.repository.list_catalogs()
                 catalog_info = {
-                    "available_catalogs": catalog_names,
-                    "catalog_count": len(catalog_names),
-                    "storage_path": state.settings.settings.catalog.storage_path,
+                    "available_catalogs": names,
+                    "catalog_count": len(names),
+                    "storage_path": settings.settings.catalog.storage_path,
                 }
             except Exception:
-                catalog_info = {"available_catalogs": [], "catalog_count": 0}
+                pass
 
+        cfg = settings.settings if settings else None
         return {
             "name": "Warp Engine",
             "version": __version__,
-            "environment": APP_ENV,
+            "environment": env.app_env,
             "databases": tables_info,
             "catalog": catalog_info,
             "settings": {
-                "api_prefix": state.settings.settings.api_prefix if state.settings else "/api/v1",
+                "api_prefix": cfg.api_prefix if cfg else "/api/v1",
                 "pagination": {
-                    "default_limit": state.settings.settings.pagination.default_limit
-                    if state.settings
-                    else 50,
-                    "max_limit": state.settings.settings.pagination.max_limit
-                    if state.settings
-                    else 1000,
+                    "default_limit": cfg.pagination.default_limit if cfg else 50,
+                    "max_limit": cfg.pagination.max_limit if cfg else 1000,
                 },
-                "raw_query_enabled": state.settings.settings.enable_raw_query
-                if state.settings
-                else False,
+                "raw_query_enabled": cfg.enable_raw_query if cfg else False,
             },
         }
 
     return app
-
-
-# Create application instance
-app = create_app()
-
-
-def main() -> None:
-    """Entry point for the application."""
-    import uvicorn
-
-    host = os.getenv("API_HOST", "0.0.0.0")
-    port = int(os.getenv("API_PORT", "8000"))
-    workers = int(os.getenv("API_WORKERS", "1"))
-    reload = APP_ENV == "development"
-
-    uvicorn.run(
-        "warp.main:app",
-        host=host,
-        port=port,
-        workers=workers if not reload else 1,
-        reload=reload,
-        access_log=APP_ENV != "production",
-    )
-
-
-if __name__ == "__main__":
-    main()

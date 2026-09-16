@@ -17,11 +17,16 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from warp.adapters.inbound.http.auth import AuthManager, Permission
-from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-from warp.adapters.outbound.export.markdown import get_exporter
-from warp.application.services.catalog_review import CatalogReviewService
+from warp.application.container import Container
+from warp.application.ports.database import DatabaseGateway
 from warp.application.services.openapi_enrichment import OpenAPIEnricher
 from warp.domain.catalog_naming import CATALOG_NAME_PATTERN
+from warp.domain.errors import (
+    AnalysisError,
+    DatabaseNotConfiguredError,
+    LLMError,
+    UnsupportedExportFormatError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -172,15 +177,17 @@ class TableReviewDetail(BaseModel):
 
 def _refresh_openapi_enrichment(
     app: FastAPI,
-    store: CatalogFileStore,
-    config: Any,
-    adapters: dict[str, Any],
+    container: Container,
+    gateways: dict[str, DatabaseGateway],
 ) -> None:
     """Rebuild OpenAPI enrichment after catalog changes.
 
     Clears the cached OpenAPI schema and sets up a new enriched_openapi
     function using all available catalogs.
     """
+    store = container.repository
+    config = container.settings
+    adapters = gateways
     if not config or not config.settings.catalog.auto_enrich_openapi:
         logger.debug("OpenAPI enrichment disabled in config")
         return
@@ -240,9 +247,9 @@ def _refresh_openapi_enrichment(
 
 
 def create_catalog_router(  # noqa: C901, PLR0915
-    store: CatalogFileStore,
-    config: Any = None,
-    adapters: dict[str, Any] | None = None,
+    *,
+    container: Container,
+    gateways: dict[str, DatabaseGateway] | None = None,
     app: FastAPI | None = None,
     auth_manager: AuthManager | None = None,
 ) -> APIRouter:
@@ -255,9 +262,9 @@ def create_catalog_router(  # noqa: C901, PLR0915
         delete - DELETE /{db_name}
 
     Args:
-        store: CatalogFileStore instance
-        config: Settings instance (for analysis)
-        adapters: Dict of connected database adapters (for live analysis)
+        container: The wired application services (repository, review, export,
+            analysis).
+        gateways: Connected database gateways by name (for live analysis).
         app: FastAPI app instance (for OpenAPI enrichment refresh)
         auth_manager: Optional auth manager; when enabled every endpoint
             requires an API key with the matching permission.
@@ -265,8 +272,10 @@ def create_catalog_router(  # noqa: C901, PLR0915
     Returns:
         FastAPI APIRouter with catalog endpoints
     """
+    store = container.repository
+    review = container.review
+    adapters = gateways
     router = APIRouter(prefix="/catalog", tags=["Catalog"])
-    review = CatalogReviewService(store)
 
     def get_auth_deps(permission: Permission) -> list[Any]:
         if auth_manager and auth_manager.enabled:
@@ -359,22 +368,13 @@ def create_catalog_router(  # noqa: C901, PLR0915
             raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
 
         try:
-            exporter = get_exporter(format)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-
-        content = exporter.export_string(catalog, lang=lang)
-
-        content_types = {
-            "json": "application/json",
-            "yaml": "text/yaml",
-            "markdown": "text/markdown",
-            "md": "text/markdown",
-        }
+            content = container.export.render(catalog, format, lang=lang)
+        except UnsupportedExportFormatError as e:
+            raise HTTPException(status_code=400, detail=e.message) from e
 
         return Response(
             content=content,
-            media_type=content_types.get(format, "text/plain"),
+            media_type=container.export.media_type(format),
             headers={"Content-Disposition": f'attachment; filename="{db_name}_catalog.{format}"'},
         )
 
@@ -392,10 +392,10 @@ def create_catalog_router(  # noqa: C901, PLR0915
         The analysis runs synchronously within the request (one LLM call per
         table); the response is returned when the catalog has been written.
         """
-        if not config or not adapters:
+        if not adapters:
             raise HTTPException(
                 status_code=503,
-                detail="Analysis not available - config or adapters not initialized",
+                detail="Analysis not available - no database gateways are connected",
             )
 
         if request.database not in adapters:
@@ -404,14 +404,9 @@ def create_catalog_router(  # noqa: C901, PLR0915
                 detail=f"Database not connected: {request.database}",
             )
 
-        from warp.domain.errors import AnalysisError, DatabaseNotConfiguredError, LLMError
-        from warp.infrastructure.bootstrap import open_analysis
-
         adapter = adapters[request.database]
         try:
-            async with open_analysis(
-                config, request.database, repository=store, gateway=adapter
-            ) as analysis:
+            async with container.open_analysis(request.database, gateway=adapter) as analysis:
                 catalog = await analysis.analyze(
                     table_names=request.tables,
                     auto_approve=request.auto_approve,
@@ -419,7 +414,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
             # Refresh OpenAPI docs if catalog was auto-approved
             if catalog.status.value == "approved" and app and adapters:
-                _refresh_openapi_enrichment(app, store, config, adapters)
+                _refresh_openapi_enrichment(app, container, adapters)
 
             return AnalyzeResponse(
                 database=catalog.database_name,
@@ -677,7 +672,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
         # Refresh OpenAPI enrichment after approval
         if catalog.status.value == "approved" and app and adapters:
-            _refresh_openapi_enrichment(app, store, config, adapters)
+            _refresh_openapi_enrichment(app, container, adapters)
 
         return {
             "database": db_name,
@@ -703,7 +698,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         if catalog.all_tables_approved:
             catalog = review.approve_catalog(db_name)
             if app and adapters:
-                _refresh_openapi_enrichment(app, store, config, adapters)
+                _refresh_openapi_enrichment(app, container, adapters)
 
         return {
             "database": db_name,

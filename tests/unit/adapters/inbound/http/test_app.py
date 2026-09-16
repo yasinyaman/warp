@@ -1,18 +1,24 @@
-"""Tests for the FastAPI app factory, health/probe endpoints, and retry helper.
+"""Tests for the FastAPI app factory, lifespan, probes and the /openapi.json policy.
 
-Also a regression guard: create_app() must not raise at build time. A route
-whose return annotation is a union like ``dict | JSONResponse`` needs
-``response_model=None`` or FastAPI errors while building the app.
+The app is built with a container over fakes, so the real lifespan runs
+(connect -> discover -> mount routers -> disconnect) without a database.
 """
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import warp.adapters.inbound.http.app as main_module
-from warp.adapters.inbound.http.app import connect_with_retry, create_app
+from tests.conftest import MockDatabaseAdapter
+from warp.adapters.inbound.http.app import (
+    RuntimeContext,
+    connect_with_retry,
+    create_app,
+    runtime_of,
+)
 from warp.adapters.inbound.http.auth import AuthManager
-from warp.application.config import ApiKeyConfig, AuthConfig, Settings
-from warp.domain.errors import DatabaseConnectionError
+from warp.application.config import ApiKeyConfig, AuthConfig, DatabaseConfig, RuntimeEnv, Settings
+from warp.domain.errors import ConfigurationError, DatabaseConnectionError
+from warp.infrastructure.bootstrap import build_container
 
 
 class _Adapter:
@@ -32,67 +38,127 @@ class _Adapter:
             raise RuntimeError("boom")
 
 
-@pytest.fixture
-def state():
-    s = main_module.state
-    saved = (s.settings, dict(s.databases), dict(s.schemas), s.is_ready)
-    yield s
-    s.settings, s.databases, s.schemas, s.is_ready = (
-        saved[0],
-        dict(saved[1]),
-        dict(saved[2]),
-        saved[3],
+class FakeGatewayFactory:
+    """Hands out one prepared mock gateway and records the configs it saw."""
+
+    def __init__(self, gateway: MockDatabaseAdapter) -> None:
+        self.gateway = gateway
+        self.configs: list = []
+
+    def create(self, config):
+        self.configs.append(config)
+        return self.gateway
+
+    def get_supported_types(self):
+        return ["postgresql"]
+
+
+def _settings(tmp_path, **overrides) -> Settings:
+    return Settings(
+        databases=[DatabaseConfig(name="testdb", type="postgresql", database="d", username="u")],
+        settings={"catalog": {"storage_path": str(tmp_path / "catalogs")}, **overrides},
     )
 
 
-def _client() -> TestClient:
-    # Not used as a context manager, so the DB-connecting lifespan does not run.
-    return TestClient(create_app())
+def _app(container=None, env: RuntimeEnv | None = None) -> FastAPI:
+    factory = (lambda: container) if container is not None else None
+    return create_app(container_factory=factory, env=env or RuntimeEnv())
+
+
+def _client(container=None, env=None) -> TestClient:
+    # Not a context manager: the lifespan does not run.
+    return TestClient(_app(container, env))
 
 
 def test_create_app_does_not_raise():
     # Regression guard for the response_model union issue.
-    app = create_app()
+    app = _app()
     assert any(getattr(r, "path", None) == "/health" for r in app.routes)
+    assert isinstance(runtime_of(app), RuntimeContext)
 
 
 class TestProbes:
     def test_live(self):
         assert _client().get("/live").json() == {"alive": True}
 
-    def test_ready_true(self, state):
-        state.is_ready = True
-        r = _client().get("/ready")
+    def test_ready_true(self):
+        app = _app()
+        runtime_of(app).is_ready = True
+        r = TestClient(app).get("/ready")
         assert r.status_code == 200
         assert r.json()["ready"] is True
 
-    def test_ready_false(self, state):
-        state.is_ready = False
-        r = _client().get("/ready")
-        assert r.status_code == 503
+    def test_ready_false(self):
+        assert _client().get("/ready").status_code == 503
 
-    def test_health_healthy(self, state):
-        state.databases = {"db": _Adapter(connected=True)}
-        state.is_ready = True
-        r = _client().get("/health")
+    def test_health_healthy(self):
+        app = _app()
+        runtime_of(app).gateways = {"db": _Adapter(connected=True)}
+        runtime_of(app).is_ready = True
+        r = TestClient(app).get("/health")
         assert r.status_code == 200
         assert r.json()["status"] == "healthy"
 
-    def test_health_unhealthy_db(self, state):
-        state.databases = {"db": _Adapter(connected=False)}
-        state.is_ready = True
-        r = _client().get("/health")
+    def test_health_unhealthy_db(self):
+        app = _app()
+        runtime_of(app).gateways = {"db": _Adapter(connected=False)}
+        runtime_of(app).is_ready = True
+        r = TestClient(app).get("/health")
         assert r.status_code == 503
         assert r.json()["databases"]["db"] == "disconnected"
 
-    def test_info(self, state, tmp_path):
-        cfg = Settings()
-        cfg.settings.catalog.storage_path = str(tmp_path)
-        state.settings = cfg
-        state.schemas = {}
+    def test_info_before_startup(self):
         r = _client().get("/info")
         assert r.status_code == 200
         assert r.json()["name"] == "Warp Engine"
+        assert r.json()["catalog"]["catalog_count"] == 0
+
+
+class TestLifespan:
+    """The real startup/shutdown sequence over a fake gateway."""
+
+    def test_full_startup_and_shutdown(self, tmp_path, mock_db_with_data):
+        factory = FakeGatewayFactory(mock_db_with_data)
+        container = build_container(_settings(tmp_path), gateway_factory=factory)
+        app = _app(container)
+
+        with TestClient(app) as c:
+            runtime = runtime_of(app)
+            assert runtime.is_ready and runtime.container is container
+            assert [cfg.name for cfg in factory.configs] == ["testdb"]  # DatabaseConfig, not a dict
+            assert "testdb" in runtime.schemas
+            assert c.get("/health").json()["status"] == "healthy"
+            assert c.get("/api/v1/users").status_code == 200  # CRUD router mounted
+            assert c.get("/api/v1/catalog").status_code == 200  # catalog router mounted
+            assert c.post("/api/v1/query/execute", json={"query": "SELECT 1"}).status_code == 403
+            info = c.get("/info").json()
+            assert info["databases"]["testdb"]["table_count"] == 2
+
+        assert runtime_of(app).is_ready is False
+        assert mock_db_with_data.is_connected is False  # disconnected on shutdown
+
+    def test_missing_factory_refuses_to_start(self):
+        with pytest.raises(ConfigurationError), TestClient(_app()):
+            pass
+
+    def test_production_refuses_unsafe_config(self, tmp_path, mock_db):
+        container = build_container(
+            _settings(tmp_path), gateway_factory=FakeGatewayFactory(mock_db)
+        )
+        app = _app(container, env=RuntimeEnv(app_env="production", cors_origins=("*",)))
+        with pytest.raises(ConfigurationError, match="unsafe"), TestClient(app):
+            pass
+
+    def test_auth_enabled_guards_routes(self, tmp_path, mock_db_with_data):
+        settings = _settings(
+            tmp_path,
+            auth={"enabled": True, "api_keys": [{"key": "k", "permissions": ["all"]}]},
+        )
+        container = build_container(settings, gateway_factory=FakeGatewayFactory(mock_db_with_data))
+        with TestClient(_app(container)) as c:
+            assert c.get("/api/v1/users").status_code == 401
+            assert c.get("/api/v1/users", headers={"X-API-Key": "k"}).status_code == 200
+            assert c.get("/health").status_code == 200  # public
 
 
 class TestConnectWithRetry:
@@ -110,8 +176,7 @@ class TestConnectWithRetry:
 class TestOpenAPIRoute:
     """/openapi.json is an explicit route so the auth manager can guard it."""
 
-    def test_served_when_auth_disabled(self, state):
-        state.auth_manager = None
+    def test_served_when_auth_disabled(self):
         r = _client().get("/openapi.json")
         assert r.status_code == 200
         assert r.json()["info"]["title"] == "Warp Engine"
@@ -128,28 +193,47 @@ class TestOpenAPIRoute:
             )
         )
 
-    def test_requires_key_when_not_public(self, state):
-        state.auth_manager = self._manager(public=["/health"])
-        try:
-            c = _client()
-            assert c.get("/openapi.json").status_code == 401
-            assert c.get("/openapi.json", headers={"X-API-Key": "nope"}).status_code == 401
-            assert c.get("/openapi.json", headers={"X-API-Key": "query-key"}).status_code == 403
-            ok = c.get("/openapi.json", headers={"X-API-Key": "reader-key"})
-            assert ok.status_code == 200 and "paths" in ok.json()
-        finally:
-            state.auth_manager = None
+    def test_requires_key_when_not_public(self):
+        app = _app()
+        runtime_of(app).auth_manager = self._manager(public=["/health"])
+        c = TestClient(app)
+        assert c.get("/openapi.json").status_code == 401
+        assert c.get("/openapi.json", headers={"X-API-Key": "nope"}).status_code == 401
+        assert c.get("/openapi.json", headers={"X-API-Key": "query-key"}).status_code == 403
+        ok = c.get("/openapi.json", headers={"X-API-Key": "reader-key"})
+        assert ok.status_code == 200 and "paths" in ok.json()
 
-    def test_public_when_listed(self, state):
-        state.auth_manager = self._manager(public=["/health", "/openapi.json"])
-        try:
-            assert _client().get("/openapi.json").status_code == 200
-        finally:
-            state.auth_manager = None
+    def test_public_when_listed(self):
+        app = _app()
+        runtime_of(app).auth_manager = self._manager(public=["/health", "/openapi.json"])
+        assert TestClient(app).get("/openapi.json").status_code == 200
 
-    def test_production_hides_docs_but_keeps_spec_route(self, monkeypatch):
-        monkeypatch.setattr(main_module, "APP_ENV", "production")
-        app = create_app()
+    def test_production_hides_docs_but_keeps_spec_route(self):
+        app = _app(env=RuntimeEnv(app_env="production"))
         paths = {getattr(r, "path", None) for r in app.routes}
         assert "/docs" not in paths
         assert "/openapi.json" in paths
+
+
+class TestRuntimeEnv:
+    def test_from_environ_defaults(self):
+        env = RuntimeEnv.from_environ({})
+        assert env.app_env == "development" and not env.is_production
+        assert env.cors_origins == ("*",) and env.log_json is False
+
+    def test_from_environ_values(self):
+        env = RuntimeEnv.from_environ(
+            {
+                "APP_ENV": "production",
+                "CORS_ORIGINS": "https://a, https://b,",
+                "API_PORT": "9000",
+                "CONFIG_PATH": "/etc/warp.yaml",
+            }
+        )
+        assert env.is_production and env.log_json is True
+        assert env.cors_origins == ("https://a", "https://b")
+        assert env.api_port == 9000 and env.config_path == "/etc/warp.yaml"
+        assert (
+            RuntimeEnv.from_environ({"LOG_FORMAT": "colored", "APP_ENV": "production"}).log_json
+            is False
+        )

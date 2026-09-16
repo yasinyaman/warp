@@ -23,6 +23,7 @@ from warp.domain.catalog import (
     RelationshipInfo,
     TableCatalogEntry,
 )
+from warp.infrastructure.bootstrap import build_container
 
 
 def _make_catalog() -> DatabaseCatalog:
@@ -91,10 +92,15 @@ def store(tmp_path: Path) -> CatalogFileStore:
     return s
 
 
+def _container(store: CatalogFileStore, settings: Settings | None = None):
+    """Container over the test store; other adapters keep their defaults (unused here)."""
+    return build_container(settings or Settings(), repository=store)
+
+
 @pytest.fixture
 def client(store: CatalogFileStore) -> TestClient:
     app = FastAPI()
-    router = create_catalog_router(store=store, config=Settings(), adapters={}, app=app)
+    router = create_catalog_router(container=_container(store), gateways={}, app=app)
     app.include_router(router)
     return TestClient(app)
 
@@ -111,7 +117,7 @@ class TestListAndInfo:
     def test_list_catalogs_empty(self, tmp_path: Path) -> None:
         app = FastAPI()
         empty_store = CatalogFileStore(tmp_path / "empty")
-        app.include_router(create_catalog_router(store=empty_store))
+        app.include_router(create_catalog_router(container=_container(empty_store)))
         c = TestClient(app)
         r = c.get("/catalog")
         assert r.status_code == 200
@@ -333,10 +339,7 @@ class TestOpenAPIEnrichmentRefresh:
         config = Settings()
         config.settings.catalog.auto_enrich_openapi = True
         router = create_catalog_router(
-            store=store,
-            config=config,
-            adapters={"testdb": object()},
-            app=app,
+            container=_container(store, config), gateways={"testdb": object()}, app=app
         )
         app.include_router(router)
         return TestClient(app)
@@ -361,7 +364,7 @@ class TestOpenAPIEnrichmentRefresh:
         config = Settings()
         config.settings.catalog.auto_enrich_openapi = False
         router = create_catalog_router(
-            store=store, config=config, adapters={"testdb": object()}, app=app
+            container=_container(store, config), gateways={"testdb": object()}, app=app
         )
         app.include_router(router)
         client = TestClient(app)
@@ -375,7 +378,7 @@ class TestAnalyzeEarlyPaths:
     def test_analyze_no_adapters(self, store: CatalogFileStore) -> None:
         app = FastAPI()
         # config present but adapters empty -> 503
-        app.include_router(create_catalog_router(store=store, config=Settings(), adapters=None))
+        app.include_router(create_catalog_router(container=_container(store), gateways=None))
         c = TestClient(app)
         r = c.post("/catalog/analyze", json={"database": "testdb"})
         assert r.status_code == 503
@@ -383,7 +386,7 @@ class TestAnalyzeEarlyPaths:
     def test_analyze_db_not_connected(self, store: CatalogFileStore) -> None:
         app = FastAPI()
         app.include_router(
-            create_catalog_router(store=store, config=Settings(), adapters={"other": object()})
+            create_catalog_router(container=_container(store), gateways={"other": object()})
         )
         c = TestClient(app)
         r = c.post("/catalog/analyze", json={"database": "testdb"})
@@ -393,7 +396,7 @@ class TestAnalyzeEarlyPaths:
         # adapter named "testdb" exists, but no matching db in config.databases
         app = FastAPI()
         app.include_router(
-            create_catalog_router(store=store, config=Settings(), adapters={"testdb": object()})
+            create_catalog_router(container=_container(store), gateways={"testdb": object()})
         )
         c = TestClient(app)
         r = c.post("/catalog/analyze", json={"database": "testdb"})
@@ -442,7 +445,7 @@ def auth_client(store: CatalogFileStore) -> TestClient:
     app = FastAPI()
     app.include_router(
         create_catalog_router(
-            store=store, config=Settings(), adapters={}, app=app, auth_manager=_auth_manager()
+            container=_container(store), gateways={}, app=app, auth_manager=_auth_manager()
         )
     )
     return TestClient(app)
@@ -517,7 +520,9 @@ class TestAnalyzeErrorBodies:
         )
         app = FastAPI()
         app.include_router(
-            create_catalog_router(store=store, config=settings, adapters={"testdb": object()})
+            create_catalog_router(
+                container=_container(store, settings), gateways={"testdb": object()}
+            )
         )
         c = TestClient(app)
         with patch(

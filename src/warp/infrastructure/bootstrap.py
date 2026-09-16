@@ -1,7 +1,6 @@
-"""Composition root: builds adapters and wires them into application services."""
+"""Composition root: builds outbound adapters and wires the `Container`."""
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 
 from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
 from warp.adapters.outbound.db.comment_reader import CommentReader
@@ -10,14 +9,14 @@ from warp.adapters.outbound.db.sample_reader import SampleReader
 from warp.adapters.outbound.export.registry import default_exporters
 from warp.adapters.outbound.llm.providers import LLMClient
 from warp.application.config import DatabaseConfig, Settings
+from warp.application.container import AnalysisFactory, Container
 from warp.application.ports.catalog_repository import CatalogRepository
-from warp.application.ports.database import DatabaseGateway
+from warp.application.ports.database import DatabaseGateway, DatabaseGatewayFactory
 from warp.application.ports.text_generation import TextGenerator
 from warp.application.services.catalog_analysis import CatalogAnalysisService
 from warp.application.services.catalog_export import CatalogExportService
 from warp.application.services.catalog_review import CatalogReviewService
 from warp.application.services.cross_reference import CrossReferenceService
-from warp.application.services.pipeline import PipelineService
 
 
 def build_repository(settings: Settings) -> CatalogFileStore:
@@ -43,7 +42,6 @@ def build_analysis_service(
 ) -> CatalogAnalysisService:
     """Wire readers, review and cross-reference around a connected gateway."""
     schema = "public" if db_config.type == "postgresql" else db_config.database
-    review = CatalogReviewService(repository)
     cross_reference = (
         CrossReferenceService(repository, exclude_db=db_config.name)
         if settings.settings.catalog.auto_cross_reference
@@ -57,56 +55,42 @@ def build_analysis_service(
             gateway, db_type=db_config.type, schema=schema, database=db_config.name
         ),
         samples=SampleReader(gateway, db_type=db_config.type, schema=schema),
-        review=review,
+        review=CatalogReviewService(repository),
         cross_reference=cross_reference,
         db_type=db_config.type,
         database_name=db_config.name,
     )
 
 
-@asynccontextmanager
-async def open_analysis(
+def build_container(
     settings: Settings,
-    db_name: str,
     *,
     repository: CatalogRepository | None = None,
-    gateway: DatabaseGateway | None = None,
-) -> AsyncIterator[CatalogAnalysisService]:
-    """Yield an analysis service for `db_name`, owning what it opens.
+    gateway_factory: DatabaseGatewayFactory | None = None,
+    text_generator_factory: Callable[[], TextGenerator] | None = None,
+    analysis_factory: AnalysisFactory | None = None,
+) -> Container:
+    """Wire the default adapters; any of them can be replaced (tests, embedding)."""
+    repo = repository if repository is not None else build_repository(settings)
+    text_generators = text_generator_factory or (lambda: LLMClient.from_config(settings))
 
-    A `gateway` passed in is reused (not closed); otherwise one is created and
-    connected for the duration. The LLM client is always opened and closed here.
+    def default_analysis(
+        gateway: DatabaseGateway, db_config: DatabaseConfig, text_generator: TextGenerator
+    ) -> CatalogAnalysisService:
+        return build_analysis_service(
+            settings=settings,
+            gateway=gateway,
+            db_config=db_config,
+            text_generator=text_generator,
+            repository=repo,
+        )
 
-    Raises:
-        DatabaseNotConfiguredError: If `db_name` is not configured.
-    """
-    db_config = settings.database(db_name)
-    repo = repository or build_repository(settings)
-    owns_gateway = gateway is None
-    gw = gateway or DatabaseFactory.create(db_config)
-    if owns_gateway:
-        await gw.connect()
-    try:
-        text_generator = LLMClient.from_config(settings)
-        try:
-            yield build_analysis_service(
-                settings=settings,
-                gateway=gw,
-                db_config=db_config,
-                text_generator=text_generator,
-                repository=repo,
-            )
-        finally:
-            await text_generator.close()
-    finally:
-        if owns_gateway:
-            await gw.disconnect()
-
-
-def make_pipeline(settings: Settings) -> PipelineService:
-    """Pipeline service bound to `settings`."""
-    return PipelineService(
+    return Container(
         settings=settings,
-        analysis_opener=lambda name: open_analysis(settings, name),
+        repository=repo,
+        review=CatalogReviewService(repo),
         export=build_export_service(),
+        gateway_factory=gateway_factory or DatabaseFactory(),
+        text_generator_factory=text_generators,
+        analysis_factory=analysis_factory or default_analysis,
     )

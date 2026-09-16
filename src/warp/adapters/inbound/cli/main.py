@@ -12,15 +12,31 @@ Commands:
 
 import asyncio
 import sys
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import click
 
 from warp import __version__
+from warp.application.container import Container
 
 if TYPE_CHECKING:
     from warp.application.services.catalog_review import CatalogReviewService
     from warp.domain.catalog import TableCatalogEntry
+
+ContainerFactory = Callable[[str], Container]
+
+
+def _container(ctx: click.Context) -> Container:
+    """Build the container for the config path given to the group.
+
+    The factory is injected through the group's `context_settings["obj"]`
+    (see `warp.cli`), so this adapter never imports the composition root.
+    """
+    factory: ContainerFactory | None = ctx.obj.get("container_factory")
+    if factory is None:
+        raise click.UsageError("No container factory configured; run through `warp-catalog`.")
+    return factory(ctx.obj["config_path"])
 
 
 @click.group()
@@ -38,8 +54,8 @@ def main(ctx: click.Context, config: str) -> None:
 
     LLM-powered database schema analysis and description generation.
     """
-    ctx.ensure_object(dict)
-    ctx.obj["config_path"] = config
+    # Copy the (shared) default obj from context_settings before adding per-run state.
+    ctx.obj = {**(ctx.obj or {}), "config_path": config}
 
 
 @main.command()
@@ -63,7 +79,7 @@ def analyze(
     asyncio.run(_run_analyze(ctx, database, tables, lang, fmt, output, auto_approve))
 
 
-async def _run_analyze(
+async def _run_analyze(  # noqa: PLR0913
     ctx: click.Context,
     database: str,
     tables: str | None,
@@ -73,18 +89,15 @@ async def _run_analyze(
     auto_approve: bool = False,
 ) -> None:
     from warp.domain.errors import DatabaseNotConfiguredError
-    from warp.infrastructure.bootstrap import build_export_service, open_analysis
-    from warp.infrastructure.config_loader import load_config
-    from warp.infrastructure.logging import setup_logging
 
-    config = load_config(ctx.obj["config_path"])
-    setup_logging(level="INFO")
+    container = _container(ctx)
+    config = container.settings
 
     lang = lang or config.settings.i18n.default_language
     table_names = tables.split(",") if tables else None
 
     try:
-        async with open_analysis(config, database) as analysis:
+        async with container.open_analysis(database) as analysis:
             catalog = await analysis.analyze(table_names=table_names, auto_approve=auto_approve)
     except DatabaseNotConfiguredError:
         click.echo(f"Error: Database config '{database}' not found", err=True)
@@ -98,7 +111,7 @@ async def _run_analyze(
         click.echo(f"Status: DRAFT - Run 'warp review -d {database}' to review and approve.")
 
     if output:
-        path = build_export_service().export(catalog, fmt, output, lang=lang)
+        path = container.export.export(catalog, fmt, output, lang=lang)
         click.echo(f"Exported to: {path}")
 
 
@@ -109,23 +122,20 @@ async def _run_analyze(
 @click.option("--lang", default="en", help="Language for export")
 @click.pass_context
 def export_catalog(ctx: click.Context, database: str, fmt: str, output: str, lang: str) -> None:
-    """Export an existing catalog."""
-    from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-    from warp.adapters.outbound.export.markdown import get_exporter
-    from warp.infrastructure.config_loader import load_config
+    """Export catalog to a file."""
+    from warp.domain.errors import UnsupportedExportFormatError
 
-    config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(
-        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
-    )
-
-    catalog = store.load(database)
+    container = _container(ctx)
+    catalog = container.repository.load(database)
     if not catalog:
         click.echo(f"Catalog not found: {database}", err=True)
         sys.exit(1)
 
-    exporter = get_exporter(fmt)
-    path = exporter.export(catalog, output, lang=lang)
+    try:
+        path = container.export.export(catalog, fmt, output, lang=lang)
+    except UnsupportedExportFormatError as e:
+        click.echo(f"Error: {e.message}", err=True)
+        sys.exit(1)
     click.echo(f"Exported {catalog.table_count} tables to: {path}")
 
 
@@ -133,13 +143,7 @@ def export_catalog(ctx: click.Context, database: str, fmt: str, output: str, lan
 @click.pass_context
 def list_catalogs(ctx: click.Context) -> None:
     """List available catalogs."""
-    from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-    from warp.infrastructure.config_loader import load_config
-
-    config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(
-        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
-    )
+    store = _container(ctx).repository
 
     catalogs = store.list_catalogs()
     if not catalogs:
@@ -168,15 +172,7 @@ def list_catalogs(ctx: click.Context) -> None:
 @click.pass_context
 def show_info(ctx: click.Context, database: str, lang: str) -> None:
     """Show catalog info."""
-    from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-    from warp.infrastructure.config_loader import load_config
-
-    config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(
-        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
-    )
-
-    catalog = store.load(database)
+    catalog = _container(ctx).repository.load(database)
     if not catalog:
         click.echo(f"Catalog not found: {database}", err=True)
         sys.exit(1)
@@ -213,18 +209,9 @@ def review_catalog(ctx: click.Context, database: str, lang: str, auto_approve: b
 
     Review LLM-generated descriptions and edit any field before approving.
     """
-    from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-    from warp.application.services.catalog_review import CatalogReviewService
     from warp.domain.catalog import CatalogStatus
-    from warp.infrastructure.config_loader import load_config
 
-    config = load_config(ctx.obj["config_path"])
-    store = CatalogReviewService(
-        CatalogFileStore(
-            config.settings.catalog.storage_path,
-            default_format=config.settings.catalog.default_format,
-        )
-    )
+    store = _container(ctx).review
 
     catalog = store.load(database)
     if not catalog:
@@ -448,7 +435,7 @@ def _interactive_edit_table(
     help="Write real sample values into the spec (off by default: may contain PII)",
 )
 @click.pass_context
-def enrich_openapi(
+def enrich_openapi(  # noqa: PLR0913
     ctx: click.Context,
     database: str,
     input_path: str,
@@ -457,16 +444,9 @@ def enrich_openapi(
     include_examples: bool,
 ) -> None:
     """Enrich OpenAPI spec with catalog descriptions."""
-    from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
     from warp.application.services.openapi_enrichment import OpenAPIEnricher
-    from warp.infrastructure.config_loader import load_config
 
-    config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(
-        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
-    )
-
-    catalog = store.load(database)
+    catalog = _container(ctx).repository.load(database)
     if not catalog:
         click.echo(f"Catalog not found: {database}", err=True)
         sys.exit(1)
@@ -506,16 +486,9 @@ async def _run_pipeline(
     output: str | None,
     openapi: str | None,
 ) -> None:
-    from warp.infrastructure.bootstrap import make_pipeline
-    from warp.infrastructure.config_loader import load_config
-    from warp.infrastructure.logging import setup_logging
-
-    config = load_config(ctx.obj["config_path"])
-    setup_logging(level="INFO")
-
     table_names = tables.split(",") if tables else None
 
-    pipeline = make_pipeline(config)
+    pipeline = _container(ctx).pipeline()
     result = await pipeline.run(
         database_name=database,
         lang=lang,

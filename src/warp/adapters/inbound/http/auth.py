@@ -212,19 +212,3 @@ class AuthManager:
             )
 
         return permission_checker
-
-
-# Global auth manager instance (initialized from settings)
-_auth_manager: AuthManager | None = None
-
-
-def init_auth_manager(auth_config: AuthConfig) -> AuthManager:
-    """Initialize the global auth manager."""
-    global _auth_manager  # noqa: PLW0603
-    _auth_manager = AuthManager(auth_config)
-    return _auth_manager
-
-
-def get_auth_manager() -> AuthManager | None:
-    """Get the global auth manager instance."""
-    return _auth_manager

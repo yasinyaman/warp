@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from warp.adapters.inbound.http.auth import AuthManager, Permission
-from warp.adapters.outbound.db.base import DatabaseAdapter
+from warp.application.ports.database import DatabaseGateway
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,7 @@ class QueryValidator:
 
 
 def create_query_router(
-    db: DatabaseAdapter,
+    db: DatabaseGateway,
     whitelist: list[str] | None = None,
     enabled: bool = True,
     auth_manager: AuthManager | None = None,

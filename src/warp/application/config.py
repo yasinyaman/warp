@@ -1,5 +1,8 @@
 """Application configuration models and production safety validation."""
 
+import os
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -173,6 +176,46 @@ class Settings(BaseModel):
             if db.name == name:
                 return db
         raise DatabaseNotConfiguredError(name, [db.name for db in self.databases])
+
+
+@dataclass(frozen=True)
+class RuntimeEnv:
+    """Process-level settings that come from the environment, not the YAML config."""
+
+    app_env: str = "development"
+    log_level: str = "INFO"
+    log_format: str = ""  # "json" | "colored"; empty -> json in production, colored otherwise
+    cors_origins: tuple[str, ...] = ("*",)
+    config_path: str | None = None
+    api_host: str = "0.0.0.0"  # noqa: S104 - a server binds all interfaces by default
+    api_port: int = 8000
+    api_workers: int = 1
+
+    @property
+    def is_production(self) -> bool:
+        """Whether `APP_ENV=production`."""
+        return self.app_env == "production"
+
+    @property
+    def log_json(self) -> bool:
+        """Whether logs are emitted as JSON lines."""
+        return self.log_format == "json" or (not self.log_format and self.is_production)
+
+    @classmethod
+    def from_environ(cls, environ: Mapping[str, str] | None = None) -> "RuntimeEnv":
+        """Read the well-known `APP_ENV`, `LOG_*`, `CORS_ORIGINS`, `CONFIG_PATH`, `API_*` variables."""
+        env = os.environ if environ is None else environ
+        origins = tuple(o.strip() for o in env.get("CORS_ORIGINS", "*").split(",") if o.strip())
+        return cls(
+            app_env=env.get("APP_ENV", "development"),
+            log_level=env.get("LOG_LEVEL", "INFO"),
+            log_format=env.get("LOG_FORMAT", ""),
+            cors_origins=origins or ("*",),
+            config_path=env.get("CONFIG_PATH") or None,
+            api_host=env.get("API_HOST", "0.0.0.0"),  # noqa: S104
+            api_port=int(env.get("API_PORT", "8000")),
+            api_workers=int(env.get("API_WORKERS", "1")),
+        )
 
 
 def validate_production_config(
