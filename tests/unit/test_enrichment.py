@@ -89,6 +89,9 @@ class TestCommentReaderPostgreSQL:
 
         assert result == "Registered user accounts"
         mock_adapter.execute_query.assert_called_once()
+        sql, params = mock_adapter.execute_query.call_args.args
+        assert ":table_name" in sql and ":schema" in sql and "$1" not in sql
+        assert params == {"table_name": "users", "schema": "public"}
 
     @pytest.mark.asyncio
     async def test_read_table_comment_none(self, pg_reader, mock_adapter):

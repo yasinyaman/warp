@@ -6,6 +6,7 @@ Each provider implements the same LLMProvider protocol.
 
 import contextlib
 import os
+import re
 import time
 from abc import ABC, abstractmethod
 from typing import Any, NoReturn
@@ -27,10 +28,30 @@ _PROVIDER_ENV_VARS: dict[str, str] = {
 CLOUD_PROVIDERS: frozenset[str] = frozenset(_PROVIDER_ENV_VARS)
 
 
+# Letter-boundaries rather than \b so "rate_limit_exceeded" matches while
+# "generateContent"/"moderate" do not.
+_QUOTA_PATTERN = re.compile(
+    r"(?<![A-Za-z])(429|quota|insufficient_quota|rate[ _-]?limit(?:ed|s|ing)?|too many requests)"
+    r"(?![A-Za-z])",
+    re.IGNORECASE,
+)
+
+
+def is_quota_or_rate_limit_error(e: BaseException) -> bool:
+    """Whether an SDK exception denotes a 429 / quota / rate-limit condition.
+
+    Checks a ``status_code`` attribute first (openai/anthropic set it), then
+    matches whole words in the message so that "generate" or "moderate" are
+    not mistaken for "rate".
+    """
+    if getattr(e, "status_code", None) == 429:
+        return True
+    return _QUOTA_PATTERN.search(str(e)) is not None
+
+
 def _raise_quota_or_rate_limit(provider: str, e: Exception) -> NoReturn:
     """Raise a clear error for 429 / quota issues and suggest alternatives."""
-    msg = str(e).lower()
-    if "429" in msg or "quota" in msg or "rate" in msg or "insufficient_quota" in msg:
+    if is_quota_or_rate_limit_error(e):
         raise LLMGenerationError(
             f"{provider}: API quota or rate limit exceeded. "
             "Check your plan and billing at the provider dashboard, or switch provider: "

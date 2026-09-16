@@ -7,6 +7,7 @@ from pymysql.constants import CLIENT
 
 from .base import DatabaseAdapter
 from .identifiers import sanitize_identifier
+from .params import bind_named_params
 from .query_builder import SafeQueryBuilder
 
 
@@ -174,17 +175,12 @@ class MySQLAdapter(DatabaseAdapter):
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a raw SQL query."""
+        sql, args = bind_named_params(query, params, "mysql")
         async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
-            if params:
-                # Convert named params to positional for MySQL
-                param_list = []
-                new_query = query
-                for key, value in params.items():
-                    new_query = new_query.replace(f":{key}", "%s")
-                    param_list.append(value)
-                await cur.execute(new_query, param_list)
+            if args:
+                await cur.execute(sql, args)
             else:
-                await cur.execute(query)
+                await cur.execute(sql)
 
             rows = await cur.fetchall()
             return list(rows)

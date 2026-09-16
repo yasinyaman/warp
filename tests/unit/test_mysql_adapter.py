@@ -406,3 +406,15 @@ def test_build_where_clause_default() -> None:
     clause, params = adapter._build_where_clause("c", "unknown", 7)
     assert "=" in clause
     assert params == [7]
+
+
+@pytest.mark.asyncio
+async def test_execute_query_repeated_param_and_percent() -> None:
+    cur = FakeCursor(fetchall=[])
+    adapter = make_adapter(cur)
+    await adapter.execute_query(
+        "SELECT * FROM t WHERE a = :v OR b = :v AND c LIKE 'x%'", params={"v": 5}
+    )
+    query, params = cur.executed[0]
+    assert query == "SELECT * FROM t WHERE a = %s OR b = %s AND c LIKE 'x%%'"
+    assert params == [5, 5]

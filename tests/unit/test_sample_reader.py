@@ -355,3 +355,26 @@ def test_build_system_prompt_explicit_instruction() -> None:
 def test_build_translation_prompt() -> None:
     out = prompts.build_translation_prompt("hello", "en", "tr")
     assert "hello" in out and "en" in out and "tr" in out
+
+
+@pytest.mark.asyncio
+async def test_read_row_count_binds_named_params_pg() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{"row_count": 10}]
+    reader = SampleReader(adapter, db_type="postgresql", schema="public")
+    assert await reader.read_row_count("users") == 10
+    sql, params = adapter.execute_query.call_args.args
+    assert ":table_name" in sql and ":schema" in sql
+    assert "$1" not in sql and "%s" not in sql
+    assert params == {"table_name": "users", "schema": "public"}
+
+
+@pytest.mark.asyncio
+async def test_read_row_count_binds_named_params_mysql() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{"row_count": 10}]
+    reader = SampleReader(adapter, db_type="mysql", schema="db")
+    assert await reader.read_row_count("users") == 10
+    sql, params = adapter.execute_query.call_args.args
+    assert ":table_name" in sql and ":schema" in sql and "%s" not in sql
+    assert params == {"schema": "db", "table_name": "users"}

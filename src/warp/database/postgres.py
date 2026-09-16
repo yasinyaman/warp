@@ -6,6 +6,7 @@ import asyncpg
 
 from .base import DatabaseAdapter
 from .identifiers import sanitize_identifier
+from .params import bind_named_params
 from .query_builder import SafeQueryBuilder
 
 
@@ -171,20 +172,9 @@ class PostgreSQLAdapter(DatabaseAdapter):
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a raw SQL query."""
+        sql, args = bind_named_params(query, params, "postgresql")
         async with self._pool.acquire() as conn:
-            if params:
-                # Convert named params to positional for asyncpg
-                param_list = []
-                param_idx = 1
-                new_query = query
-                for key, value in params.items():
-                    new_query = new_query.replace(f":{key}", f"${param_idx}")
-                    param_list.append(value)
-                    param_idx += 1
-                rows = await conn.fetch(new_query, *param_list)
-            else:
-                rows = await conn.fetch(query)
-
+            rows = await conn.fetch(sql, *args)
             return [dict(row) for row in rows]
 
     async def insert(self, table: str, data: dict[str, Any]) -> dict[str, Any]:

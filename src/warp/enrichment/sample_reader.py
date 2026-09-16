@@ -172,10 +172,10 @@ class SampleReader:
                 SELECT reltuples::bigint as row_count
                 FROM pg_class c
                 JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relname = $1 AND n.nspname = $2
+                WHERE c.relname = :table_name AND n.nspname = :schema
                 """
                 rows = await self.adapter.execute_query(
-                    query, {"p1": table_name, "p2": self.schema}
+                    query, {"table_name": table_name, "schema": self.schema}
                 )
                 if rows and rows[0].get("row_count") is not None:
                     count = int(rows[0]["row_count"])
@@ -184,10 +184,10 @@ class SampleReader:
                 query = """
                 SELECT TABLE_ROWS as row_count
                 FROM information_schema.TABLES
-                WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+                WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table_name
                 """
                 rows = await self.adapter.execute_query(
-                    query, {"p1": self.schema, "p2": table_name}
+                    query, {"schema": self.schema, "table_name": table_name}
                 )
                 if rows and rows[0].get("row_count") is not None:
                     return int(rows[0]["row_count"])

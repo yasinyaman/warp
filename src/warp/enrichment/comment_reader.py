@@ -39,7 +39,7 @@ PG_TABLE_COMMENT_SQL = """
 SELECT obj_description(c.oid) as comment
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relname = $1 AND n.nspname = $2
+WHERE c.relname = :table_name AND n.nspname = :schema
 """
 
 PG_COLUMN_COMMENTS_SQL = """
@@ -47,8 +47,8 @@ SELECT a.attname as column_name, col_description(a.attrelid, a.attnum) as commen
 FROM pg_attribute a
 JOIN pg_class c ON a.attrelid = c.oid
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relname = $1
-  AND n.nspname = $2
+WHERE c.relname = :table_name
+  AND n.nspname = :schema
   AND a.attnum > 0
   AND NOT a.attisdropped
   AND col_description(a.attrelid, a.attnum) IS NOT NULL
@@ -58,7 +58,7 @@ PG_ALL_TABLE_COMMENTS_SQL = """
 SELECT c.relname as table_name, obj_description(c.oid) as comment
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = $1
+WHERE n.nspname = :schema
   AND c.relkind = 'r'
   AND obj_description(c.oid) IS NOT NULL
 """
@@ -69,7 +69,7 @@ SELECT c.relname as table_name, a.attname as column_name,
 FROM pg_attribute a
 JOIN pg_class c ON a.attrelid = c.oid
 JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = $1
+WHERE n.nspname = :schema
   AND c.relkind = 'r'
   AND a.attnum > 0
   AND NOT a.attisdropped
@@ -79,25 +79,25 @@ WHERE n.nspname = $1
 MYSQL_TABLE_COMMENT_SQL = """
 SELECT TABLE_COMMENT as comment
 FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND TABLE_COMMENT != ''
+WHERE TABLE_SCHEMA = :database AND TABLE_NAME = :table_name AND TABLE_COMMENT != ''
 """
 
 MYSQL_COLUMN_COMMENTS_SQL = """
 SELECT COLUMN_NAME as column_name, COLUMN_COMMENT as comment
 FROM information_schema.COLUMNS
-WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_COMMENT != ''
+WHERE TABLE_SCHEMA = :database AND TABLE_NAME = :table_name AND COLUMN_COMMENT != ''
 """
 
 MYSQL_ALL_TABLE_COMMENTS_SQL = """
 SELECT TABLE_NAME as table_name, TABLE_COMMENT as comment
 FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = %s AND TABLE_COMMENT != ''
+WHERE TABLE_SCHEMA = :database AND TABLE_COMMENT != ''
 """
 
 MYSQL_ALL_COLUMN_COMMENTS_SQL = """
 SELECT TABLE_NAME as table_name, COLUMN_NAME as column_name, COLUMN_COMMENT as comment
 FROM information_schema.COLUMNS
-WHERE TABLE_SCHEMA = %s AND COLUMN_COMMENT != ''
+WHERE TABLE_SCHEMA = :database AND COLUMN_COMMENT != ''
 """
 
 
@@ -123,12 +123,12 @@ class CommentReader:
             if self.db_type == "postgresql":
                 rows = await self.adapter.execute_query(
                     PG_TABLE_COMMENT_SQL,
-                    {"p1": table_name, "p2": self.schema},
+                    {"table_name": table_name, "schema": self.schema},
                 )
             elif self.db_type == "mysql":
                 rows = await self.adapter.execute_query(
                     MYSQL_TABLE_COMMENT_SQL,
-                    {"p1": self.database, "p2": table_name},
+                    {"database": self.database, "table_name": table_name},
                 )
             else:
                 logger.warning(f"Unsupported DB type for comments: {self.db_type}")
@@ -149,12 +149,12 @@ class CommentReader:
             if self.db_type == "postgresql":
                 rows = await self.adapter.execute_query(
                     PG_COLUMN_COMMENTS_SQL,
-                    {"p1": table_name, "p2": self.schema},
+                    {"table_name": table_name, "schema": self.schema},
                 )
             elif self.db_type == "mysql":
                 rows = await self.adapter.execute_query(
                     MYSQL_COLUMN_COMMENTS_SQL,
-                    {"p1": self.database, "p2": table_name},
+                    {"database": self.database, "table_name": table_name},
                 )
             else:
                 return {}
@@ -186,20 +186,20 @@ class CommentReader:
             if self.db_type == "postgresql":
                 table_rows = await self.adapter.execute_query(
                     PG_ALL_TABLE_COMMENTS_SQL,
-                    {"p1": self.schema},
+                    {"schema": self.schema},
                 )
                 column_rows = await self.adapter.execute_query(
                     PG_ALL_COLUMN_COMMENTS_SQL,
-                    {"p1": self.schema},
+                    {"schema": self.schema},
                 )
             elif self.db_type == "mysql":
                 table_rows = await self.adapter.execute_query(
                     MYSQL_ALL_TABLE_COMMENTS_SQL,
-                    {"p1": self.database},
+                    {"database": self.database},
                 )
                 column_rows = await self.adapter.execute_query(
                     MYSQL_ALL_COLUMN_COMMENTS_SQL,
-                    {"p1": self.database},
+                    {"database": self.database},
                 )
             else:
                 logger.warning(f"Unsupported DB type for comments: {self.db_type}")

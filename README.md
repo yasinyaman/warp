@@ -222,9 +222,16 @@ POST /api/v1/query/execute
 Content-Type: application/json
 
 {
-  "query": "SELECT * FROM users WHERE status = $1",
-  "params": ["active"]
+  "query": "SELECT * FROM users WHERE status = :status LIMIT 10",
+  "params": {"status": "active"}
 }
+```
+
+Placeholders are `:name` and `params` is an object; the same name may be used
+more than once, `::type` casts are left alone, and every referenced name must
+be supplied (a typo is a 400, not a silent no-op).
+
+```
 ```
 
 ## Catalog Intelligence

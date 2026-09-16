@@ -110,3 +110,24 @@ class TestQueryEndpoint:
         r = client.get("/query/allowed-commands")
         assert r.status_code == 200
         assert "SELECT" in r.json()["allowed_commands"]
+
+
+class TestParameterBindingErrors:
+    def test_missing_named_param_is_400(self):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from warp.api.query import create_query_router
+
+        class _RaisingDB:
+            async def execute_query(self, query, params=None):
+                # What the real adapters raise when a :name has no value.
+                raise ValueError("Missing value for query parameter :status")
+
+        app = FastAPI()
+        app.include_router(create_query_router(db=_RaisingDB(), enabled=True))
+        r = TestClient(app).post(
+            "/query/execute", json={"query": "SELECT * FROM users WHERE status = :status"}
+        )
+        assert r.status_code == 400
+        assert r.json()["detail"] == "Missing value for query parameter :status"

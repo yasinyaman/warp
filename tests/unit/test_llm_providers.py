@@ -17,6 +17,7 @@ from warp.llm.client import (
     OpenAIProvider,
     _raise_quota_or_rate_limit,
     create_llm_provider,
+    is_quota_or_rate_limit_error,
 )
 
 # --- _raise_quota_or_rate_limit ---
@@ -30,6 +31,41 @@ def test_raise_quota_message() -> None:
 def test_raise_generic_message() -> None:
     with pytest.raises(LLMGenerationError, match="generation failed"):
         _raise_quota_or_rate_limit("openai", Exception("boom"))
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Error 429 insufficient_quota",
+        "Rate limit exceeded, retry later",
+        "rate_limit_exceeded",
+        "You exceeded your current quota",
+        "Too Many Requests",
+    ],
+)
+def test_quota_messages_detected(message: str) -> None:
+    assert is_quota_or_rate_limit_error(Exception(message))
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "generation failed: model not found",
+        "models/gemma is not supported for generateContent",
+        "moderate content flagged",
+        "iteration error",
+    ],
+)
+def test_unrelated_messages_not_misclassified(message: str) -> None:
+    assert not is_quota_or_rate_limit_error(Exception(message))
+    with pytest.raises(LLMGenerationError, match="generation failed"):
+        _raise_quota_or_rate_limit("gemini", Exception(message))
+
+
+def test_status_code_attribute_wins() -> None:
+    err = Exception("opaque")
+    err.status_code = 429  # type: ignore[attr-defined]
+    assert is_quota_or_rate_limit_error(err)
 
 
 # --- OpenAIProvider ---

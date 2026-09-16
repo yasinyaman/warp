@@ -306,3 +306,21 @@ def test_build_where_clause_unknown_op_defaults_eq() -> None:
     clause, idx, params = adapter._build_where_clause("c", "weird", 5, 1)
     assert "=" in clause
     assert params == [5]
+
+
+@pytest.mark.asyncio
+async def test_execute_query_repeated_param_and_cast(conn: AsyncMock) -> None:
+    conn.fetch.return_value = []
+    adapter = make_adapter(conn)
+    await adapter.execute_query("SELECT * FROM t WHERE a = :v::int OR b = :v", params={"v": 5})
+    sent_query, *sent_args = conn.fetch.call_args.args
+    assert sent_query == "SELECT * FROM t WHERE a = $1::int OR b = $1"
+    assert sent_args == [5]
+
+
+@pytest.mark.asyncio
+async def test_execute_query_missing_param_raises_value_error(conn: AsyncMock) -> None:
+    adapter = make_adapter(conn)
+    with pytest.raises(ValueError, match="Missing value"):
+        await adapter.execute_query("SELECT :a", params={"b": 1})
+    conn.fetch.assert_not_called()
