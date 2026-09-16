@@ -7,7 +7,9 @@ cursor's execute/fetchall/fetchone/lastrowid/rowcount controllable per test.
 
 from typing import Any
 
+import aiomysql
 import pytest
+from pymysql.constants import CLIENT
 
 from warp.database.mysql import MySQLAdapter
 
@@ -101,6 +103,44 @@ async def test_get_tables() -> None:
     cur = FakeCursor(fetchall=[{"TABLE_NAME": "users"}, {"TABLE_NAME": "orders"}])
     adapter = make_adapter(cur)
     assert await adapter.get_tables() == ["users", "orders"]
+
+
+@pytest.mark.asyncio
+async def test_get_tables_selects_the_key_it_reads() -> None:
+    """MariaDB/MySQL 5.7 name result columns as written in the SELECT list; the
+    adapter must select exactly the key it later reads (upper-case)."""
+    import re
+
+    cur = FakeCursor(fetchall=[{"TABLE_NAME": "users"}])
+    adapter = make_adapter(cur)
+    await adapter.get_tables()
+    query, params = cur.executed[0]
+    selected = re.search(r"SELECT\s+(\w+)", query)
+    assert selected is not None and selected.group(1) == "TABLE_NAME"
+    assert params == ("testdb",)
+
+
+class _CapturePool(FakePool):
+    pass
+
+
+@pytest.mark.asyncio
+async def test_connect_requests_found_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_create_pool(**kwargs: Any) -> FakePool:
+        captured.update(kwargs)
+        return _CapturePool(FakeConn(FakeCursor()))
+
+    monkeypatch.setattr(aiomysql, "create_pool", fake_create_pool)
+    adapter = MySQLAdapter({**CONFIG, "options": {"pool_size": 3, "pool_min_size": 1}})
+    await adapter.connect()
+
+    assert captured["client_flag"] & CLIENT.FOUND_ROWS
+    assert captured["autocommit"] is True
+    assert (captured["minsize"], captured["maxsize"]) == (1, 3)
+    assert captured["db"] == "testdb" and captured["user"] == "u"
+    assert adapter.is_connected
 
 
 @pytest.mark.asyncio
@@ -283,6 +323,15 @@ async def test_update_no_rows() -> None:
     cur = FakeCursor(rowcount=0)
     adapter = make_adapter(cur)
     assert await adapter.update("users", "id", 1, {"name": "x"}) is None
+
+
+@pytest.mark.asyncio
+async def test_update_unchanged_values_returns_row() -> None:
+    """With CLIENT.FOUND_ROWS the server reports matched rows (1) even when the
+    new values equal the current ones, so the record is returned, not None."""
+    cur = FakeCursor(fetchone={"id": 1, "name": "same"}, rowcount=1)
+    adapter = make_adapter(cur)
+    assert await adapter.update("users", "id", 1, {"name": "same"}) == {"id": 1, "name": "same"}
 
 
 @pytest.mark.asyncio

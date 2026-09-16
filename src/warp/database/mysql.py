@@ -3,6 +3,7 @@
 from typing import Any
 
 import aiomysql
+from pymysql.constants import CLIENT
 
 from .base import DatabaseAdapter
 from .identifiers import sanitize_identifier
@@ -27,6 +28,10 @@ class MySQLAdapter(DatabaseAdapter):
             minsize=options.get("pool_min_size", 2),
             maxsize=options.get("pool_size", 10),
             autocommit=True,
+            # Make cursor.rowcount report *matched* rows for UPDATE (MySQL's
+            # default counts only *changed* rows), so updating a record with
+            # its current values is not mistaken for "record not found".
+            client_flag=CLIENT.FOUND_ROWS,
         )
 
     async def disconnect(self) -> None:
@@ -38,12 +43,15 @@ class MySQLAdapter(DatabaseAdapter):
 
     async def get_tables(self) -> list[str]:
         """Get all table names from the database."""
+        # Result-column names follow the SELECT list on MariaDB/MySQL 5.7 but
+        # are always upper-cased by MySQL 8 for information_schema; selecting
+        # the upper-case name keeps the key identical on every server.
         query = """
-            SELECT table_name
+            SELECT TABLE_NAME
             FROM information_schema.tables
-            WHERE table_schema = %s
-              AND table_type = 'BASE TABLE'
-            ORDER BY table_name
+            WHERE TABLE_SCHEMA = %s
+              AND TABLE_TYPE = 'BASE TABLE'
+            ORDER BY TABLE_NAME
         """
         async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(query, (self.config["database"],))
@@ -239,6 +247,8 @@ class MySQLAdapter(DatabaseAdapter):
         async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(query, values)
 
+            # rowcount == matched rows thanks to CLIENT.FOUND_ROWS (see connect):
+            # 0 means no such record, not "nothing changed".
             if cur.rowcount > 0:
                 return await self.select_by_id(table, id_column, id_value)
             return None

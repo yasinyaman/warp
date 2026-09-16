@@ -179,6 +179,7 @@ pretty = true
 module = [
     "asyncpg.*",
     "aiomysql.*",
+    "pymysql.*",
     "openai.*",
     "anthropic.*",
     "google.genai.*",
