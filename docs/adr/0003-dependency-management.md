@@ -14,10 +14,11 @@ dependencies.
 
 - Keep flexible lower-bound ranges (`>=`) in `pyproject.toml` for library
   consumers.
-- Generate a universal, hashed lockfile `requirements.lock` with
-  `uv pip compile pyproject.toml --all-extras --universal --generate-hashes`.
-- Use the lockfile for reproducible installs in CI, Docker, and audits
-  (`uv pip sync requirements.lock` / `pip install --require-hashes`).
+- Generate two universal, hashed lock files with `make lock`:
+  `requirements.lock` (all extras; CI and local development) and
+  `requirements-prod.lock` (runtime + `llm` only; the Docker image).
+- Install from the locks with `--require-hashes` (`uv pip sync`) in CI and in
+  the Dockerfile builder stage; never resolve from ranges in a deployment.
 - Migrated the Gemini provider off the EOL `google-generativeai` SDK to
   `google-genai`.
 - Dependabot keeps both Python deps and the SHA-pinned GitHub Actions current.
@@ -26,4 +27,5 @@ dependencies.
 
 - Library consumers retain resolution flexibility; deployments are deterministic
   and tamper-evident (hashes).
-- The lockfile must be regenerated when `pyproject.toml` dependencies change.
+- Both lock files must be regenerated (`make lock`) whenever `pyproject.toml`
+  dependencies change; CI installs from them, so a stale lock fails fast.

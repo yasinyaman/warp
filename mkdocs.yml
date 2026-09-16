@@ -33,6 +33,7 @@ nav:
       - 4. LLM sample-data privacy: adr/0004-llm-sample-data-privacy.md
       - 5. CI quality gates: adr/0005-ci-quality-gates.md
       - 6. Distribution name: adr/0006-distribution-name.md
+      - 7. Hexagonal architecture: adr/0007-hexagonal-architecture.md
   - API Reference: reference.md
 
 markdown_extensions:

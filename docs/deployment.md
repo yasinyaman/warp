@@ -22,20 +22,26 @@ unsafe configuration.
 6. **Run the production image** — the `Dockerfile` is multi-stage, runs as a
    non-root user, ships no dev dependencies, and has no `--reload`. Mount a
    hardened `config/database.yaml` and pass secrets via the environment.
-7. **Reproducible installs** — `uv pip sync requirements.lock` for deterministic,
+7. **Reproducible installs** — `uv pip sync --require-hashes requirements.lock` for deterministic,
    hash-verified dependencies.
 8. **Least-privilege DB account** — grant only what the API needs; restrict
    write access to the tables that should be writable.
+9. **Catalog endpoints are authenticated** — `/api/v1/catalog/*` needs a key
+   with `read` (views), `create` (analysis), `update` (edits/approvals) or
+   `delete`. Keep `catalog.openapi_include_examples: false` unless the spec
+   audience may see real row values.
 
 ## Startup safety checks
 
-`validate_production_config()` (in `warp.config.settings`) runs during app
+`validate_production_config()` (in `warp.application.config`) runs during app
 startup. With `APP_ENV=production` it raises `ConfigurationError` (refusing to
 start) when any of these hold:
 
 - `auth.enabled` is `false`
 - `settings.enable_raw_query` is `true`
 - `CORS_ORIGINS` contains `*`
+- `/openapi.json` is in `auth.public_paths` (the enriched spec exposes catalog
+  descriptions and `x-llm-context`) unless `auth.allow_public_openapi: true`
 
 This guarantees a misconfigured production deployment fails loudly at boot rather
 than silently exposing the API.

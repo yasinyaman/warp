@@ -1,6 +1,6 @@
 # 6. Distribution name vs. the import package
 
-- Status: Proposed
+- Status: Accepted (applied in 0.9.0)
 - Date: 2026-06-23
 
 ## Context
@@ -14,7 +14,7 @@ The project is named **Warp**, which collides with several well-known projects:
 The PyPI distribution name `warp` is effectively unavailable / ambiguous, and the
 name is hard to discover and search for.
 
-## Decision (proposed)
+## Decision
 
 If/when publishing to PyPI, use a namespaced **distribution** name while keeping
 the **import** package as `warp`:

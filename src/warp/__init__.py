@@ -4,6 +4,6 @@ Automatically generates REST API endpoints from database schema.
 Supports PostgreSQL and MySQL with extensible adapter pattern.
 """
 
-__version__ = "1.0.0"
-__author__ = "Warp Team"
+__version__ = "0.9.0"
+__author__ = "Yasin Yaman"
 __all__ = ["__version__"]

@@ -29,3 +29,15 @@ The unmodified samples are still used to populate the catalog locally.
 - Pattern-based PII detection is heuristic (name-based); operators can extend
   `analysis.pii_column_patterns`. Semantic-type-based masking is a possible
   future enhancement once a catalog already exists.
+
+## Addendum (0.9.0): storage-time masking and OpenAPI examples
+
+Masking the LLM prompt was not enough: the stored catalog was re-published
+through the draft API and injected into `/openapi.json` as `example` values.
+Sample values of PII columns — matched by `analysis.pii_column_patterns` on the
+name *or* by the LLM's `semantic_type` (`email`, `phone`, `name`, `address`) —
+are therefore dropped before a `ColumnCatalogEntry` is built
+(`warp.domain.samples.samples_for_storage`). Writing examples into the OpenAPI
+spec is a separate opt-in, `catalog.openapi_include_examples` (default false),
+and the spec route itself is protected by the auth manager (see the security
+policy).

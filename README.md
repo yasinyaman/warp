@@ -18,7 +18,7 @@ Warp connects to your database, discovers tables and columns, and generates a fu
 - **Multi-Language** - Catalog descriptions in multiple languages with auto-translation
 - **Human-in-the-Loop Review** - Interactive draft/review/approve workflow for catalog edits
 - **Override Persistence** - User edits survive LLM regeneration via `user_overrides`
-- **OpenAPI Enrichment** - Auto-enrich OpenAPI specs with catalog metadata, `x-llm-context` extensions, and example values
+- **OpenAPI Enrichment** - Auto-enrich OpenAPI specs with catalog metadata and `x-llm-context` extensions (example values opt-in)
 - **Export** - Export catalogs to JSON, YAML, or Markdown
 - **Production Ready** - Connection retry, health checks, structured logging, Docker support
 
@@ -277,7 +277,7 @@ warp-catalog info -d primary_db
 warp-catalog export -d primary_db -f markdown -o catalog.md
 
 # Enrich OpenAPI spec with catalog descriptions
-warp-catalog enrich-openapi -d primary_db -i openapi.json -o enriched.json
+warp-catalog enrich-openapi -d primary_db -i openapi.json -o enriched.json   # add --include-examples for sample values
 
 # Full pipeline: DB -> Catalog -> Export -> Enrich OpenAPI
 warp-catalog pipeline -d primary_db -f json -o catalog.json --openapi openapi.json
@@ -345,7 +345,9 @@ This ensures user edits survive across schema changes and LLM re-analysis.
 
 ## OpenAPI Enrichment
 
-After catalog analysis and approval, Warp automatically enriches the OpenAPI spec (`/openapi.json`) with all catalog metadata. This makes the API self-documenting for both humans and LLMs.
+After catalog analysis and approval, Warp automatically enriches the OpenAPI spec (`/openapi.json`) with all catalog metadata. This makes the API self-documenting for both humans and LLMs. Only **approved** catalogs are published; the context is refreshed after analyze/approve/delete, and several databases are merged into one `x-llm-context` (`{"databases": [...]}`).
+
+Real sample values are **not** written into the spec unless `catalog.openapi_include_examples: true` (they may contain personal data), and `/openapi.json` is served through the auth manager — see the production checklist below.
 
 ### What Gets Enriched
 
@@ -426,47 +428,33 @@ GET /info      # API information and discovered tables
 
 ## Project Structure
 
+Hexagonal (ports & adapters) layout — dependencies point inward and are
+enforced by import-linter (see [ADR-0007](docs/adr/0007-hexagonal-architecture.md)):
+
 ```
-warp/
-├── src/warp/
-│   ├── main.py               # FastAPI application entry point
-│   ├── cli.py                # Catalog CLI (warp-catalog)
-│   ├── api/                  # REST API layer
-│   │   ├── router_factory.py # Dynamic CRUD endpoint generation
-│   │   ├── crud.py           # CRUD operations
-│   │   ├── catalog_router.py # Catalog REST endpoints
-│   │   ├── query.py          # Raw SQL query execution
-│   │   └── auth.py           # Authentication & permissions
-│   ├── catalog/              # Catalog models and persistence
-│   │   ├── models.py         # DatabaseCatalog, TableCatalogEntry, etc.
-│   │   └── store.py          # File-based catalog storage
-│   ├── enrichment/           # LLM-powered schema analysis
-│   │   ├── analyzer.py       # Main enrichment analyzer
-│   │   ├── comment_reader.py # Database comment extraction
-│   │   ├── cross_reference.py
-│   │   └── sample_reader.py  # Sample data extraction
-│   ├── llm/                  # LLM provider abstraction
-│   │   ├── client.py         # Multi-provider LLM client (OpenAI, Anthropic, Gemini, Ollama)
-│   │   └── prompts.py        # Analysis prompt templates
-│   ├── i18n/                 # Multi-language support
-│   │   └── localization.py
-│   ├── integration/          # External integrations
-│   │   ├── openapi_enricher.py  # OpenAPI spec enrichment with x-llm-context
-│   │   ├── mcp_enricher.py
-│   │   └── pipeline.py
-│   ├── export/               # Export formats (JSON, YAML, Markdown)
-│   ├── schema/               # Schema discovery and models
-│   ├── database/             # Database adapters (PostgreSQL, MySQL)
-│   ├── config/               # Configuration management
-│   ├── core/                 # Exceptions and logging
-│   ├── query/                # Query execution strategies
-│   └── utils/                # Filtering, pagination, sorting
-├── config/                   # Configuration files
-│   └── database.yaml         # Main configuration
-├── docker-compose.yml        # Dev environment (API + PostgreSQL + MySQL + Adminer)
-├── Dockerfile                # Application container
-├── tests/                    # Test suite
-└── pyproject.toml            # Dependencies and build config
+src/warp/
+├── main.py / cli.py            # entry points: build the Container, start uvicorn / Click
+├── infrastructure/             # composition root (bootstrap), config loader, logging
+├── adapters/
+│   ├── inbound/http/           # FastAPI app + lifespan, auth, routes/{crud,catalog,query}
+│   ├── inbound/cli/            # warp-catalog commands
+│   └── outbound/
+│       ├── db/                 # PostgreSQL/MySQL gateways, SafeQueryBuilder, identifiers,
+│       │                       #   named params, comment/sample readers
+│       ├── llm/                # OpenAI/Anthropic/Gemini/Ollama providers + LLMClient
+│       ├── catalog_store/      # file-based CatalogRepository
+│       └── export/             # JSON/YAML/Markdown exporters
+├── application/
+│   ├── ports/                  # DatabaseGateway, CatalogRepository, TextGenerator, ...
+│   ├── services/               # crud, schema_discovery, catalog_analysis, catalog_review,
+│   │                           #   cross_reference, catalog_export, openapi_enrichment, pipeline
+│   ├── config.py               # Settings models, RuntimeEnv, production validation
+│   └── container.py            # the wired object graph handed to inbound adapters
+└── domain/                     # schema/catalog entities, review transitions, naming,
+                                #   samples + PII policy, filtering/sorting/pagination, errors
+config/database.yaml            # main configuration (env-interpolated)
+docker-compose.yml, Dockerfile  # dev stack / production image (installs requirements-prod.lock)
+tests/unit/{domain,application,adapters,infrastructure}
 ```
 
 ## Development
@@ -534,6 +522,8 @@ unsafe configuration. Production checklist:
    and enables the startup safety checks below.
 3. **Authentication on** — `settings.auth.enabled: true` with real API keys via
    `API_KEY_*` env vars. Startup is refused if auth is off in production.
+   Catalog endpoints require `read` (views), `create` (analysis), `update`
+   (edits/approvals) or `delete`.
 4. **Explicit CORS allowlist** — `CORS_ORIGINS=https://app.example.com,...`.
    `*` is rejected in production (credentials are only sent with an explicit
    allowlist).
@@ -544,13 +534,18 @@ unsafe configuration. Production checklist:
 6. **Run the production image** — the `Dockerfile` is multi-stage, runs as a
    non-root user, ships no dev dependencies, and has no `--reload`. Mount a
    hardened `config/database.yaml` and pass secrets via the environment.
-7. **Reproducible installs** — `uv pip sync requirements.lock` for deterministic,
-   hash-verified dependencies.
+7. **Reproducible installs** — `uv pip sync --require-hashes requirements.lock`
+   (the Docker image installs `requirements-prod.lock`).
 8. **Least-privilege DB account** — grant only what the API needs; restrict
    write access to tables that should be writable.
+9. **Keep `/openapi.json` private** — remove it from `auth.public_paths` (the
+   enriched spec carries catalog descriptions and `x-llm-context`); startup is
+   refused in production while it is public unless
+   `auth.allow_public_openapi: true`. Leave `catalog.openapi_include_examples`
+   off unless real row values may be shown.
 
 Parameterized queries, mass-assignment protection, timing-safe API-key checks,
-and PII masking before any cloud LLM call are on by default — see
+validated catalog names and PII-free stored catalogs are on by default — see
 [SECURITY.md](SECURITY.md). To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License

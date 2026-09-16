@@ -54,14 +54,18 @@ and commit them together.
 
 - **Typing:** modern syntax only (`dict[str, Any]`, `list[...]`, `X | None`).
   `mypy --strict` must pass — annotate new code fully.
-- **Architecture:** respect the import contracts in `pyproject.toml`
-  (`[tool.importlinter]`). `core`/`config` are the lowest layers; `database`
-  imports no app/domain modules; `catalog` must not depend on `llm`/`enrichment`/
-  `api`. See the ADRs in [`docs/adr/`](docs/adr/).
+- **Architecture:** hexagonal — `domain` (pure) ← `application` (ports +
+  services) ← `adapters` (inbound http/cli, outbound db/llm/store/export) ←
+  `infrastructure` (composition root) ← `main`/`cli`. `lint-imports` enforces
+  it: the domain and application layers import no frameworks or drivers, and
+  adapters never import `infrastructure` or each other's side. New I/O goes
+  behind a port in `warp.application.ports` and is wired in
+  `warp.infrastructure.bootstrap`. See [ADR-0007](docs/adr/0007-hexagonal-architecture.md).
 - **Tests:** keep them hermetic — no real database, network, or LLM calls (mock
   them). New behavior needs tests; coverage must not drop below 80%.
-- **SQL:** never interpolate values into SQL — use bound parameters. Dynamic
-  identifiers must go through `warp.database.identifiers`.
+- **SQL:** never interpolate values into SQL — use `:name` placeholders bound by
+  `warp.adapters.outbound.db.params`. Dynamic identifiers must go through
+  `warp.adapters.outbound.db.identifiers`.
 - **Formatting:** `ruff format` (run `make format`); no other formatter.
 - **Commits:** small, focused commits with clear messages.
 

@@ -1,6 +1,6 @@
 # 1. Layered architecture enforced by import-linter
 
-- Status: Accepted
+- Status: Superseded by [ADR-0007](0007-hexagonal-architecture.md)
 - Date: 2026-06-23
 
 ## Context

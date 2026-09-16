@@ -1,6 +1,6 @@
 [project]
-name = "warp"
-version = "1.0.0"
+name = "warp-engine"
+version = "0.9.0"
 description = "Auto-discovery REST CRUD API generator from database schema"
 readme = "README.md"
 license = { text = "Apache-2.0" }
