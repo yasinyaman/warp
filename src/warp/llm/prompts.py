@@ -180,7 +180,7 @@ def _lang_format(languages: list[str]) -> str:
     return "{" + parts + "}"
 
 
-def build_table_analysis_prompt(  # noqa: PLR0913
+def build_table_analysis_prompt(  # noqa: PLR0913, PLR0917
     table_name: str,
     database_name: str,
     database_type: str,

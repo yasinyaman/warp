@@ -7,20 +7,20 @@ the enriched, LLM-augmented view of the database structure.
 
 from collections import Counter
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class CatalogStatus(str, Enum):
+class CatalogStatus(StrEnum):
     """Status of the overall catalog."""
 
     draft = "draft"
     approved = "approved"
 
 
-class TableReviewStatus(str, Enum):
+class TableReviewStatus(StrEnum):
     """Per-table review status during HITL review."""
 
     pending = "pending"

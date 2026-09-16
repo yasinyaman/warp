@@ -2,7 +2,7 @@
 import hashlib
 import secrets
 from collections.abc import Awaitable, Callable
-from enum import Enum
+from enum import StrEnum
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
@@ -10,7 +10,7 @@ from fastapi.security import APIKeyHeader
 from ..config.settings import ApiKeyConfig, AuthConfig
 
 
-class Permission(str, Enum):
+class Permission(StrEnum):
     """Available permissions for API operations."""
     READ = "read"
     CREATE = "create"

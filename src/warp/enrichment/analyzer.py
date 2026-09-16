@@ -386,7 +386,7 @@ class EnrichedAnalyzer:
 
         return samples
 
-    def _build_enriched_entry(  # noqa: C901, PLR0913, PLR0912
+    def _build_enriched_entry(  # noqa: C901, PLR0913, PLR0917, PLR0912
         self,
         table_name: str,
         result: dict[str, Any],
