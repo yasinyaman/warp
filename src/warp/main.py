@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from warp import __version__
-from warp.api.auth import init_auth_manager
+from warp.api.auth import AuthManager, Permission, init_auth_manager
 from warp.api.catalog_router import _refresh_openapi_enrichment, create_catalog_router
 from warp.api.query import create_query_router
 from warp.api.router_factory import RouterFactory
@@ -45,6 +45,7 @@ class AppState:
     """Container for application state."""
 
     settings: Settings | None = None
+    auth_manager: AuthManager | None = None
     databases: dict[str, DatabaseAdapter] = {}
     readonly_databases: dict[str, DatabaseAdapter] = {}
     schemas: dict[str, DatabaseSchema] = {}
@@ -119,6 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912,
 
     # Initialize auth manager
     auth_manager = init_auth_manager(state.settings.settings.auth)
+    state.auth_manager = auth_manager
     if auth_manager.enabled:
         logger.info(f"Authentication enabled with {auth_manager.api_key_count} API key(s)")
     else:
@@ -310,8 +312,29 @@ GET /api/v1/users?limit=20&offset=40
         # Disable default docs — we serve custom /docs with cache-busting
         docs_url=None,
         redoc_url=None,
+        # The spec route is registered explicitly below so it can be guarded
+        # by the auth manager (it carries catalog descriptions/x-llm-context).
+        openapi_url=None,
         lifespan=lifespan,
     )
+
+    @app.get("/openapi.json", include_in_schema=False)
+    async def openapi_json(request: Request) -> JSONResponse:
+        """Serve the (possibly catalog-enriched) OpenAPI spec.
+
+        Public only when "/openapi.json" is listed in `auth.public_paths`
+        (the development default); otherwise a key with `read` permission is
+        required, like any other endpoint.
+        """
+        manager = state.auth_manager
+        if manager and manager.enabled:
+            user = await manager.get_current_user(request)
+            if user is not None and not user.has_permission(Permission.READ):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Permission denied: 'read' required"},
+                )
+        return JSONResponse(app.openapi())
 
     # Custom /docs and /redoc with cache-busting for OpenAPI JSON
     if docs_url:

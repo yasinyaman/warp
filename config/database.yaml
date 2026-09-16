@@ -68,12 +68,17 @@ settings:
   auth:
     enabled: false
     header_name: X-API-Key
-    # Public paths that don't require authentication
+    # Public paths that don't require authentication. Matching is on path
+    # segments ("/docs" also covers "/docs/oauth2-redirect", not "/docsx").
+    # NOTE: /openapi.json carries catalog descriptions and x-llm-context. In
+    # production, startup is refused while it is public unless
+    # allow_public_openapi is set to true.
     public_paths:
       - /health
       - /docs
       - /redoc
       - /openapi.json
+    allow_public_openapi: false
     # API keys with permissions
     # Permissions: read, create, update, delete, query (for raw SQL), all (full access)
     # Keys are supplied via environment variables (see .env.example).
@@ -103,6 +108,10 @@ settings:
     auto_cross_reference: true    # Use existing catalogs as context
     auto_enrich_openapi: true     # Auto-enrich /docs with catalog descriptions
     openapi_enrichment_lang: "en" # Language for OpenAPI enrichment
+    # Write real sample values from the database into the OpenAPI spec
+    # (example/examples/x-llm-context.examples). Off by default: the spec may
+    # be reachable without a key and samples can contain sensitive data.
+    openapi_include_examples: false
 
   # Schema analysis configuration
   analysis:

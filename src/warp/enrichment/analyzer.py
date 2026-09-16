@@ -23,7 +23,12 @@ from warp.core.exceptions import AnalysisError
 from warp.core.logging import get_logger
 from warp.enrichment.comment_reader import CommentReader
 from warp.enrichment.cross_reference import CrossReferenceProvider
-from warp.enrichment.sample_reader import SampleReader, TableSamples, mask_pii_samples
+from warp.enrichment.sample_reader import (
+    SampleReader,
+    TableSamples,
+    mask_pii_samples,
+    samples_for_storage,
+)
 from warp.i18n.localization import LocalizationManager
 from warp.llm.client import CLOUD_PROVIDERS, LLMClient
 from warp.llm.prompts import (
@@ -444,6 +449,19 @@ class EnrichedAnalyzer:
 
             col_desc = self._parse_localized(llm_col.get("description", {}))
             db_comment = db_column_comments.get(col_name)
+            semantic_type = llm_col.get("semantic_type")
+
+            # Privacy: PII columns (by name pattern or LLM semantic type) keep
+            # no sample values in the stored catalog, which is re-published
+            # through the draft API and the OpenAPI spec.
+            analysis_cfg = self.config.settings.analysis
+            sample_vals = samples_for_storage(
+                col_name,
+                semantic_type,
+                sample_vals,
+                mask_pii=analysis_cfg.mask_pii_samples,
+                patterns=analysis_cfg.pii_column_patterns,
+            )
 
             column_entries.append(
                 ColumnCatalogEntry(
@@ -451,7 +469,7 @@ class EnrichedAnalyzer:
                     data_type=col["type"],
                     full_type=col.get("full_type"),
                     description=col_desc,
-                    semantic_type=llm_col.get("semantic_type"),
+                    semantic_type=semantic_type,
                     nullable=col.get("nullable", True),
                     is_primary_key=is_pk,
                     is_foreign_key=is_fk,

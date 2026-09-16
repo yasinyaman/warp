@@ -19,10 +19,22 @@ logger = get_logger(__name__)
 class OpenAPIEnricher:
     """Enriches warp's OpenAPI spec with catalog descriptions."""
 
-    def __init__(self, catalog: DatabaseCatalog, lang: str = "en"):
-        """Store the catalog and target language for enrichment."""
+    def __init__(
+        self, catalog: DatabaseCatalog, lang: str = "en", *, include_examples: bool = False
+    ):
+        """Store the catalog, target language and example policy.
+
+        Args:
+            catalog: Catalog whose descriptions are injected into the spec.
+            lang: Language used for descriptions.
+            include_examples: Whether real sample values from the database are
+                written into the spec (`example`, `examples`,
+                `x-llm-context.examples`). Off by default because the spec is
+                frequently reachable without credentials.
+        """
         self.catalog = catalog
         self.lang = lang
+        self.include_examples = include_examples
 
     # ------------------------------------------------------------------
     # Public
@@ -198,7 +210,7 @@ class OpenAPIEnricher:
                 col_ctx["semantic_type"] = col.semantic_type
             if col.tags:
                 col_ctx["tags"] = col.tags
-            if col.sample_values:
+            if self.include_examples and col.sample_values:
                 col_ctx["examples"] = col.sample_values[:5]
             ctx["columns"].append(col_ctx)
 
@@ -242,7 +254,7 @@ class OpenAPIEnricher:
                     param["description"] = enriched_desc
 
             # Add examples
-            if col.sample_values and not param.get("examples"):
+            if self.include_examples and col.sample_values and not param.get("examples"):
                 param["examples"] = {
                     f"example_{i}": {"value": v} for i, v in enumerate(col.sample_values[:3])
                 }
@@ -272,7 +284,7 @@ class OpenAPIEnricher:
                     prop_schema["description"] = enriched
 
             # Add example values
-            if col.sample_values and "example" not in prop_schema:
+            if self.include_examples and col.sample_values and "example" not in prop_schema:
                 prop_schema["example"] = col.sample_values[0]
 
     # ------------------------------------------------------------------
@@ -326,7 +338,7 @@ class OpenAPIEnricher:
                         prop_schema["description"] = enriched
 
                 # Example value
-                if col.sample_values and "example" not in prop_schema:
+                if self.include_examples and col.sample_values and "example" not in prop_schema:
                     prop_schema["example"] = col.sample_values[0]
 
                 # x-llm-context per property
@@ -339,7 +351,7 @@ class OpenAPIEnricher:
                     col_meta["foreign_key"] = col.references
                 if col.tags:
                     col_meta["tags"] = col.tags
-                if col.sample_values:
+                if self.include_examples and col.sample_values:
                     col_meta["examples"] = col.sample_values[:5]
                 if col_meta:
                     prop_schema["x-llm-context"] = col_meta
@@ -370,7 +382,11 @@ class OpenAPIEnricher:
                         **({"foreign_key": c.references} if c.is_foreign_key else {}),
                         "is_primary_key": c.is_primary_key,
                         "nullable": c.nullable,
-                        **({"examples": c.sample_values[:3]} if c.sample_values else {}),
+                        **(
+                            {"examples": c.sample_values[:3]}
+                            if self.include_examples and c.sample_values
+                            else {}
+                        ),
                     }
                     for c in table.columns
                 ],
@@ -420,7 +436,7 @@ class OpenAPIEnricher:
         if meta:
             parts.append(f"[{', '.join(meta)}]")
 
-        if col.sample_values:
+        if self.include_examples and col.sample_values:
             examples = ", ".join(str(v) for v in col.sample_values[:3])
             parts.append(f"Examples: {examples}")
 

@@ -68,6 +68,10 @@ class AuthConfig(BaseModel):
     public_paths: list[str] = Field(
         default_factory=lambda: ["/health", "/docs", "/redoc", "/openapi.json"]
     )
+    # The enriched OpenAPI spec exposes column descriptions and x-llm-context.
+    # In production, startup is refused while "/openapi.json" is public unless
+    # this is explicitly set to true (see validate_production_config).
+    allow_public_openapi: bool = False
 
 
 class CatalogConfig(BaseModel):
@@ -78,6 +82,38 @@ class CatalogConfig(BaseModel):
     auto_cross_reference: bool = True
     auto_enrich_openapi: bool = True
     openapi_enrichment_lang: str = "en"
+    # Inject real sample values from the database into the OpenAPI spec as
+    # `example`/`examples`/`x-llm-context.examples`. Off by default: the spec
+    # is often reachable without a key and samples may contain sensitive data.
+    openapi_include_examples: bool = False
+
+
+# Column-name substrings that indicate likely PII. Single source of truth for
+# both the config default and the enrichment masking helpers.
+DEFAULT_PII_PATTERNS: tuple[str, ...] = (
+    "email",
+    "mail",
+    "phone",
+    "tel",
+    "mobile",
+    "ssn",
+    "social_security",
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "credit_card",
+    "card_number",
+    "cardno",
+    "cvv",
+    "iban",
+    "account_number",
+    "tax_id",
+    "passport",
+    "national_id",
+)
 
 
 class AnalysisConfig(BaseModel):
@@ -94,30 +130,7 @@ class AnalysisConfig(BaseModel):
     share_samples_with_cloud_llm: bool = False
     # Mask PII-looking column values before sending samples to any LLM.
     mask_pii_samples: bool = True
-    pii_column_patterns: list[str] = Field(
-        default_factory=lambda: [
-            "email",
-            "mail",
-            "phone",
-            "tel",
-            "mobile",
-            "ssn",
-            "password",
-            "passwd",
-            "secret",
-            "token",
-            "api_key",
-            "apikey",
-            "credit_card",
-            "card_number",
-            "cvv",
-            "iban",
-            "account_number",
-            "tax_id",
-            "passport",
-            "national_id",
-        ]
-    )
+    pii_column_patterns: list[str] = Field(default_factory=lambda: list(DEFAULT_PII_PATTERNS))
 
 
 class LLMConfig(BaseModel):
@@ -307,6 +320,17 @@ def validate_production_config(
         violations.append(
             "CORS_ORIGINS allows '*': any origin could call the API. "
             "Set CORS_ORIGINS to an explicit, comma-separated allowlist."
+        )
+
+    openapi_public = any(
+        p.rstrip("/") in ("/openapi.json", "/openapi", "/") for p in cfg.auth.public_paths
+    )
+    if openapi_public and not cfg.auth.allow_public_openapi:
+        violations.append(
+            "auth.public_paths exposes /openapi.json: the enriched OpenAPI spec "
+            "(column descriptions, x-llm-context) would be readable without an API "
+            "key. Remove it from auth.public_paths, or set "
+            "auth.allow_public_openapi: true to accept this explicitly."
         )
 
     return violations

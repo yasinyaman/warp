@@ -305,3 +305,61 @@ class TestCatalogConfig:
         assert settings.settings.catalog.storage_path == "./my_catalogs"
         assert settings.settings.catalog.auto_enrich_openapi is False
         assert settings.settings.catalog.openapi_enrichment_lang == "tr"
+
+
+class TestPIIPatternsSingleSource:
+    def test_config_default_matches_reader_default(self):
+        from warp.config.settings import DEFAULT_PII_PATTERNS, AnalysisConfig
+        from warp.enrichment import sample_reader
+
+        assert AnalysisConfig().pii_column_patterns == list(DEFAULT_PII_PATTERNS)
+        assert sample_reader.DEFAULT_PII_PATTERNS is DEFAULT_PII_PATTERNS
+        assert "social_security" in DEFAULT_PII_PATTERNS
+
+
+class TestProductionValidation:
+    def _safe(self):
+        from warp.config.settings import ApiKeyConfig, Settings
+
+        s = Settings()
+        s.settings.auth.enabled = True
+        s.settings.auth.api_keys = [ApiKeyConfig(key="k", permissions=["all"])]
+        s.settings.auth.public_paths = ["/health"]
+        return s
+
+    def test_non_production_never_reports(self):
+        from warp.config.settings import Settings, validate_production_config
+
+        assert validate_production_config(Settings(), "development", ["*"]) == []
+
+    def test_safe_production_config_has_no_violations(self):
+        from warp.config.settings import validate_production_config
+
+        assert validate_production_config(self._safe(), "production", ["https://a"]) == []
+
+    def test_public_openapi_is_a_violation_by_default(self):
+        from warp.config.settings import validate_production_config
+
+        s = self._safe()
+        s.settings.auth.public_paths = ["/health", "/openapi.json"]
+        violations = validate_production_config(s, "production", ["https://a"])
+        assert len(violations) == 1
+        assert "/openapi.json" in violations[0]
+        assert "allow_public_openapi" in violations[0]
+
+    def test_public_openapi_can_be_accepted_explicitly(self):
+        from warp.config.settings import validate_production_config
+
+        s = self._safe()
+        s.settings.auth.public_paths = ["/health", "/openapi.json"]
+        s.settings.auth.allow_public_openapi = True
+        assert validate_production_config(s, "production", ["https://a"]) == []
+
+    def test_default_config_in_production_lists_every_problem(self):
+        from warp.config.settings import Settings, validate_production_config
+
+        violations = validate_production_config(Settings(), "production", ["*"])
+        joined = " ".join(violations)
+        assert "auth.enabled" in joined
+        assert "CORS_ORIGINS" in joined
+        assert "/openapi.json" in joined

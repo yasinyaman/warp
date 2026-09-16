@@ -102,3 +102,31 @@ class TestRBACEndpoints:
         client, _ = _make_client(enabled=False)
         assert client.get("/items").status_code == 200
         assert client.post("/items").status_code == 200
+
+
+class TestPublicPathBoundary:
+    def test_matches_segment_boundary_only(self):
+        manager = AuthManager(_auth_config())
+        manager.public_paths = ["/health", "/docs", "/openapi.json"]
+        assert manager._is_public_path("/health")
+        assert manager._is_public_path("/docs/oauth2-redirect")
+        assert manager._is_public_path("/openapi.json")
+        assert not manager._is_public_path("/healthz")
+        assert not manager._is_public_path("/docsx")
+        assert not manager._is_public_path("/openapi.json.bak")
+        assert not manager._is_public_path("/api/v1/users")
+
+    def test_trailing_slash_and_root(self):
+        manager = AuthManager(_auth_config())
+        manager.public_paths = ["/status/"]
+        assert manager._is_public_path("/status")
+        assert manager._is_public_path("/status/x")
+        assert not manager._is_public_path("/statusx")
+        manager.public_paths = ["/"]
+        assert manager._is_public_path("/anything")
+
+    def test_prefix_lookalike_requires_key(self):
+        client, _ = _make_client()
+        # "/health" is public; "/healthz"-style lookalikes are not.
+        assert client.get("/health").status_code == 200
+        assert client.get("/items").status_code == 401

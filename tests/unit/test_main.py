@@ -9,7 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import warp.main as main_module
-from warp.config.settings import Settings
+from warp.api.auth import AuthManager
+from warp.config.settings import ApiKeyConfig, AuthConfig, Settings
 from warp.core.exceptions import DatabaseConnectionError
 from warp.main import connect_with_retry, create_app
 
@@ -104,3 +105,51 @@ class TestConnectWithRetry:
         adapter = _Adapter(fail_times=5)
         with pytest.raises(DatabaseConnectionError):
             await connect_with_retry(adapter, max_retries=1)
+
+
+class TestOpenAPIRoute:
+    """/openapi.json is an explicit route so the auth manager can guard it."""
+
+    def test_served_when_auth_disabled(self, state):
+        state.auth_manager = None
+        r = _client().get("/openapi.json")
+        assert r.status_code == 200
+        assert r.json()["info"]["title"] == "Warp Engine"
+
+    def _manager(self, public):
+        return AuthManager(
+            AuthConfig(
+                enabled=True,
+                api_keys=[
+                    ApiKeyConfig(key="reader-key", permissions=["read"]),
+                    ApiKeyConfig(key="query-key", permissions=["query"]),
+                ],
+                public_paths=public,
+            )
+        )
+
+    def test_requires_key_when_not_public(self, state):
+        state.auth_manager = self._manager(public=["/health"])
+        try:
+            c = _client()
+            assert c.get("/openapi.json").status_code == 401
+            assert c.get("/openapi.json", headers={"X-API-Key": "nope"}).status_code == 401
+            assert c.get("/openapi.json", headers={"X-API-Key": "query-key"}).status_code == 403
+            ok = c.get("/openapi.json", headers={"X-API-Key": "reader-key"})
+            assert ok.status_code == 200 and "paths" in ok.json()
+        finally:
+            state.auth_manager = None
+
+    def test_public_when_listed(self, state):
+        state.auth_manager = self._manager(public=["/health", "/openapi.json"])
+        try:
+            assert _client().get("/openapi.json").status_code == 200
+        finally:
+            state.auth_manager = None
+
+    def test_production_hides_docs_but_keeps_spec_route(self, monkeypatch):
+        monkeypatch.setattr(main_module, "APP_ENV", "production")
+        app = create_app()
+        paths = {getattr(r, "path", None) for r in app.routes}
+        assert "/docs" not in paths
+        assert "/openapi.json" in paths

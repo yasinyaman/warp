@@ -197,7 +197,13 @@ def _refresh_openapi_enrichment(
                 f"(status={catalog.status.value}, "
                 f"tables={list(catalog.tables.keys())})"
             )
-            enrichers.append(OpenAPIEnricher(catalog, lang=enrichment_lang))
+            enrichers.append(
+                OpenAPIEnricher(
+                    catalog,
+                    lang=enrichment_lang,
+                    include_examples=config.settings.catalog.openapi_include_examples,
+                )
+            )
         else:
             logger.debug(f"OpenAPI enrichment: no catalog found for '{db_name}'")
 

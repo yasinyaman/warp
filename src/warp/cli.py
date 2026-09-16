@@ -482,6 +482,11 @@ def _interactive_edit_table(
 @click.option("-i", "--input", "input_path", required=True, help="OpenAPI spec file")
 @click.option("-o", "--output", default=None, help="Output file path")
 @click.option("--lang", default="en", help="Language for descriptions")
+@click.option(
+    "--include-examples",
+    is_flag=True,
+    help="Write real sample values into the spec (off by default: may contain PII)",
+)
 @click.pass_context
 def enrich_openapi(
     ctx: click.Context,
@@ -489,6 +494,7 @@ def enrich_openapi(
     input_path: str,
     output: str | None,
     lang: str,
+    include_examples: bool,
 ) -> None:
     """Enrich OpenAPI spec with catalog descriptions."""
     from warp.catalog.store import CatalogFileStore
@@ -503,7 +509,7 @@ def enrich_openapi(
         click.echo(f"Catalog not found: {database}", err=True)
         sys.exit(1)
 
-    enricher = OpenAPIEnricher(catalog, lang=lang)
+    enricher = OpenAPIEnricher(catalog, lang=lang, include_examples=include_examples)
     result_path = enricher.enrich_file(input_path, output)
     click.echo(f"Enriched spec saved to: {result_path}")
 

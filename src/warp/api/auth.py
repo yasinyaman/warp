@@ -90,8 +90,18 @@ class AuthManager:
         return match
 
     def _is_public_path(self, path: str) -> bool:
-        """Check if the path is public (no auth required)."""
-        return any(path.startswith(public_path) for public_path in self.public_paths)
+        """Check if the path is public (no auth required).
+
+        A public path matches itself and its sub-paths on a segment boundary
+        (``/docs`` covers ``/docs/oauth2-redirect`` but not ``/docsx``).
+        """
+        for public_path in self.public_paths:
+            base = public_path.rstrip("/")
+            if not base:  # "/" makes everything public
+                return True
+            if path == base or path.startswith(base + "/"):
+                return True
+        return False
 
     async def get_current_user(
         self, request: Request, api_key: str | None = None

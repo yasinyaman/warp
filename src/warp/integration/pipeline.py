@@ -89,7 +89,11 @@ class Pipeline:
 
             # Enrich OpenAPI spec if provided
             if openapi_spec_path:
-                enricher = OpenAPIEnricher(catalog, lang=lang)
+                enricher = OpenAPIEnricher(
+                    catalog,
+                    lang=lang,
+                    include_examples=self.config.settings.catalog.openapi_include_examples,
+                )
                 enriched_path = enricher.enrich_file(openapi_spec_path)
                 result.enriched_openapi_path = str(enriched_path)
                 logger.info(f"OpenAPI spec enriched: {enriched_path}")

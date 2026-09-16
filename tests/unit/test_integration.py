@@ -213,3 +213,71 @@ class TestMCPEnricher:
         result = enricher._enrich_tool(tool)
 
         assert result is False
+
+
+class TestOpenAPIExamplesPolicy:
+    """Sample values are only written into the spec when explicitly enabled."""
+
+    def _spec(self):
+        return {
+            "paths": {
+                "/api/v1/users": {
+                    "get": {
+                        "summary": "List users",
+                        "parameters": [{"name": "filter[email]", "in": "query"}],
+                    },
+                    "post": {
+                        "summary": "Create user",
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {"properties": {"email": {"type": "string"}}}
+                                }
+                            }
+                        },
+                    },
+                }
+            },
+            "components": {
+                "schemas": {
+                    "warp__schema__analyzer__UsersResponse": {
+                        "properties": {"email": {"type": "string"}}
+                    }
+                }
+            },
+        }
+
+    @staticmethod
+    def _find_keys(obj, keys):
+        found = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k in keys:
+                    found.append((k, v))
+                found.extend(TestOpenAPIExamplesPolicy._find_keys(v, keys))
+        elif isinstance(obj, list):
+            for v in obj:
+                found.extend(TestOpenAPIExamplesPolicy._find_keys(v, keys))
+        return found
+
+    @staticmethod
+    def _with_samples(catalog):
+        col = catalog.tables["users"].get_column("email")
+        assert col is not None
+        col.sample_values = ["a@x.com", "b@x.com"]
+        return catalog
+
+    def test_no_examples_by_default(self, catalog):
+        result = OpenAPIEnricher(self._with_samples(catalog), lang="en").enrich(self._spec())
+        assert self._find_keys(result, {"example", "examples"}) == []
+        assert "Examples:" not in json.dumps(result)
+        # Descriptions are still injected.
+        assert "x-llm-context" in result
+
+    def test_examples_when_enabled(self, catalog):
+        result = OpenAPIEnricher(
+            self._with_samples(catalog), lang="en", include_examples=True
+        ).enrich(self._spec())
+        found = self._find_keys(result, {"example", "examples"})
+        assert found != []
+        assert any("a@x.com" in json.dumps(v) for _, v in found)
