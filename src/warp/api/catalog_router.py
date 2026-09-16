@@ -43,7 +43,6 @@ class AnalyzeRequest(BaseModel):
     database: str = Field(..., description="Database config name")
     tables: list[str] | None = Field(default=None, description="Specific tables to analyze")
     lang: str | None = Field(default=None, description="Language override")
-    format: str = Field(default="json", description="Storage format: json or yaml")
     auto_approve: bool = Field(
         default=False, description="Auto-approve catalog after analysis (skip review)"
     )

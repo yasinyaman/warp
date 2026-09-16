@@ -212,7 +212,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912,
     # Register catalog router
     catalog_store = None
     try:
-        catalog_store = CatalogFileStore(state.settings.settings.catalog.storage_path)
+        catalog_store = CatalogFileStore(
+            state.settings.settings.catalog.storage_path,
+            default_format=state.settings.settings.catalog.default_format,
+        )
         catalog_router = create_catalog_router(
             store=catalog_store,
             config=state.settings,
@@ -456,7 +459,10 @@ GET /api/v1/users?limit=20&offset=40
         catalog_info = {}
         if state.settings:
             try:
-                _store = CatalogFileStore(state.settings.settings.catalog.storage_path)
+                _store = CatalogFileStore(
+                    state.settings.settings.catalog.storage_path,
+                    default_format=state.settings.settings.catalog.default_format,
+                )
                 catalog_names = _store.list_catalogs()
                 catalog_info = {
                     "available_catalogs": catalog_names,

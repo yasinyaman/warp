@@ -86,7 +86,9 @@ async def _run_analyze(
     lang = lang or config.settings.i18n.default_language
     table_names = tables.split(",") if tables else None
 
-    store = CatalogFileStore(config.settings.catalog.storage_path)
+    store = CatalogFileStore(
+        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
+    )
 
     # Find database config
     db_config = None
@@ -164,7 +166,9 @@ def export_catalog(ctx: click.Context, database: str, fmt: str, output: str, lan
     from warp.export.markdown_exporter import get_exporter
 
     config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(config.settings.catalog.storage_path)
+    store = CatalogFileStore(
+        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
+    )
 
     catalog = store.load(database)
     if not catalog:
@@ -184,7 +188,9 @@ def list_catalogs(ctx: click.Context) -> None:
     from warp.config.settings import load_config
 
     config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(config.settings.catalog.storage_path)
+    store = CatalogFileStore(
+        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
+    )
 
     catalogs = store.list_catalogs()
     if not catalogs:
@@ -217,7 +223,9 @@ def show_info(ctx: click.Context, database: str, lang: str) -> None:
     from warp.config.settings import load_config
 
     config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(config.settings.catalog.storage_path)
+    store = CatalogFileStore(
+        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
+    )
 
     catalog = store.load(database)
     if not catalog:
@@ -261,7 +269,9 @@ def review_catalog(ctx: click.Context, database: str, lang: str, auto_approve: b
     from warp.config.settings import load_config
 
     config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(config.settings.catalog.storage_path)
+    store = CatalogFileStore(
+        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
+    )
 
     catalog = store.load(database)
     if not catalog:
@@ -502,7 +512,9 @@ def enrich_openapi(
     from warp.integration.openapi_enricher import OpenAPIEnricher
 
     config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(config.settings.catalog.storage_path)
+    store = CatalogFileStore(
+        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
+    )
 
     catalog = store.load(database)
     if not catalog:

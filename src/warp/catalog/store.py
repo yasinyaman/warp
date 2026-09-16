@@ -68,15 +68,23 @@ class CatalogFileStore:
     """
 
     INDEX_FILE = "_index.json"
+    FORMATS = ("json", "yaml")
 
-    def __init__(self, base_path: str | Path):
+    def __init__(self, base_path: str | Path, default_format: str = "json"):
         """Initialize CatalogFileStore.
 
         Args:
             base_path: Root directory for catalog storage
+            default_format: File format used whenever a save does not name
+                one explicitly ("json" or "yaml"). Every internal re-save
+                (approve, edit, override merge) uses it, so a catalog never
+                silently switches format.
         """
+        if default_format not in self.FORMATS:
+            raise ValueError(f"default_format must be one of {self.FORMATS}: {default_format!r}")
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
+        self.default_format = default_format
 
     def _db_dir(self, db_name: str) -> Path:
         """Resolve the directory for `db_name`, refusing anything outside the root.
@@ -97,13 +105,17 @@ class CatalogFileStore:
     def save(
         self,
         catalog: DatabaseCatalog,
-        format: str = "json",
+        format: str | None = None,
     ) -> Path:
         """Save a database catalog to disk.
 
+        Writes ``catalog.<format>`` and removes a stale sibling in the other
+        format, so ``load()`` can never return an older copy.
+
         Args:
             catalog: DatabaseCatalog to save
-            format: Output format - "json" or "yaml"
+            format: Output format - "json" or "yaml". Defaults to the store's
+                ``default_format``.
 
         Returns:
             Path to the saved file
@@ -111,11 +123,16 @@ class CatalogFileStore:
         Raises:
             CatalogError: If save fails
         """
+        format = format or self.default_format
+        if format not in self.FORMATS:
+            raise CatalogError(f"Unsupported catalog format: {format!r}")
+
         db_dir = self._db_dir(catalog.database_name)
         db_dir.mkdir(parents=True, exist_ok=True)
 
-        ext = "yaml" if format == "yaml" else "json"
+        ext = format
         file_path = db_dir / f"catalog.{ext}"
+        stale = [db_dir / f"catalog.{other}" for other in self.FORMATS if other != ext]
 
         try:
             data = catalog.model_dump(mode="json")
@@ -133,6 +150,9 @@ class CatalogFileStore:
                 with open(file_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
 
+            for stale_path in stale:
+                stale_path.unlink(missing_ok=True)
+
             self._update_index(catalog, str(file_path.relative_to(self.base_path)))
 
             logger.info(
@@ -147,7 +167,8 @@ class CatalogFileStore:
     def load(self, db_name: str) -> DatabaseCatalog | None:
         """Load a database catalog from disk.
 
-        Tries JSON first, then YAML.
+        Tries the store's default format first, then the other one (a
+        directory written by an older version may still hold both).
 
         Args:
             db_name: Database name
@@ -160,7 +181,8 @@ class CatalogFileStore:
         if not db_dir.exists():
             return None
 
-        for ext in ("json", "yaml"):
+        order = (self.default_format, *[f for f in self.FORMATS if f != self.default_format])
+        for ext in order:
             file_path = db_dir / f"catalog.{ext}"
             if file_path.exists():
                 try:
@@ -237,7 +259,7 @@ class CatalogFileStore:
     def save_as_draft(
         self,
         catalog: DatabaseCatalog,
-        format: str = "json",
+        format: str | None = None,
     ) -> Path:
         """Save catalog explicitly as a draft.
 

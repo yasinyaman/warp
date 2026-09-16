@@ -325,3 +325,62 @@ class TestPathSafety:
             store.save(evil)
         assert not (store.base_path.parent / "evil").exists()
         assert store.list_catalogs() == []
+
+
+class TestDefaultFormat:
+    """The store owns the file format; re-saves never leave a stale sibling behind."""
+
+    def test_invalid_default_format_rejected(self, temp_dir):
+        with pytest.raises(ValueError):
+            CatalogFileStore(temp_dir, default_format="toml")
+
+    def test_yaml_store_replaces_stale_json(self, temp_dir, sample_catalog):
+        # An older run (json default) wrote catalog.json ...
+        CatalogFileStore(temp_dir).save(sample_catalog)
+        assert (temp_dir / "testdb" / "catalog.json").exists()
+
+        # ... the store is now configured for yaml and re-analysis saves again.
+        store = CatalogFileStore(temp_dir, default_format="yaml")
+        newer = sample_catalog.model_copy(deep=True)
+        newer.tables.pop("orders")
+        store.save(newer)
+
+        assert (temp_dir / "testdb" / "catalog.yaml").exists()
+        assert not (temp_dir / "testdb" / "catalog.json").exists()
+        loaded = store.load("testdb")
+        assert loaded is not None
+        assert list(loaded.tables) == ["users"]
+
+    def test_internal_resaves_keep_default_format(self, temp_dir, sample_catalog):
+        store = CatalogFileStore(temp_dir, default_format="yaml")
+        store.save_as_draft(sample_catalog)
+        store.approve_table("testdb", "users")
+        store.update_table_fields("testdb", "orders", {"tags": ["x"]})
+        store.approve_catalog("testdb")
+
+        files = sorted(p.name for p in (temp_dir / "testdb").iterdir())
+        assert files == ["catalog.yaml"]
+        loaded = store.load("testdb")
+        assert loaded is not None and loaded.status.value == "approved"
+
+    def test_explicit_format_overrides_default(self, temp_dir, sample_catalog):
+        store = CatalogFileStore(temp_dir)  # json default
+        store.save(sample_catalog, format="yaml")
+        assert sorted(p.name for p in (temp_dir / "testdb").iterdir()) == ["catalog.yaml"]
+        store.save(sample_catalog)  # back to the default -> json only
+        assert sorted(p.name for p in (temp_dir / "testdb").iterdir()) == ["catalog.json"]
+
+    def test_load_prefers_default_format_when_both_exist(self, temp_dir, sample_catalog):
+        db_dir = temp_dir / "testdb"
+        db_dir.mkdir()
+        json_catalog = sample_catalog.model_copy(deep=True)
+        json_catalog.tables.pop("orders")
+        (db_dir / "catalog.json").write_text(json_catalog.model_dump_json())
+        import yaml
+
+        (db_dir / "catalog.yaml").write_text(yaml.safe_dump(sample_catalog.model_dump(mode="json")))
+
+        yaml_first = CatalogFileStore(temp_dir, default_format="yaml").load("testdb")
+        json_first = CatalogFileStore(temp_dir, default_format="json").load("testdb")
+        assert yaml_first is not None and set(yaml_first.tables) == {"users", "orders"}
+        assert json_first is not None and set(json_first.tables) == {"users"}

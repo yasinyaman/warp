@@ -26,7 +26,10 @@ class Pipeline:
     def __init__(self, config: Settings):
         """Store config and open the catalog store."""
         self.config = config
-        self.store = CatalogFileStore(config.settings.catalog.storage_path)
+        self.store = CatalogFileStore(
+            config.settings.catalog.storage_path,
+            default_format=config.settings.catalog.default_format,
+        )
 
     async def run(
         self,

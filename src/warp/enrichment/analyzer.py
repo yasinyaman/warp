@@ -193,10 +193,7 @@ class EnrichedAnalyzer:
                 catalog = await self._translate_catalog(catalog)
 
             if self.store:
-                self.store.save_as_draft(
-                    catalog,
-                    format=self.config.settings.catalog.default_format,
-                )
+                self.store.save_as_draft(catalog)
 
                 # Re-apply user overrides from previous catalog
                 if existing_overrides:
