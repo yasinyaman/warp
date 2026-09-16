@@ -216,6 +216,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912,
             config=state.settings,
             adapters=state.databases,
             app=app,
+            auth_manager=auth_manager,
         )
         app.include_router(
             catalog_router,

@@ -10,11 +10,12 @@ Provides REST endpoints for catalog operations:
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi import Path as PathParam
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from warp.api.auth import AuthManager, Permission
 from warp.catalog.store import CATALOG_NAME_PATTERN, CatalogFileStore
 from warp.core.logging import get_logger
 from warp.export.markdown_exporter import get_exporter
@@ -236,22 +237,37 @@ def create_catalog_router(  # noqa: C901, PLR0915
     config: Any = None,
     adapters: dict[str, Any] | None = None,
     app: FastAPI | None = None,
+    auth_manager: AuthManager | None = None,
 ) -> APIRouter:
     """Create the catalog API router.
+
+    Permissions (enforced when `auth_manager` is enabled):
+        read   - list/info/export/draft views
+        create - POST /analyze (writes a new catalog, spends LLM budget)
+        update - draft edits and approvals
+        delete - DELETE /{db_name}
 
     Args:
         store: CatalogFileStore instance
         config: Settings instance (for analysis)
         adapters: Dict of connected database adapters (for live analysis)
         app: FastAPI app instance (for OpenAPI enrichment refresh)
+        auth_manager: Optional auth manager; when enabled every endpoint
+            requires an API key with the matching permission.
 
     Returns:
         FastAPI APIRouter with catalog endpoints
     """
     router = APIRouter(prefix="/catalog", tags=["Catalog"])
 
+    def get_auth_deps(permission: Permission) -> list[Any]:
+        if auth_manager and auth_manager.enabled:
+            return [Depends(auth_manager.require(permission))]
+        return []
+
     @router.get(
         "",
+        dependencies=get_auth_deps(Permission.READ),
         response_model=CatalogListResponse,
         summary="List available catalogs",
     )
@@ -281,6 +297,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
     @router.get(
         "/{db_name}",
+        dependencies=get_auth_deps(Permission.READ),
         response_model=CatalogInfoResponse,
         summary="Get catalog info",
     )
@@ -320,6 +337,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
     @router.get(
         "/{db_name}/export",
+        dependencies=get_auth_deps(Permission.READ),
         summary="Export catalog",
     )
     async def export_catalog(
@@ -354,17 +372,17 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
     @router.post(
         "/analyze",
+        dependencies=get_auth_deps(Permission.CREATE),
         response_model=AnalyzeResponse,
         summary="Analyze database and generate catalog",
     )
     async def analyze_database(
         request: AnalyzeRequest,
-        background_tasks: BackgroundTasks,
     ) -> AnalyzeResponse:
-        """Trigger database analysis and catalog generation.
+        """Run database analysis and catalog generation.
 
-        This starts the analysis process. For large databases,
-        the analysis runs as a background task.
+        The analysis runs synchronously within the request (one LLM call per
+        table); the response is returned when the catalog has been written.
         """
         if not config or not adapters:
             raise HTTPException(
@@ -434,11 +452,14 @@ def create_catalog_router(  # noqa: C901, PLR0915
                 detail=str(e),
             ) from e
         except Exception as e:
-            logger.error(f"Analysis failed for {request.database}: {e}")
-            raise HTTPException(status_code=500, detail=f"Analysis failed: {e}") from e
+            # Never echo unexpected exception text (driver/SDK internals) to
+            # the client; the traceback is logged server-side.
+            logger.exception(f"Analysis failed for {request.database}: {e}")
+            raise HTTPException(status_code=500, detail="Analysis failed") from e
 
     @router.delete(
         "/{db_name}",
+        dependencies=get_auth_deps(Permission.DELETE),
         summary="Delete a catalog",
     )
     async def delete_catalog(db_name: CatalogName) -> dict[str, Any]:
@@ -451,6 +472,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
     @router.get(
         "/{db_name}/draft",
+        dependencies=get_auth_deps(Permission.READ),
         response_model=DraftInfoResponse,
         summary="Get draft catalog with review status",
     )
@@ -490,6 +512,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
     @router.get(
         "/{db_name}/draft/tables/{table_name}",
+        dependencies=get_auth_deps(Permission.READ),
         response_model=TableReviewDetail,
         summary="Get single table detail for review",
     )
@@ -555,6 +578,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
     @router.patch(
         "/{db_name}/draft/tables/{table_name}",
+        dependencies=get_auth_deps(Permission.UPDATE),
         summary="Edit table fields in draft",
     )
     async def edit_draft_table(
@@ -595,6 +619,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
     @router.patch(
         "/{db_name}/draft/tables/{table_name}/columns/{col_name}",
+        dependencies=get_auth_deps(Permission.UPDATE),
         summary="Edit column fields in draft",
     )
     async def edit_draft_column(
@@ -637,6 +662,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
     @router.post(
         "/{db_name}/approve",
+        dependencies=get_auth_deps(Permission.UPDATE),
         summary="Approve catalog (all or specific tables)",
     )
     async def approve_catalog_endpoint(
@@ -677,6 +703,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
     @router.post(
         "/{db_name}/approve/{table_name}",
+        dependencies=get_auth_deps(Permission.UPDATE),
         summary="Approve a single table",
     )
     async def approve_single_table(

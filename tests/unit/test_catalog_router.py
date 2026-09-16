@@ -11,6 +11,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from warp.api.auth import AuthManager
 from warp.api.catalog_router import create_catalog_router
 from warp.catalog.models import (
     ColumnCatalogEntry,
@@ -20,7 +21,7 @@ from warp.catalog.models import (
     TableCatalogEntry,
 )
 from warp.catalog.store import CatalogFileStore
-from warp.config.settings import Settings
+from warp.config.settings import ApiKeyConfig, AuthConfig, DatabaseConfig, Settings
 
 
 def _make_catalog() -> DatabaseCatalog:
@@ -419,3 +420,110 @@ class TestCatalogNamePathSafety:
         assert client.get(f"/catalog/{name}").status_code == 422
         assert client.get(f"/catalog/{name}/draft").status_code == 422
         assert client.post(f"/catalog/{name}/approve").status_code == 422
+
+
+def _auth_manager() -> AuthManager:
+    return AuthManager(
+        AuthConfig(
+            enabled=True,
+            api_keys=[
+                ApiKeyConfig(key="reader-key", name="reader", permissions=["read"]),
+                ApiKeyConfig(key="writer-key", name="writer", permissions=["create", "update"]),
+                ApiKeyConfig(key="admin-key", name="admin", permissions=["all"]),
+            ],
+            public_paths=["/health"],
+        )
+    )
+
+
+@pytest.fixture
+def auth_client(store: CatalogFileStore) -> TestClient:
+    app = FastAPI()
+    app.include_router(
+        create_catalog_router(
+            store=store, config=Settings(), adapters={}, app=app, auth_manager=_auth_manager()
+        )
+    )
+    return TestClient(app)
+
+
+def _h(key: str) -> dict[str, str]:
+    return {"X-API-Key": key}
+
+
+class TestAuth:
+    """Every catalog endpoint is behind the auth manager when auth is enabled."""
+
+    def test_no_key_is_401(self, auth_client: TestClient) -> None:
+        assert auth_client.get("/catalog").status_code == 401
+        assert auth_client.get("/catalog/testdb").status_code == 401
+        assert auth_client.delete("/catalog/testdb").status_code == 401
+        assert auth_client.post("/catalog/analyze", json={"database": "testdb"}).status_code == 401
+
+    def test_invalid_key_is_401(self, auth_client: TestClient) -> None:
+        assert auth_client.get("/catalog", headers=_h("nope")).status_code == 401
+
+    def test_reader_can_only_read(self, auth_client: TestClient) -> None:
+        h = _h("reader-key")
+        assert auth_client.get("/catalog", headers=h).status_code == 200
+        assert auth_client.get("/catalog/testdb", headers=h).status_code == 200
+        assert auth_client.get("/catalog/testdb/draft", headers=h).status_code == 200
+        assert auth_client.get("/catalog/testdb/draft/tables/users", headers=h).status_code == 200
+        assert auth_client.get("/catalog/testdb/export?format=json", headers=h).status_code == 200
+
+        assert (
+            auth_client.patch(
+                "/catalog/testdb/draft/tables/users", json={"tags": ["core"]}, headers=h
+            ).status_code
+            == 403
+        )
+        assert auth_client.post("/catalog/testdb/approve", headers=h).status_code == 403
+        assert auth_client.post("/catalog/testdb/approve/users", headers=h).status_code == 403
+        assert auth_client.delete("/catalog/testdb", headers=h).status_code == 403
+        assert (
+            auth_client.post("/catalog/analyze", json={"database": "testdb"}, headers=h).status_code
+            == 403
+        )
+
+    def test_writer_can_edit_and_analyze_but_not_delete(self, auth_client: TestClient) -> None:
+        h = _h("writer-key")
+        r = auth_client.patch(
+            "/catalog/testdb/draft/tables/users", json={"tags": ["core"]}, headers=h
+        )
+        assert r.status_code == 200
+        assert auth_client.post("/catalog/testdb/approve/users", headers=h).status_code == 200
+        # Auth passes for CREATE; the handler then reports that no adapters are wired (503).
+        assert (
+            auth_client.post("/catalog/analyze", json={"database": "testdb"}, headers=h).status_code
+            == 503
+        )
+        assert auth_client.delete("/catalog/testdb", headers=h).status_code == 403
+
+    def test_admin_can_delete(self, auth_client: TestClient) -> None:
+        assert auth_client.delete("/catalog/testdb", headers=_h("admin-key")).status_code == 200
+        assert auth_client.get("/catalog/testdb", headers=_h("admin-key")).status_code == 404
+
+    def test_auth_disabled_keeps_endpoints_open(self, client: TestClient) -> None:
+        assert client.get("/catalog").status_code == 200
+
+
+class TestAnalyzeErrorBodies:
+    def test_unexpected_error_is_generic(self, store: CatalogFileStore) -> None:
+        from unittest.mock import patch
+
+        settings = Settings(
+            databases=[DatabaseConfig(name="testdb", type="postgresql", database="x", username="u")]
+        )
+        app = FastAPI()
+        app.include_router(
+            create_catalog_router(store=store, config=settings, adapters={"testdb": object()})
+        )
+        c = TestClient(app)
+        with patch(
+            "warp.llm.client.LLMClient.from_config",
+            side_effect=RuntimeError("secret internal detail: /etc/passwd"),
+        ):
+            r = c.post("/catalog/analyze", json={"database": "testdb"})
+        assert r.status_code == 500
+        assert r.json() == {"detail": "Analysis failed"}
+        assert "secret" not in r.text
