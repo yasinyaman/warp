@@ -1,4 +1,5 @@
 """Tests for CRUD mass-assignment protection (read-only column rejection)."""
+
 import pytest
 
 from warp.api.crud import CRUDOperations
@@ -38,9 +39,7 @@ class _FakeDB:
 
 @pytest.fixture
 def crud():
-    return CRUDOperations(
-        _FakeDB(), _schema(), readonly_columns=["created_at", "updated_at"]
-    )
+    return CRUDOperations(_FakeDB(), _schema(), readonly_columns=["created_at", "updated_at"])
 
 
 class TestCreate:

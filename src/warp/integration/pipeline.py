@@ -103,9 +103,7 @@ class Pipeline:
                 else:
                     result.export_content = exporter.export_string(catalog, lang=lang)
 
-            logger.info(
-                f"Pipeline completed: {database_name} ({catalog.table_count} tables)"
-            )
+            logger.info(f"Pipeline completed: {database_name} ({catalog.table_count} tables)")
 
             return result
 

@@ -82,9 +82,7 @@ class TestColumnCatalogEntry:
         col = ColumnCatalogEntry(
             name="status",
             data_type="varchar",
-            description=LocalizedText(
-                texts={"en": "User status", "tr": "Kullanıcı durumu"}
-            ),
+            description=LocalizedText(texts={"en": "User status", "tr": "Kullanıcı durumu"}),
             sample_values=["active", "inactive", "suspended"],
         )
         assert col.description.get("en") == "User status"

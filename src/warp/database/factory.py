@@ -1,4 +1,5 @@
 """Database factory for creating database adapters."""
+
 from typing import Any
 
 from .base import DatabaseAdapter
@@ -46,10 +47,7 @@ class DatabaseFactory:
 
         if db_type not in ADAPTERS:
             supported = ", ".join(ADAPTERS.keys())
-            raise ValueError(
-                f"Unsupported database type: {db_type}. "
-                f"Supported types: {supported}"
-            )
+            raise ValueError(f"Unsupported database type: {db_type}. Supported types: {supported}")
 
         adapter_class = ADAPTERS[db_type]
         return adapter_class(config)

@@ -57,6 +57,8 @@ jobs:
           uv pip install --no-deps -e .
       - name: Ruff (lint)
         run: ruff check src/ tests/
+      - name: Ruff (format)
+        run: ruff format --check src/ tests/
       - name: Import contracts (layered architecture)
         run: lint-imports
       - name: Mypy (strict)

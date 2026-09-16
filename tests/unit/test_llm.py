@@ -27,12 +27,14 @@ class MockLLMProvider(LLMProvider):
         max_tokens=4096,
         response_format=None,
     ):
-        self._calls.append({
-            "prompt": prompt,
-            "system_prompt": system_prompt,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        })
+        self._calls.append(
+            {
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
         return self._response
 
     async def close(self):

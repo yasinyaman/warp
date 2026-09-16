@@ -1,6 +1,7 @@
 """
 Tests for utility modules: pagination, filtering, sorting.
 """
+
 import pytest
 
 from warp.utils.filtering import (
@@ -23,6 +24,7 @@ from warp.utils.sorting import (
 # ===========================================
 # Pagination Tests
 # ===========================================
+
 
 class TestPaginationParams:
     """Tests for PaginationParams."""
@@ -78,12 +80,7 @@ class TestPaginatedResponse:
 
     def test_basic_response(self):
         """Test basic response creation."""
-        response = PaginatedResponse(
-            items=[{"id": 1}, {"id": 2}],
-            total=100,
-            limit=10,
-            offset=0
-        )
+        response = PaginatedResponse(items=[{"id": 1}, {"id": 2}], total=100, limit=10, offset=0)
         assert len(response.items) == 2
         assert response.total == 100
         assert response.page == 1
@@ -178,6 +175,7 @@ class TestCreatePaginationLinks:
 # Filtering Tests
 # ===========================================
 
+
 class TestFilterCondition:
     """Tests for FilterCondition."""
 
@@ -221,7 +219,7 @@ class TestFilterParser:
         params = {
             "filter[status]": "active",
             "filter[price][gte]": "50",
-            "filter[price][lte]": "200"
+            "filter[price][lte]": "200",
         }
 
         filters = parser.parse(params)
@@ -308,12 +306,7 @@ class TestFilterParser:
     def test_ignores_non_filter_params(self):
         """Test that non-filter params are ignored."""
         parser = FilterParser()
-        params = {
-            "filter[status]": "active",
-            "limit": "10",
-            "sort": "name",
-            "other": "value"
-        }
+        params = {"filter[status]": "active", "limit": "10", "sort": "name", "other": "value"}
 
         filters = parser.parse(params)
 
@@ -334,6 +327,7 @@ class TestParseFiltersFromRequest:
 # ===========================================
 # Sorting Tests
 # ===========================================
+
 
 class TestSortField:
     """Tests for SortField."""
@@ -446,10 +440,7 @@ class TestParseSortFromRequest:
 
     def test_default_sort(self):
         """Test default sort when none provided."""
-        result = parse_sort_from_request(
-            None,
-            default_sort=[("created_at", "desc")]
-        )
+        result = parse_sort_from_request(None, default_sort=[("created_at", "desc")])
         assert result == [("created_at", "desc")]
 
     def test_none_without_default(self):

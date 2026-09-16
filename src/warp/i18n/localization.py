@@ -14,10 +14,7 @@ logger = get_logger(__name__)
 # Default language-specific system prompts for LLM
 DEFAULT_LANGUAGE_PROMPTS: dict[str, str] = {
     "en": "Respond in English.",
-    "tr": (
-        "Yanıtlarını Türkçe ver. "
-        "Teknik terimleri parantez içinde İngilizce olarak da belirt."
-    ),
+    "tr": ("Yanıtlarını Türkçe ver. Teknik terimleri parantez içinde İngilizce olarak da belirt."),
     "de": "Antworte auf Deutsch. Technische Begriffe in Klammern auf Englisch angeben.",
     "fr": "Répondez en français. Indiquez les termes techniques entre parenthèses en anglais.",
     "es": "Responde en español. Indica los términos técnicos entre paréntesis en inglés.",

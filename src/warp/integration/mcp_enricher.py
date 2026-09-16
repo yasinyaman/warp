@@ -34,9 +34,7 @@ class MCPEnricher:
             if self._enrich_resource(resource):
                 enriched_resources += 1
 
-        logger.info(
-            f"MCP server enriched: {enriched_tools} tools, {enriched_resources} resources"
-        )
+        logger.info(f"MCP server enriched: {enriched_tools} tools, {enriched_resources} resources")
 
         return server
 
@@ -141,9 +139,7 @@ class MCPEnricher:
             if rel_desc:
                 hints.append(rel_desc)
             else:
-                hints.append(
-                    f"{rel.source_column}->{rel.target_table}.{rel.target_column}"
-                )
+                hints.append(f"{rel.source_column}->{rel.target_table}.{rel.target_column}")
         return "; ".join(hints[:4])
 
     @staticmethod
@@ -161,7 +157,7 @@ class MCPEnricher:
         if name:
             for prefix in ("list_", "get_", "create_", "update_", "delete_"):
                 if name.startswith(prefix):
-                    remainder = name[len(prefix):]
+                    remainder = name[len(prefix) :]
                     if remainder.endswith("_by_id"):
                         remainder = remainder[:-6]
                     return remainder

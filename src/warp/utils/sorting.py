@@ -1,4 +1,5 @@
 """Sorting utilities for parsing sort parameters."""
+
 from dataclasses import dataclass
 
 
@@ -10,6 +11,7 @@ class SortField:
         column: Column name to sort by.
         direction: Sort direction ('asc' or 'desc').
     """
+
     column: str
     direction: str = "asc"
 
@@ -17,10 +19,7 @@ class SortField:
         """Validate direction."""
         self.direction = self.direction.lower()
         if self.direction not in ("asc", "desc"):
-            raise ValueError(
-                f"Invalid sort direction '{self.direction}'. "
-                "Must be 'asc' or 'desc'"
-            )
+            raise ValueError(f"Invalid sort direction '{self.direction}'. Must be 'asc' or 'desc'")
 
     def to_tuple(self) -> tuple[str, str]:
         """Convert to tuple format for database adapter."""
@@ -102,7 +101,7 @@ class SortParser:
 def parse_sort_from_request(
     sort_param: str | None,
     allowed_columns: list[str] | None = None,
-    default_sort: list[tuple[str, str]] | None = None
+    default_sort: list[tuple[str, str]] | None = None,
 ) -> list[tuple[str, str]]:
     """Convenience function to parse sort parameter from request.
 

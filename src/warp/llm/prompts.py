@@ -108,9 +108,7 @@ def format_foreign_keys_text(fks: list[dict[str, Any]]) -> str:
         return "  (none)"
     lines = []
     for fk in fks:
-        lines.append(
-            f"  - {fk['column']} -> {fk['references_table']}.{fk['references_column']}"
-        )
+        lines.append(f"  - {fk['column']} -> {fk['references_table']}.{fk['references_column']}")
     return "\n".join(lines)
 
 
@@ -204,9 +202,7 @@ def build_table_analysis_prompt(  # noqa: PLR0913, PLR0917
         columns_text=format_columns_text(columns),
         foreign_keys_text=format_foreign_keys_text(foreign_keys),
         indexes_text=format_indexes_text(indexes),
-        db_comments_text=format_db_comments_text(
-            table_comment, column_comments or {}
-        ),
+        db_comments_text=format_db_comments_text(table_comment, column_comments or {}),
         sample_data_text=format_sample_data_text(samples),
         cross_reference_text=(
             f"Cross-reference from other catalogs:\n{cross_reference_context}"
@@ -247,9 +243,7 @@ Only output the translation, nothing else.
 Text: {text}"""
 
 
-def build_translation_prompt(
-    text: str, source_lang: str, target_lang: str
-) -> str:
+def build_translation_prompt(text: str, source_lang: str, target_lang: str) -> str:
     """Build a translation prompt."""
     return TRANSLATION_PROMPT.format(
         text=text,

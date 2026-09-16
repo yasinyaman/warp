@@ -60,8 +60,6 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-randomly>=3.15.0",
     "httpx>=0.26.0",
-    "black>=24.1.0",
-    "isort>=5.13.0",
     "ruff>=0.1.14",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
@@ -101,28 +99,6 @@ include = [
 # Tool Configurations
 # ===========================================
 
-[tool.black]
-line-length = 100
-target-version = ["py311", "py312"]
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-    | \.hatch
-    | \.mypy_cache
-    | \.pytest_cache
-    | \.venv
-    | __pycache__
-    | dist
-)/
-'''
-
-[tool.isort]
-profile = "black"
-line_length = 100
-known_first_party = ["warp"]
-skip = [".venv", "venv", ".git"]
-
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -135,6 +111,10 @@ exclude = [
     "__pycache__",
     "dist",
 ]
+
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
 
 [tool.ruff.lint]
 select = [
@@ -155,7 +135,7 @@ select = [
     # entirely on false positives.
 ]
 ignore = [
-    "E501",     # line too long (handled by black)
+    "E501",     # line too long (handled by ruff format)
     "B008",     # do not perform function calls in argument defaults
     "PLC0415",  # import-outside-top-level: intentional here for lazy-importing
                 # optional LLM SDKs (openai/anthropic/google-genai) and uvicorn.

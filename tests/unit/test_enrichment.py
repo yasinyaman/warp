@@ -83,9 +83,7 @@ class TestCommentReaderPostgreSQL:
 
     @pytest.mark.asyncio
     async def test_read_table_comment(self, pg_reader, mock_adapter):
-        mock_adapter.execute_query.return_value = [
-            {"comment": "Registered user accounts"}
-        ]
+        mock_adapter.execute_query.return_value = [{"comment": "Registered user accounts"}]
 
         result = await pg_reader.read_table_comment("users")
 
@@ -203,9 +201,7 @@ class TestCommentReaderMySQL:
 
     @pytest.mark.asyncio
     async def test_read_table_comment(self, mysql_reader, mock_adapter):
-        mock_adapter.execute_query.return_value = [
-            {"comment": "Customer orders"}
-        ]
+        mock_adapter.execute_query.return_value = [{"comment": "Customer orders"}]
 
         result = await mysql_reader.read_table_comment("orders")
 
@@ -260,45 +256,47 @@ def analyzer_adapter():
 
 @pytest.fixture
 def llm_response():
-    return json.dumps({
-        "table_description": {
-            "en": "User accounts table",
-            "tr": "Kullanıcı hesapları tablosu",
-        },
-        "table_human_name": {"en": "Users", "tr": "Kullanıcılar"},
-        "table_tags": ["auth", "core"],
-        "columns": {
-            "id": {
-                "description": {"en": "Primary key identifier"},
-                "semantic_type": "id",
-                "tags": ["pk"],
+    return json.dumps(
+        {
+            "table_description": {
+                "en": "User accounts table",
+                "tr": "Kullanıcı hesapları tablosu",
             },
-            "email": {
-                "description": {
-                    "en": "User email address",
-                    "tr": "Kullanıcı e-posta adresi",
+            "table_human_name": {"en": "Users", "tr": "Kullanıcılar"},
+            "table_tags": ["auth", "core"],
+            "columns": {
+                "id": {
+                    "description": {"en": "Primary key identifier"},
+                    "semantic_type": "id",
+                    "tags": ["pk"],
                 },
-                "semantic_type": "email",
-                "tags": ["contact"],
+                "email": {
+                    "description": {
+                        "en": "User email address",
+                        "tr": "Kullanıcı e-posta adresi",
+                    },
+                    "semantic_type": "email",
+                    "tags": ["contact"],
+                },
+                "name": {
+                    "description": {"en": "Full name", "tr": "Ad soyad"},
+                    "semantic_type": "name",
+                    "tags": [],
+                },
+                "status": {
+                    "description": {"en": "Account status"},
+                    "semantic_type": "status",
+                    "tags": [],
+                },
+                "created_at": {
+                    "description": {"en": "Account creation timestamp"},
+                    "semantic_type": "date",
+                    "tags": [],
+                },
             },
-            "name": {
-                "description": {"en": "Full name", "tr": "Ad soyad"},
-                "semantic_type": "name",
-                "tags": [],
-            },
-            "status": {
-                "description": {"en": "Account status"},
-                "semantic_type": "status",
-                "tags": [],
-            },
-            "created_at": {
-                "description": {"en": "Account creation timestamp"},
-                "semantic_type": "date",
-                "tags": [],
-            },
-        },
-        "relationships": [],
-    })
+            "relationships": [],
+        }
+    )
 
 
 @pytest.fixture
@@ -327,9 +325,7 @@ class TestEnrichedAnalyzer:
     """Tests for the main analyzer orchestrator."""
 
     @pytest.mark.asyncio
-    async def test_analyze_single_table(
-        self, analyzer_adapter, llm_response, analyzer_config
-    ):
+    async def test_analyze_single_table(self, analyzer_adapter, llm_response, analyzer_config):
         provider = MockLLMProvider(response=llm_response)
         client = LLMClient(provider=provider)
 
@@ -364,9 +360,7 @@ class TestEnrichedAnalyzer:
         assert id_col.is_primary_key
 
     @pytest.mark.asyncio
-    async def test_analyze_all_tables(
-        self, analyzer_adapter, llm_response, analyzer_config
-    ):
+    async def test_analyze_all_tables(self, analyzer_adapter, llm_response, analyzer_config):
         provider = MockLLMProvider(response=llm_response)
         client = LLMClient(provider=provider)
 
@@ -384,9 +378,7 @@ class TestEnrichedAnalyzer:
         assert analyzer_adapter.get_tables.called
 
     @pytest.mark.asyncio
-    async def test_analyze_with_excluded_tables(
-        self, analyzer_adapter, llm_response
-    ):
+    async def test_analyze_with_excluded_tables(self, analyzer_adapter, llm_response):
         config = Settings(
             databases=[],
             settings={
@@ -413,9 +405,7 @@ class TestEnrichedAnalyzer:
         assert catalog.get_table("orders") is None
 
     @pytest.mark.asyncio
-    async def test_analyze_llm_json_error_fallback(
-        self, analyzer_adapter, analyzer_config
-    ):
+    async def test_analyze_llm_json_error_fallback(self, analyzer_adapter, analyzer_config):
         """When LLM returns invalid JSON, should fall back to basic entry."""
         provider = MockLLMProvider(response="not valid json {{{")
         client = LLMClient(provider=provider)
@@ -438,9 +428,7 @@ class TestEnrichedAnalyzer:
         assert len(entry.columns) == 5
 
     @pytest.mark.asyncio
-    async def test_analyze_with_foreign_keys(
-        self, analyzer_adapter, analyzer_config
-    ):
+    async def test_analyze_with_foreign_keys(self, analyzer_adapter, analyzer_config):
         analyzer_adapter.get_table_schema.return_value = {
             "columns": [
                 {"name": "id", "type": "integer", "nullable": False, "key": "PRI"},
@@ -458,31 +446,33 @@ class TestEnrichedAnalyzer:
             "primary_key": "id",
         }
 
-        llm_resp = json.dumps({
-            "table_description": {"en": "Customer orders"},
-            "table_human_name": {"en": "Orders"},
-            "table_tags": ["billing"],
-            "columns": {
-                "id": {"description": {"en": "Order ID"}, "semantic_type": "id"},
-                "user_id": {
-                    "description": {"en": "Reference to user"},
-                    "semantic_type": "id",
+        llm_resp = json.dumps(
+            {
+                "table_description": {"en": "Customer orders"},
+                "table_human_name": {"en": "Orders"},
+                "table_tags": ["billing"],
+                "columns": {
+                    "id": {"description": {"en": "Order ID"}, "semantic_type": "id"},
+                    "user_id": {
+                        "description": {"en": "Reference to user"},
+                        "semantic_type": "id",
+                    },
+                    "total": {
+                        "description": {"en": "Order total amount"},
+                        "semantic_type": "amount",
+                    },
                 },
-                "total": {
-                    "description": {"en": "Order total amount"},
-                    "semantic_type": "amount",
-                },
-            },
-            "relationships": [
-                {
-                    "source_column": "user_id",
-                    "target_table": "users",
-                    "target_column": "id",
-                    "relationship_type": "many-to-one",
-                    "description": {"en": "Order belongs to a user"},
-                }
-            ],
-        })
+                "relationships": [
+                    {
+                        "source_column": "user_id",
+                        "target_table": "users",
+                        "target_column": "id",
+                        "relationship_type": "many-to-one",
+                        "description": {"en": "Order belongs to a user"},
+                    }
+                ],
+            }
+        )
 
         provider = MockLLMProvider(response=llm_resp)
         client = LLMClient(provider=provider)

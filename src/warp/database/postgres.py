@@ -1,4 +1,5 @@
 """PostgreSQL database adapter implementation."""
+
 from typing import Any
 
 import asyncpg
@@ -25,7 +26,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
             password=self.config["password"],
             min_size=options.get("pool_min_size", 2),
             max_size=options.get("pool_size", 10),
-            ssl=options.get("ssl", False) if options.get("ssl") else None
+            ssl=options.get("ssl", False) if options.get("ssl") else None,
         )
 
     async def disconnect(self) -> None:
@@ -54,7 +55,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
             "columns": [],
             "primary_key": None,
             "foreign_keys": [],
-            "indexes": []
+            "indexes": [],
         }
 
         async with self._pool.acquire() as conn:
@@ -77,16 +78,18 @@ class PostgreSQLAdapter(DatabaseAdapter):
             columns = await conn.fetch(columns_query, table)
 
             for col in columns:
-                schema["columns"].append({
-                    "name": col["column_name"],
-                    "type": col["data_type"],
-                    "udt_name": col["udt_name"],
-                    "nullable": col["is_nullable"] == "YES",
-                    "default": col["column_default"],
-                    "max_length": col["character_maximum_length"],
-                    "precision": col["numeric_precision"],
-                    "scale": col["numeric_scale"]
-                })
+                schema["columns"].append(
+                    {
+                        "name": col["column_name"],
+                        "type": col["data_type"],
+                        "udt_name": col["udt_name"],
+                        "nullable": col["is_nullable"] == "YES",
+                        "default": col["column_default"],
+                        "max_length": col["character_maximum_length"],
+                        "precision": col["numeric_precision"],
+                        "scale": col["numeric_scale"],
+                    }
+                )
 
             # Get primary key
             pk_query = """
@@ -125,12 +128,14 @@ class PostgreSQLAdapter(DatabaseAdapter):
             """
             fks = await conn.fetch(fk_query, table)
             for fk in fks:
-                schema["foreign_keys"].append({
-                    "column": fk["column_name"],
-                    "references_table": fk["foreign_table"],
-                    "references_column": fk["foreign_column"],
-                    "constraint_name": fk["constraint_name"]
-                })
+                schema["foreign_keys"].append(
+                    {
+                        "column": fk["column_name"],
+                        "references_table": fk["foreign_table"],
+                        "references_column": fk["foreign_column"],
+                        "constraint_name": fk["constraint_name"],
+                    }
+                )
 
             # Get indexes
             idx_query = """
@@ -155,11 +160,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
             for idx in indexes:
                 name = idx["index_name"]
                 if name not in idx_map:
-                    idx_map[name] = {
-                        "name": name,
-                        "columns": [],
-                        "unique": idx["is_unique"]
-                    }
+                    idx_map[name] = {"name": name, "columns": [], "unique": idx["is_unique"]}
                 idx_map[name]["columns"].append(idx["column_name"])
 
             schema["indexes"] = list(idx_map.values())
@@ -167,9 +168,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
         return schema
 
     async def execute_query(
-        self,
-        query: str,
-        params: dict[str, Any] | None = None
+        self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a raw SQL query."""
         async with self._pool.acquire() as conn:
@@ -188,11 +187,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
 
             return [dict(row) for row in rows]
 
-    async def insert(
-        self,
-        table: str,
-        data: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def insert(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
         """Insert a new record."""
         query, values = self._qb.build_insert(table, data)
         async with self._pool.acquire() as conn:
@@ -205,7 +200,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
         columns: list[str] | None = None,
         filters: list[tuple[str, str, Any]] | None = None,
         pagination: dict[str, int] | None = None,
-        sort: list[tuple[str, str]] | None = None
+        sort: list[tuple[str, str]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Select records with filtering, pagination, and sorting."""
         count_query, query, params = self._qb.build_select(
@@ -217,11 +212,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
             return [dict(row) for row in rows], total
 
     async def select_by_id(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any,
-        columns: list[str] | None = None
+        self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Select a single record by ID."""
         query, params = self._qb.build_select_by_id(table, id_column, id_value, columns)
@@ -230,11 +221,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
             return dict(row) if row else None
 
     async def update(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any,
-        data: dict[str, Any]
+        self, table: str, id_column: str, id_value: Any, data: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Update an existing record."""
         if not data:
@@ -245,12 +232,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
             row = await conn.fetchrow(query, *values)
             return dict(row) if row else None
 
-    async def delete(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any
-    ) -> bool:
+    async def delete(self, table: str, id_column: str, id_value: Any) -> bool:
         """Delete a record by ID."""
         query, params = self._qb.build_delete(table, id_column, id_value)
         async with self._pool.acquire() as conn:
@@ -262,11 +244,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
         return sanitize_identifier(name)
 
     def _build_where_clause(
-        self,
-        column: str,
-        operator: str,
-        value: Any,
-        param_idx: int
+        self, column: str, operator: str, value: Any, param_idx: int
     ) -> tuple[str, int, list[Any]]:
         """Build a WHERE clause component (delegates to the shared builder)."""
         return self._qb.where_clause(column, operator, value, param_idx)

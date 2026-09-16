@@ -1,4 +1,5 @@
 """Tests for LLM sample-data privacy: PII masking + cloud opt-in gating."""
+
 from unittest.mock import MagicMock
 
 import pytest

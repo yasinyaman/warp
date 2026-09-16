@@ -1,4 +1,5 @@
 """Dynamic router factory for generating CRUD endpoints for database tables."""
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -31,15 +32,15 @@ def convert_id_type(value: str, column_type: str) -> Any:
     column_type_lower = column_type.lower()
 
     # Integer types
-    if any(t in column_type_lower for t in ['int', 'serial', 'bigint', 'smallint']):
+    if any(t in column_type_lower for t in ["int", "serial", "bigint", "smallint"]):
         return int(value)
 
     # Float types
-    if any(t in column_type_lower for t in ['float', 'double', 'decimal', 'numeric', 'real']):
+    if any(t in column_type_lower for t in ["float", "double", "decimal", "numeric", "real"]):
         return float(value)
 
     # UUID type
-    if 'uuid' in column_type_lower:
+    if "uuid" in column_type_lower:
         return str(value)  # Keep as string for UUID
 
     # Default to string
@@ -65,7 +66,7 @@ class RouterFactory:
         max_limit: int = 1000,
         db_name: str | None = None,
         auth_manager: AuthManager | None = None,
-        readonly_columns: list[str] | None = None
+        readonly_columns: list[str] | None = None,
     ):
         """Initialize the router factory.
 
@@ -88,9 +89,7 @@ class RouterFactory:
         self._crud_instances: dict[str, CRUDOperations] = {}
 
     def create_router(  # noqa: C901, PLR0915
-        self,
-        table_schema: TableSchema,
-        models: dict[str, type[BaseModel]] | None = None
+        self, table_schema: TableSchema, models: dict[str, type[BaseModel]] | None = None
     ) -> APIRouter:
         """Create a CRUD router for a single table.
 
@@ -122,10 +121,7 @@ class RouterFactory:
         if self.db_name:
             tag_name = f"{self.db_name} - {tag_name}"
 
-        router = APIRouter(
-            prefix=f"/{table_name}",
-            tags=[tag_name]
-        )
+        router = APIRouter(prefix=f"/{table_name}", tags=[tag_name])
 
         # Response model
         ResponseModel = models.get("response", models.get("base"))
@@ -170,7 +166,7 @@ Retrieve a paginated list of {table_name} records.
 **Pagination:**
 - `limit=50` - Records per page (default: {self.default_limit}, max: {self.max_limit})
 - `offset=0` - Number of records to skip
-            """
+            """,
         )
         async def list_records(
             request: Request,
@@ -178,21 +174,15 @@ Retrieve a paginated list of {table_name} records.
                 default=self.default_limit,
                 ge=1,
                 le=self.max_limit,
-                description="Number of records to return"
+                description="Number of records to return",
             ),
-            offset: int = Query(
-                default=0,
-                ge=0,
-                description="Number of records to skip"
-            ),
+            offset: int = Query(default=0, ge=0, description="Number of records to skip"),
             sort: str | None = Query(
-                default=None,
-                description="Sort order (e.g., 'name:asc,created_at:desc')"
+                default=None, description="Sort order (e.g., 'name:asc,created_at:desc')"
             ),
             fields: str | None = Query(
-                default=None,
-                description="Comma-separated list of fields to return"
-            )
+                default=None, description="Comma-separated list of fields to return"
+            ),
         ) -> PaginatedResponse[Any]:
             # Parse query params for filters
             query_params = dict(request.query_params)
@@ -209,17 +199,13 @@ Retrieve a paginated list of {table_name} records.
                 invalid = set(columns) - set(column_names)
                 if invalid:
                     raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid fields: {', '.join(invalid)}"
+                        status_code=400, detail=f"Invalid fields: {', '.join(invalid)}"
                     )
 
             pagination = PaginationParams(limit=limit, offset=offset)
 
             return await crud.get_all(
-                columns=columns,
-                filters=filters,
-                pagination=pagination,
-                sort=sort_fields
+                columns=columns, filters=filters, pagination=pagination, sort=sort_fields
             )
 
         # GET BY ID endpoint
@@ -228,14 +214,13 @@ Retrieve a paginated list of {table_name} records.
             response_model=ResponseModel,
             summary=f"Get {table_name} by ID",
             description=f"Retrieve a single {table_name} record by its {pk_column}.",
-            dependencies=get_auth_deps(Permission.READ)
+            dependencies=get_auth_deps(Permission.READ),
         )
         async def get_record(
             id: str,
             fields: str | None = Query(
-                default=None,
-                description="Comma-separated list of fields to return"
-            )
+                default=None, description="Comma-separated list of fields to return"
+            ),
         ) -> dict[str, Any]:
             # Convert id to proper type
             typed_id = convert_id_type(id, pk_type)
@@ -249,8 +234,7 @@ Retrieve a paginated list of {table_name} records.
 
             if record is None:
                 raise HTTPException(
-                    status_code=404,
-                    detail=f"{table_name} with {pk_column}={id} not found"
+                    status_code=404, detail=f"{table_name} with {pk_column}={id} not found"
                 )
 
             return record
@@ -262,7 +246,7 @@ Retrieve a paginated list of {table_name} records.
             status_code=201,
             summary=f"Create {table_name}",
             description=f"Create a new {table_name} record.",
-            dependencies=get_auth_deps(Permission.CREATE)
+            dependencies=get_auth_deps(Permission.CREATE),
         )
         async def create_record(data: CreateModel) -> dict[str, Any]:
             try:
@@ -281,7 +265,7 @@ Retrieve a paginated list of {table_name} records.
             response_model=ResponseModel,
             summary=f"Update {table_name}",
             description=f"Update an existing {table_name} record.",
-            dependencies=get_auth_deps(Permission.UPDATE)
+            dependencies=get_auth_deps(Permission.UPDATE),
         )
         async def update_record(id: str, data: UpdateModel) -> dict[str, Any] | None:
             # Convert id to proper type
@@ -290,8 +274,7 @@ Retrieve a paginated list of {table_name} records.
             # Check if exists
             if not await crud.exists(typed_id):
                 raise HTTPException(
-                    status_code=404,
-                    detail=f"{table_name} with {pk_column}={id} not found"
+                    status_code=404, detail=f"{table_name} with {pk_column}={id} not found"
                 )
 
             try:
@@ -310,7 +293,7 @@ Retrieve a paginated list of {table_name} records.
             response_model=ResponseModel,
             summary=f"Partial update {table_name}",
             description=f"Partially update an existing {table_name} record.",
-            dependencies=get_auth_deps(Permission.UPDATE)
+            dependencies=get_auth_deps(Permission.UPDATE),
         )
         async def patch_record(id: str, data: UpdateModel) -> dict[str, Any] | None:
             # Convert id to proper type
@@ -319,8 +302,7 @@ Retrieve a paginated list of {table_name} records.
             # Check if exists
             if not await crud.exists(typed_id):
                 raise HTTPException(
-                    status_code=404,
-                    detail=f"{table_name} with {pk_column}={id} not found"
+                    status_code=404, detail=f"{table_name} with {pk_column}={id} not found"
                 )
 
             try:
@@ -339,7 +321,7 @@ Retrieve a paginated list of {table_name} records.
             status_code=204,
             summary=f"Delete {table_name}",
             description=f"Delete a {table_name} record by its {pk_column}.",
-            dependencies=get_auth_deps(Permission.DELETE)
+            dependencies=get_auth_deps(Permission.DELETE),
         )
         async def delete_record(id: str) -> None:
             # Convert id to proper type
@@ -349,16 +331,13 @@ Retrieve a paginated list of {table_name} records.
 
             if not deleted:
                 raise HTTPException(
-                    status_code=404,
-                    detail=f"{table_name} with {pk_column}={id} not found"
+                    status_code=404, detail=f"{table_name} with {pk_column}={id} not found"
                 )
-
 
         return router
 
     def create_routers_for_all_tables(
-        self,
-        table_schemas: dict[str, TableSchema]
+        self, table_schemas: dict[str, TableSchema]
     ) -> list[APIRouter]:
         """Create routers for all tables.
 
@@ -382,9 +361,7 @@ Retrieve a paginated list of {table_name} records.
 
         if table_name not in self._crud_instances:
             self._crud_instances[table_name] = CRUDOperations(
-                db=self.db,
-                table_schema=table_schema,
-                readonly_columns=self.readonly_columns
+                db=self.db, table_schema=table_schema, readonly_columns=self.readonly_columns
             )
 
         return self._crud_instances[table_name]

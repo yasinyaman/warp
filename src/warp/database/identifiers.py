@@ -6,6 +6,7 @@ Values are always sent as bound parameters and must never go through these
 helpers. Keeping this logic in one place avoids divergent, weaker copies
 (e.g. ``str.replace``-based "sanitizers") across adapters.
 """
+
 import re
 
 # A safe, unquoted SQL identifier: a letter or underscore followed by letters,

@@ -4,6 +4,7 @@ The MySQL adapter uses `async with pool.acquire() as conn, conn.cursor(...) as
 cur`. The fakes below provide both layers as async context managers, with the
 cursor's execute/fetchall/fetchone/lastrowid/rowcount controllable per test.
 """
+
 from typing import Any
 
 import pytest
@@ -196,9 +197,7 @@ async def test_execute_query_no_params() -> None:
 async def test_execute_query_named_params() -> None:
     cur = FakeCursor(fetchall=[{"id": 3}])
     adapter = make_adapter(cur)
-    rows = await adapter.execute_query(
-        "SELECT * FROM t WHERE id = :id", params={"id": 3}
-    )
+    rows = await adapter.execute_query("SELECT * FROM t WHERE id = :id", params={"id": 3})
     assert rows == [{"id": 3}]
     query, params = cur.executed[0]
     assert "%s" in query and ":id" not in query

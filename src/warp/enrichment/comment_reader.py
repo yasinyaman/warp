@@ -159,11 +159,7 @@ class CommentReader:
             else:
                 return {}
 
-            return {
-                row["column_name"]: row["comment"]
-                for row in rows
-                if row.get("comment")
-            }
+            return {row["column_name"]: row["comment"] for row in rows if row.get("comment")}
 
         except Exception as e:
             logger.warning(f"Failed to read column comments for {table_name}: {e}")
@@ -189,17 +185,21 @@ class CommentReader:
         try:
             if self.db_type == "postgresql":
                 table_rows = await self.adapter.execute_query(
-                    PG_ALL_TABLE_COMMENTS_SQL, {"p1": self.schema},
+                    PG_ALL_TABLE_COMMENTS_SQL,
+                    {"p1": self.schema},
                 )
                 column_rows = await self.adapter.execute_query(
-                    PG_ALL_COLUMN_COMMENTS_SQL, {"p1": self.schema},
+                    PG_ALL_COLUMN_COMMENTS_SQL,
+                    {"p1": self.schema},
                 )
             elif self.db_type == "mysql":
                 table_rows = await self.adapter.execute_query(
-                    MYSQL_ALL_TABLE_COMMENTS_SQL, {"p1": self.database},
+                    MYSQL_ALL_TABLE_COMMENTS_SQL,
+                    {"p1": self.database},
                 )
                 column_rows = await self.adapter.execute_query(
-                    MYSQL_ALL_COLUMN_COMMENTS_SQL, {"p1": self.database},
+                    MYSQL_ALL_COLUMN_COMMENTS_SQL,
+                    {"p1": self.database},
                 )
             else:
                 logger.warning(f"Unsupported DB type for comments: {self.db_type}")

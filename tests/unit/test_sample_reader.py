@@ -1,4 +1,5 @@
 """Tests for SampleReader, PII masking, and prompt builders."""
+
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -293,9 +294,7 @@ def test_format_sample_data_text_with_data() -> None:
         table_name="t",
         row_count=10,
         column_samples={"name": ["x" * 60, "short"]},
-        column_stats={
-            "name": ColumnStats(column_name="name", distinct_count=2, null_count=0)
-        },
+        column_stats={"name": ColumnStats(column_name="name", distinct_count=2, null_count=0)},
     )
     out = prompts.format_sample_data_text(samples)
     assert "row_count" in out

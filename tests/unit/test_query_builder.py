@@ -1,4 +1,5 @@
 """Tests for the dialect-aware SafeQueryBuilder (single source of CRUD SQL)."""
+
 import pytest
 
 from warp.database.query_builder import SafeQueryBuilder
@@ -85,8 +86,11 @@ class TestStatements:
 
     def test_select_pg(self):
         count, select, params = PG.build_select(
-            "users", ["id", "name"], [("status", "eq", "x")],
-            {"limit": 10, "offset": 5}, [("id", "desc")],
+            "users",
+            ["id", "name"],
+            [("status", "eq", "x")],
+            {"limit": 10, "offset": 5},
+            [("id", "desc")],
         )
         assert count == 'SELECT COUNT(*) AS cnt FROM "users" WHERE "status" = $1'
         assert select == (
@@ -103,9 +107,7 @@ class TestStatements:
 
     def test_update_pg(self):
         sql, params = PG.build_update("users", "id", 5, {"name": "x", "age": 3})
-        assert sql == (
-            'UPDATE "users" SET "name" = $1, "age" = $2 WHERE "id" = $3 RETURNING *'
-        )
+        assert sql == ('UPDATE "users" SET "name" = $1, "age" = $2 WHERE "id" = $3 RETURNING *')
         assert params == ["x", 3, 5]
 
     def test_update_mysql(self):

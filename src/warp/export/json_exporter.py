@@ -54,18 +54,20 @@ class JsonExporter(CatalogExporter):
                 "columns": [],
             }
             for col in table.columns:
-                t["columns"].append({
-                    "name": col.name,
-                    "data_type": col.data_type,
-                    "description": col.description.get(lang),
-                    "semantic_type": col.semantic_type,
-                    "nullable": col.nullable,
-                    "is_primary_key": col.is_primary_key,
-                    "is_foreign_key": col.is_foreign_key,
-                    "references": col.references,
-                    "tags": col.tags,
-                    "sample_values": col.sample_values,
-                })
+                t["columns"].append(
+                    {
+                        "name": col.name,
+                        "data_type": col.data_type,
+                        "description": col.description.get(lang),
+                        "semantic_type": col.semantic_type,
+                        "nullable": col.nullable,
+                        "is_primary_key": col.is_primary_key,
+                        "is_foreign_key": col.is_foreign_key,
+                        "references": col.references,
+                        "tags": col.tags,
+                        "sample_values": col.sample_values,
+                    }
+                )
             filtered_tables[tname] = t
 
         data["tables"] = filtered_tables

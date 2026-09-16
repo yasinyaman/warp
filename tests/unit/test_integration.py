@@ -111,9 +111,9 @@ class TestOpenAPIEnricher:
         enricher = OpenAPIEnricher(catalog, lang="en")
         result = enricher.enrich(spec)
 
-        body_schema = result["paths"]["/api/v1/users"]["post"]["requestBody"][
-            "content"
-        ]["application/json"]["schema"]
+        body_schema = result["paths"]["/api/v1/users"]["post"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
         # Column descriptions now include semantic-type metadata.
         email_desc = body_schema["properties"]["email"]["description"]
         assert email_desc.startswith("User email")

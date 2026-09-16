@@ -1,4 +1,5 @@
 """Tests for DatabaseFactory."""
+
 from typing import Any
 
 import pytest
@@ -55,28 +56,33 @@ def test_register_new_adapter() -> None:
         async def disconnect(self) -> None: ...
         async def get_tables(self) -> list[str]:
             return []
+
         async def get_table_schema(self, table: str) -> dict[str, Any]:
             return {}
+
         async def execute_query(
             self, query: str, params: dict[str, Any] | None = None
         ) -> list[dict[str, Any]]:
             return []
+
         async def insert(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
             return {}
+
         async def select(self, *a: Any, **k: Any) -> tuple[list[dict[str, Any]], int]:
             return [], 0
+
         async def select_by_id(self, *a: Any, **k: Any) -> dict[str, Any] | None:
             return None
+
         async def update(self, *a: Any, **k: Any) -> dict[str, Any] | None:
             return None
+
         async def delete(self, *a: Any, **k: Any) -> bool:
             return False
 
     DatabaseFactory.register("dummy", DummyAdapter)
     try:
-        assert isinstance(
-            DatabaseFactory.create({"type": "dummy", "database": "d"}), DummyAdapter
-        )
+        assert isinstance(DatabaseFactory.create({"type": "dummy", "database": "d"}), DummyAdapter)
     finally:
         from warp.database.factory import ADAPTERS
 

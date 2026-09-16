@@ -97,18 +97,14 @@ class EnrichedAnalyzer:
         are extracted before regeneration and re-applied afterward, so
         user edits survive across LLM re-analysis.
         """
-        logger.info(
-            f"Starting database analysis: {self.database_name} ({self.db_type})"
-        )
+        logger.info(f"Starting database analysis: {self.database_name} ({self.db_type})")
 
         # Extract existing user overrides before regeneration
         existing_overrides: dict[str, dict[str, Any]] = {}
         if self.store:
             existing_overrides = self.store.extract_overrides(self.database_name)
             if existing_overrides:
-                logger.info(
-                    f"Preserved user overrides for {len(existing_overrides)} table(s)"
-                )
+                logger.info(f"Preserved user overrides for {len(existing_overrides)} table(s)")
 
         try:
             all_db_tables = await self.adapter.get_tables()
@@ -125,9 +121,7 @@ class EnrichedAnalyzer:
                     actual = db_table_lookup.get(name.lower())
                     if actual:
                         if actual != name:
-                            logger.info(
-                                f"Table name resolved: '{name}' -> '{actual}'"
-                            )
+                            logger.info(f"Table name resolved: '{name}' -> '{actual}'")
                         resolved.append(actual)
                     else:
                         logger.warning(
@@ -137,9 +131,7 @@ class EnrichedAnalyzer:
                 table_names = resolved
 
                 if not table_names:
-                    raise AnalysisError(
-                        "None of the requested tables were found in the database."
-                    )
+                    raise AnalysisError("None of the requested tables were found in the database.")
 
             logger.info(f"Tables to analyze: {len(table_names)}")
 
@@ -162,9 +154,7 @@ class EnrichedAnalyzer:
                         logger.info(f"Table analyzed: {table_name}")
                     else:
                         llm_failures += 1
-                        logger.warning(
-                            f"Table analyzed without LLM (fallback): {table_name}"
-                        )
+                        logger.warning(f"Table analyzed without LLM (fallback): {table_name}")
                 except Exception as e:
                     llm_failures += 1
                     failed_tables.append(table_name)
@@ -194,10 +184,7 @@ class EnrichedAnalyzer:
                 status=CatalogStatus.draft,
             )
 
-            if (
-                self.i18n.is_multilingual
-                and self.i18n.translation_strategy == "multi"
-            ):
+            if self.i18n.is_multilingual and self.i18n.translation_strategy == "multi":
                 catalog = await self._translate_catalog(catalog)
 
             if self.store:
@@ -208,9 +195,7 @@ class EnrichedAnalyzer:
 
                 # Re-apply user overrides from previous catalog
                 if existing_overrides:
-                    catalog = self.store.apply_overrides(
-                        self.database_name, existing_overrides
-                    )
+                    catalog = self.store.apply_overrides(self.database_name, existing_overrides)
                     logger.info("User overrides re-applied after regeneration")
 
                 if auto_approve:
@@ -259,12 +244,8 @@ class EnrichedAnalyzer:
         if self.cross_ref and self.cross_ref.has_references():
             col_names = [c.get("name", "") for c in columns if isinstance(c, dict)]
             if not col_names and columns:
-                col_names = [
-                    c.name if hasattr(c, "name") else str(c) for c in columns
-                ]
-            cross_ref_context = self.cross_ref.get_context_for_table(
-                table_name, col_names
-            )
+                col_names = [c.name if hasattr(c, "name") else str(c) for c in columns]
+            cross_ref_context = self.cross_ref.get_context_for_table(table_name, col_names)
 
         db_table_comment = None
         db_column_comments: dict[str, str] = {}
@@ -304,8 +285,14 @@ class EnrichedAnalyzer:
 
         # Common args for _build_basic_entry (used in multiple fallback paths)
         basic_args = (
-            table_name, col_dicts, fk_dicts, idx_dicts, primary_key,
-            samples, db_table_comment, db_column_comments,
+            table_name,
+            col_dicts,
+            fk_dicts,
+            idx_dicts,
+            primary_key,
+            samples,
+            db_table_comment,
+            db_column_comments,
         )
 
         # Attempt LLM generation; fall back to basic entry on failure
@@ -319,9 +306,7 @@ class EnrichedAnalyzer:
                 system_prompt=system_prompt,
             )
         except Exception as e:
-            logger.warning(
-                f"LLM generation failed for {table_name}, using fallback: {e}"
-            )
+            logger.warning(f"LLM generation failed for {table_name}, using fallback: {e}")
             return self._build_basic_entry(*basic_args), False
 
         logger.debug(
@@ -332,9 +317,7 @@ class EnrichedAnalyzer:
         try:
             result = json.loads(llm_response)
         except json.JSONDecodeError as e:
-            logger.warning(
-                f"Failed to parse LLM JSON response for {table_name}: {e}"
-            )
+            logger.warning(f"Failed to parse LLM JSON response for {table_name}: {e}")
             return self._build_basic_entry(*basic_args), False
 
         try:
@@ -351,14 +334,11 @@ class EnrichedAnalyzer:
             ), True
         except Exception as e:
             logger.warning(
-                f"LLM returned unexpected structure for {table_name}, "
-                f"using fallback: {e}"
+                f"LLM returned unexpected structure for {table_name}, using fallback: {e}"
             )
             return self._build_basic_entry(*basic_args), False
 
-    def _samples_for_llm(
-        self, samples: TableSamples | None
-    ) -> TableSamples | None:
+    def _samples_for_llm(self, samples: TableSamples | None) -> TableSamples | None:
         """Apply privacy controls to sample data before it is sent to the LLM.
 
         - Cloud providers (openai/anthropic/gemini) receive no raw samples
@@ -418,8 +398,7 @@ class EnrichedAnalyzer:
                     llm_columns[item["name"]] = item
         elif isinstance(llm_columns_raw, str):
             logger.warning(
-                f"LLM returned columns as plain string for {table_name}, "
-                f"ignoring LLM column data"
+                f"LLM returned columns as plain string for {table_name}, ignoring LLM column data"
             )
         else:
             logger.warning(
@@ -550,9 +529,7 @@ class EnrichedAnalyzer:
 
         table_desc = LocalizedText()
         if db_table_comment:
-            table_desc = LocalizedText(
-                texts={self.i18n.default_language: db_table_comment}
-            )
+            table_desc = LocalizedText(texts={self.i18n.default_language: db_table_comment})
 
         return TableCatalogEntry(
             table_name=table_name,
@@ -565,9 +542,7 @@ class EnrichedAnalyzer:
             db_comment=db_table_comment,
         )
 
-    async def _translate_catalog(
-        self, catalog: DatabaseCatalog
-    ) -> DatabaseCatalog:
+    async def _translate_catalog(self, catalog: DatabaseCatalog) -> DatabaseCatalog:
         """Translate catalog descriptions to missing languages."""
         source_lang = self.i18n.default_language
 
@@ -577,34 +552,26 @@ class EnrichedAnalyzer:
                     continue
                 source_text = table.description.get(source_lang)
                 if source_text and not table.description.texts.get(lang):
-                    translated = await self._translate_text(
-                        source_text, source_lang, lang
-                    )
+                    translated = await self._translate_text(source_text, source_lang, lang)
                     if translated:
                         table.description.set(lang, translated)
 
                 source_name = table.human_name.get(source_lang)
                 if source_name and not table.human_name.texts.get(lang):
-                    translated = await self._translate_text(
-                        source_name, source_lang, lang
-                    )
+                    translated = await self._translate_text(source_name, source_lang, lang)
                     if translated:
                         table.human_name.set(lang, translated)
 
                 for col in table.columns:
                     source_col_desc = col.description.get(source_lang)
                     if source_col_desc and not col.description.texts.get(lang):
-                        translated = await self._translate_text(
-                            source_col_desc, source_lang, lang
-                        )
+                        translated = await self._translate_text(source_col_desc, source_lang, lang)
                         if translated:
                             col.description.set(lang, translated)
 
         return catalog
 
-    async def _translate_text(
-        self, text: str, source_lang: str, target_lang: str
-    ) -> str | None:
+    async def _translate_text(self, text: str, source_lang: str, target_lang: str) -> str | None:
         """Translate a single text using LLM."""
         if not text.strip():
             return None
@@ -612,9 +579,7 @@ class EnrichedAnalyzer:
             prompt = build_translation_prompt(text, source_lang, target_lang)
             return await self.llm_client.generate(prompt=prompt)
         except Exception as e:
-            logger.warning(
-                f"Translation failed ({source_lang}->{target_lang}): {e}"
-            )
+            logger.warning(f"Translation failed ({source_lang}->{target_lang}): {e}")
             return None
 
     @staticmethod

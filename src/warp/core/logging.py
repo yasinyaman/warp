@@ -1,4 +1,5 @@
 """Logging configuration for production."""
+
 import json
 import logging
 import sys
@@ -35,10 +36,10 @@ class ColoredFormatter(logging.Formatter):
     """Colored log formatter for development."""
 
     COLORS = {
-        "DEBUG": "\033[36m",     # Cyan
-        "INFO": "\033[32m",      # Green
-        "WARNING": "\033[33m",   # Yellow
-        "ERROR": "\033[31m",     # Red
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
         "CRITICAL": "\033[41m",  # Red background
     }
     RESET = "\033[0m"
@@ -51,9 +52,7 @@ class ColoredFormatter(logging.Formatter):
 
 
 def setup_logging(
-    level: str = "INFO",
-    json_format: bool = False,
-    log_file: str | None = None
+    level: str = "INFO", json_format: bool = False, log_file: str | None = None
 ) -> None:
     """Configure logging for the application.
 
@@ -75,10 +74,11 @@ def setup_logging(
     if json_format:
         console_handler.setFormatter(JSONFormatter())
     else:
-        console_handler.setFormatter(ColoredFormatter(
-            "%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S"
-        ))
+        console_handler.setFormatter(
+            ColoredFormatter(
+                "%(asctime)s - %(levelname)s - %(name)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            )
+        )
 
     root_logger.addHandler(console_handler)
 

@@ -1,4 +1,5 @@
 """Pagination utilities for API responses."""
+
 from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -17,6 +18,7 @@ class PaginationParams(BaseModel):
         ):
             pagination = PaginationParams(limit=limit, offset=offset)
     """
+
     limit: int = Field(default=50, ge=1, le=1000, description="Number of records to return")
     offset: int = Field(default=0, ge=0, description="Number of records to skip")
 
@@ -57,6 +59,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
     - page: Current page number
     - pages: Total number of pages
     """
+
     items: list[Any] = Field(default_factory=list)
     total: int = Field(default=0, description="Total number of records")
     limit: int = Field(default=50, description="Records per page")
@@ -90,9 +93,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
 
 
 def paginate_response(
-    items: list[Any],
-    total: int,
-    pagination: PaginationParams
+    items: list[Any], total: int, pagination: PaginationParams
 ) -> PaginatedResponse[Any]:
     """Create a paginated response from items.
 
@@ -105,17 +106,12 @@ def paginate_response(
         PaginatedResponse instance.
     """
     return PaginatedResponse(
-        items=items,
-        total=total,
-        limit=pagination.limit,
-        offset=pagination.offset
+        items=items, total=total, limit=pagination.limit, offset=pagination.offset
     )
 
 
 def create_pagination_links(
-    base_url: str,
-    pagination: PaginationParams,
-    total: int
+    base_url: str, pagination: PaginationParams, total: int
 ) -> dict[str, str | None]:
     """Create pagination links for HATEOAS.
 
@@ -131,7 +127,7 @@ def create_pagination_links(
         "first": f"{base_url}?limit={pagination.limit}&offset=0",
         "prev": None,
         "next": None,
-        "last": None
+        "last": None,
     }
 
     # Calculate last page offset

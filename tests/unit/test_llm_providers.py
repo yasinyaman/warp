@@ -3,6 +3,7 @@
 All third-party SDK clients are replaced with AsyncMocks so no network calls
 happen. Covers generate(), close(), error mapping, json mode, and the factory.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -193,8 +194,7 @@ async def test_ollama_close(ollama_provider: OllamaProvider) -> None:
 def test_ollama_resolve_base_url_no_docker() -> None:
     with patch("os.path.exists", return_value=False):
         assert (
-            OllamaProvider._resolve_base_url("http://localhost:11434/")
-            == "http://localhost:11434"
+            OllamaProvider._resolve_base_url("http://localhost:11434/") == "http://localhost:11434"
         )
 
 
@@ -213,16 +213,18 @@ def test_create_provider_unknown() -> None:
 
 
 def test_create_provider_requires_api_key() -> None:
-    with patch.dict("os.environ", {}, clear=True), pytest.raises(
-        LLMProviderNotFoundError, match="requires an API key"
+    with (
+        patch.dict("os.environ", {}, clear=True),
+        pytest.raises(LLMProviderNotFoundError, match="requires an API key"),
     ):
         create_llm_provider("openai", api_key="")
 
 
 def test_create_provider_uses_env_key() -> None:
-    with patch.dict("os.environ", {"OPENAI_API_KEY": "envkey"}), patch(
-        "openai.AsyncOpenAI"
-    ) as mock_cls:
+    with (
+        patch.dict("os.environ", {"OPENAI_API_KEY": "envkey"}),
+        patch("openai.AsyncOpenAI") as mock_cls,
+    ):
         mock_cls.return_value = MagicMock()
         provider = create_llm_provider("openai", api_key="")
         assert isinstance(provider, OpenAIProvider)

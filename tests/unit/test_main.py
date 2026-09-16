@@ -4,6 +4,7 @@ Also a regression guard: create_app() must not raise at build time. A route
 whose return annotation is a union like ``dict | JSONResponse`` needs
 ``response_model=None`` or FastAPI errors while building the app.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -36,7 +37,10 @@ def state():
     saved = (s.settings, dict(s.databases), dict(s.schemas), s.is_ready)
     yield s
     s.settings, s.databases, s.schemas, s.is_ready = (
-        saved[0], dict(saved[1]), dict(saved[2]), saved[3]
+        saved[0],
+        dict(saved[1]),
+        dict(saved[2]),
+        saved[3],
     )
 
 

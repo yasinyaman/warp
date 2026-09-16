@@ -34,10 +34,7 @@ class OpenAPIEnricher:
         enriched_count = 0
         catalog_tables = list(self.catalog.tables.keys())
 
-        logger.debug(
-            f"Enriching OpenAPI: {len(paths)} paths, "
-            f"catalog tables: {catalog_tables}"
-        )
+        logger.debug(f"Enriching OpenAPI: {len(paths)} paths, catalog tables: {catalog_tables}")
 
         # --- Enrich paths (operations) ---
         for path, methods in paths.items():
@@ -47,10 +44,7 @@ class OpenAPIEnricher:
 
             table = self._find_table(table_name)
             if not table:
-                logger.debug(
-                    f"No catalog match for path '{path}' "
-                    f"(extracted: '{table_name}')"
-                )
+                logger.debug(f"No catalog match for path '{path}' (extracted: '{table_name}')")
                 continue
 
             enriched_count += 1
@@ -107,11 +101,7 @@ class OpenAPIEnricher:
 
             # --- Summary ---
             existing_summary = operation.get("summary", "")
-            if (
-                human_name
-                and human_name != table.table_name
-                and human_name not in existing_summary
-            ):
+            if human_name and human_name != table.table_name and human_name not in existing_summary:
                 operation["summary"] = f"{existing_summary} ({human_name})"
 
             # --- Description: build rich markdown block ---
@@ -124,9 +114,7 @@ class OpenAPIEnricher:
                     operation["description"] = rich_desc
 
             # --- x-llm-context on each operation ---
-            operation["x-llm-context"] = self._build_operation_llm_context(
-                table, method
-            )
+            operation["x-llm-context"] = self._build_operation_llm_context(table, method)
 
             self._enrich_parameters(operation, table)
             self._enrich_request_body(operation, table)
@@ -180,16 +168,12 @@ class OpenAPIEnricher:
 
                 flag_str = f" [{', '.join(flags)}]" if flags else ""
                 desc_str = f" — {col_desc}" if col_desc else ""
-                col_lines.append(
-                    f"  - `{col.name}` ({col.data_type}){flag_str}{desc_str}"
-                )
+                col_lines.append(f"  - `{col.name}` ({col.data_type}){flag_str}{desc_str}")
             parts.append("\n".join(col_lines))
 
         return "\n\n".join(parts)
 
-    def _build_operation_llm_context(
-        self, table: TableCatalogEntry, method: str
-    ) -> dict[str, Any]:
+    def _build_operation_llm_context(self, table: TableCatalogEntry, method: str) -> dict[str, Any]:
         """Build structured x-llm-context for an operation."""
         ctx: dict[str, Any] = {
             "table": table.table_name,
@@ -260,13 +244,10 @@ class OpenAPIEnricher:
             # Add examples
             if col.sample_values and not param.get("examples"):
                 param["examples"] = {
-                    f"example_{i}": {"value": v}
-                    for i, v in enumerate(col.sample_values[:3])
+                    f"example_{i}": {"value": v} for i, v in enumerate(col.sample_values[:3])
                 }
 
-    def _enrich_request_body(
-        self, operation: dict[str, Any], table: TableCatalogEntry
-    ) -> None:
+    def _enrich_request_body(self, operation: dict[str, Any], table: TableCatalogEntry) -> None:
         """Add column descriptions and metadata to request body properties."""
         body = operation.get("requestBody", {})
         content = body.get("content", {})
@@ -276,9 +257,7 @@ class OpenAPIEnricher:
         # Direct properties (inline schema)
         self._enrich_schema_properties(schema_ref, table)
 
-    def _enrich_schema_properties(
-        self, schema: dict[str, Any], table: TableCatalogEntry
-    ) -> None:
+    def _enrich_schema_properties(self, schema: dict[str, Any], table: TableCatalogEntry) -> None:
         """Enrich properties within a schema dict."""
         properties = schema.get("properties", {})
         for prop_name, prop_schema in properties.items():
@@ -365,9 +344,7 @@ class OpenAPIEnricher:
                 if col_meta:
                     prop_schema["x-llm-context"] = col_meta
 
-        logger.debug(
-            f"Schema enrichment: {enriched_schema_count}/{len(schemas)} schemas matched"
-        )
+        logger.debug(f"Schema enrichment: {enriched_schema_count}/{len(schemas)} schemas matched")
 
     # ------------------------------------------------------------------
     # Top-level LLM context
@@ -525,7 +502,12 @@ class OpenAPIEnricher:
             if len(parts) >= 2:
                 return parts[1].rstrip("]")
         if "[" not in param_name and param_name not in (
-            "sort", "limit", "offset", "page", "per_page", "fields"
+            "sort",
+            "limit",
+            "offset",
+            "page",
+            "per_page",
+            "fields",
         ):
             return param_name
         return None

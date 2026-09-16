@@ -326,7 +326,8 @@ class TestUpdateTableFields:
     def test_update_description_string(self, store, draft_catalog):
         store.save(draft_catalog)
         table = store.update_table_fields(
-            "testdb", "users",
+            "testdb",
+            "users",
             {"description": "Updated user accounts table"},
             lang="en",
         )
@@ -335,7 +336,8 @@ class TestUpdateTableFields:
     def test_update_description_dict(self, store, draft_catalog):
         store.save(draft_catalog)
         table = store.update_table_fields(
-            "testdb", "users",
+            "testdb",
+            "users",
             {"description": {"en": "User Accounts", "tr": "Kullanici Hesaplari"}},
         )
         assert table.description.get("en") == "User Accounts"
@@ -344,7 +346,8 @@ class TestUpdateTableFields:
     def test_update_human_name(self, store, draft_catalog):
         store.save(draft_catalog)
         table = store.update_table_fields(
-            "testdb", "users",
+            "testdb",
+            "users",
             {"human_name": "User Accounts"},
             lang="en",
         )
@@ -353,7 +356,8 @@ class TestUpdateTableFields:
     def test_update_tags(self, store, draft_catalog):
         store.save(draft_catalog)
         table = store.update_table_fields(
-            "testdb", "users",
+            "testdb",
+            "users",
             {"tags": ["new_tag", "core"]},
         )
         assert table.tags == ["new_tag", "core"]
@@ -361,7 +365,8 @@ class TestUpdateTableFields:
     def test_update_marks_as_modified(self, store, draft_catalog):
         store.save(draft_catalog)
         table = store.update_table_fields(
-            "testdb", "users",
+            "testdb",
+            "users",
             {"description": "Changed"},
             lang="en",
         )
@@ -375,7 +380,8 @@ class TestUpdateTableFields:
     def test_update_persists_to_disk(self, store, draft_catalog):
         store.save(draft_catalog)
         store.update_table_fields(
-            "testdb", "users",
+            "testdb",
+            "users",
             {"description": "Persisted description"},
             lang="en",
         )
@@ -385,7 +391,8 @@ class TestUpdateTableFields:
     def test_update_multiple_fields_at_once(self, store, draft_catalog):
         store.save(draft_catalog)
         table = store.update_table_fields(
-            "testdb", "users",
+            "testdb",
+            "users",
             {
                 "description": "New desc",
                 "human_name": "New Name",
@@ -405,7 +412,9 @@ class TestUpdateColumnFields:
     def test_update_column_description(self, store, draft_catalog):
         store.save(draft_catalog)
         col = store.update_column_fields(
-            "testdb", "users", "email",
+            "testdb",
+            "users",
+            "email",
             {"description": "Primary email address"},
             lang="en",
         )
@@ -414,7 +423,9 @@ class TestUpdateColumnFields:
     def test_update_semantic_type(self, store, draft_catalog):
         store.save(draft_catalog)
         col = store.update_column_fields(
-            "testdb", "users", "email",
+            "testdb",
+            "users",
+            "email",
             {"semantic_type": "primary_email"},
         )
         assert col.semantic_type == "primary_email"
@@ -422,7 +433,9 @@ class TestUpdateColumnFields:
     def test_update_column_tags(self, store, draft_catalog):
         store.save(draft_catalog)
         col = store.update_column_fields(
-            "testdb", "users", "email",
+            "testdb",
+            "users",
+            "email",
             {"tags": ["pii", "unique"]},
         )
         assert col.tags == ["pii", "unique"]
@@ -430,7 +443,9 @@ class TestUpdateColumnFields:
     def test_update_marks_parent_table_modified(self, store, draft_catalog):
         store.save(draft_catalog)
         store.update_column_fields(
-            "testdb", "users", "email",
+            "testdb",
+            "users",
+            "email",
             {"tags": ["updated"]},
         )
         catalog = store.load("testdb")
@@ -440,7 +455,9 @@ class TestUpdateColumnFields:
         store.save(draft_catalog)
         with pytest.raises(ColumnNotFoundInCatalogError):
             store.update_column_fields(
-                "testdb", "users", "nonexistent",
+                "testdb",
+                "users",
+                "nonexistent",
                 {"description": "test"},
             )
 
@@ -448,14 +465,18 @@ class TestUpdateColumnFields:
         store.save(draft_catalog)
         with pytest.raises(TableNotFoundInCatalogError):
             store.update_column_fields(
-                "testdb", "nonexistent", "id",
+                "testdb",
+                "nonexistent",
+                "id",
                 {"description": "test"},
             )
 
     def test_update_column_description_dict(self, store, draft_catalog):
         store.save(draft_catalog)
         col = store.update_column_fields(
-            "testdb", "users", "email",
+            "testdb",
+            "users",
+            "email",
             {"description": {"en": "Email", "tr": "E-posta"}},
         )
         assert col.description.get("en") == "Email"
@@ -464,7 +485,9 @@ class TestUpdateColumnFields:
     def test_clear_semantic_type(self, store, draft_catalog):
         store.save(draft_catalog)
         col = store.update_column_fields(
-            "testdb", "users", "email",
+            "testdb",
+            "users",
+            "email",
             {"semantic_type": None},
         )
         assert col.semantic_type is None
@@ -548,12 +571,14 @@ class TestBackwardCompatibility:
 class TestReviewExceptions:
     def test_column_not_found_error(self):
         from warp.core.exceptions import ColumnNotFoundInCatalogError
+
         err = ColumnNotFoundInCatalogError("email", "users", "mydb")
         assert "email" in str(err)
         assert "users" in str(err)
 
     def test_catalog_not_draft_error(self):
         from warp.core.exceptions import CatalogNotDraftError
+
         err = CatalogNotDraftError("mydb")
         assert "draft" in str(err).lower()
         assert err.status_code == 409
@@ -575,14 +600,17 @@ class TestUserOverridesTracking:
     def test_update_table_description_tracks_override(self, store_with_draft):
         """Editing table description should populate user_overrides."""
         store = store_with_draft
-        table = store.update_table_fields("overdb", "users", {"description": "Custom desc"}, lang="en")
+        table = store.update_table_fields(
+            "overdb", "users", {"description": "Custom desc"}, lang="en"
+        )
         assert table.user_overrides["description"] == {"en": "Custom desc"}
 
     def test_update_table_description_dict_tracks_override(self, store_with_draft):
         """Editing table description with dict should populate user_overrides."""
         store = store_with_draft
         table = store.update_table_fields(
-            "overdb", "users",
+            "overdb",
+            "users",
             {"description": {"en": "English desc", "tr": "Turkce aciklama"}},
         )
         assert table.user_overrides["description"]["en"] == "English desc"
@@ -590,7 +618,9 @@ class TestUserOverridesTracking:
 
     def test_update_table_human_name_tracks_override(self, store_with_draft):
         store = store_with_draft
-        table = store.update_table_fields("overdb", "users", {"human_name": "Custom Users"}, lang="en")
+        table = store.update_table_fields(
+            "overdb", "users", {"human_name": "Custom Users"}, lang="en"
+        )
         assert table.user_overrides["human_name"] == {"en": "Custom Users"}
 
     def test_update_table_tags_tracks_override(self, store_with_draft):
@@ -606,12 +636,16 @@ class TestUserOverridesTracking:
 
     def test_update_column_description_tracks_override(self, store_with_draft):
         store = store_with_draft
-        col = store.update_column_fields("overdb", "users", "id", {"description": "Primary key"}, lang="en")
+        col = store.update_column_fields(
+            "overdb", "users", "id", {"description": "Primary key"}, lang="en"
+        )
         assert col.user_overrides["description"] == {"en": "Primary key"}
 
     def test_update_column_semantic_type_tracks_override(self, store_with_draft):
         store = store_with_draft
-        col = store.update_column_fields("overdb", "users", "email", {"semantic_type": "email_address"})
+        col = store.update_column_fields(
+            "overdb", "users", "email", {"semantic_type": "email_address"}
+        )
         assert col.user_overrides["semantic_type"] == "email_address"
 
     def test_update_column_tags_tracks_override(self, store_with_draft):
@@ -635,7 +669,9 @@ class TestUserOverridesTracking:
     def test_multiple_column_edits_accumulate(self, store_with_draft):
         """Multiple column edits should accumulate in user_overrides."""
         store = store_with_draft
-        store.update_column_fields("overdb", "users", "email", {"description": "User email"}, lang="en")
+        store.update_column_fields(
+            "overdb", "users", "email", {"description": "User email"}, lang="en"
+        )
         store.update_column_fields("overdb", "users", "email", {"semantic_type": "email"})
         store.update_column_fields("overdb", "users", "email", {"tags": ["pii"]})
 
@@ -661,7 +697,9 @@ class TestExtractOverrides:
         store.update_table_fields("extractdb", "users", {"description": "Custom users"}, lang="en")
         store.update_table_fields("extractdb", "users", {"tags": ["core"]})
         store.update_column_fields("extractdb", "users", "email", {"semantic_type": "email"})
-        store.update_column_fields("extractdb", "users", "email", {"description": "User email"}, lang="en")
+        store.update_column_fields(
+            "extractdb", "users", "email", {"description": "User email"}, lang="en"
+        )
         return store
 
     def test_extract_overrides_returns_table_overrides(self, store_with_edited_catalog):
@@ -822,16 +860,27 @@ class TestOverrideFullCycle:
         store.save_as_draft(catalog1)
 
         # Step 2: User edits
-        store.update_table_fields("cycledb", "users", {
-            "description": "Custom user table description",
-            "human_name": "Application Users",
-            "tags": ["core", "auth"],
-        }, lang="en")
-        store.update_column_fields("cycledb", "users", "email", {
-            "description": "Primary email",
-            "semantic_type": "email",
-            "tags": ["pii"],
-        }, lang="en")
+        store.update_table_fields(
+            "cycledb",
+            "users",
+            {
+                "description": "Custom user table description",
+                "human_name": "Application Users",
+                "tags": ["core", "auth"],
+            },
+            lang="en",
+        )
+        store.update_column_fields(
+            "cycledb",
+            "users",
+            "email",
+            {
+                "description": "Primary email",
+                "semantic_type": "email",
+                "tags": ["pii"],
+            },
+            lang="en",
+        )
 
         # Step 3: Extract overrides
         overrides = store.extract_overrides("cycledb")
@@ -908,7 +957,9 @@ class TestOverrideFullCycle:
 
         catalog = _make_catalog("persistdb")
         store.save_as_draft(catalog)
-        store.update_table_fields("persistdb", "users", {"description": "Persisted desc"}, lang="en")
+        store.update_table_fields(
+            "persistdb", "users", {"description": "Persisted desc"}, lang="en"
+        )
         store.update_column_fields("persistdb", "users", "email", {"semantic_type": "email"})
 
         # Reload from disk

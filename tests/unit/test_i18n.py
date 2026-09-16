@@ -1,6 +1,5 @@
 """Tests for internationalization module."""
 
-
 from warp.catalog.models import LocalizedText
 from warp.config.settings import Settings
 from warp.i18n.localization import LocalizationManager
@@ -90,9 +89,7 @@ class TestLocalizationManager:
 
     def test_get_translation_prompt(self):
         mgr = LocalizationManager()
-        prompt = mgr.get_translation_prompt(
-            "User accounts", source_lang="en", target_lang="tr"
-        )
+        prompt = mgr.get_translation_prompt("User accounts", source_lang="en", target_lang="tr")
         assert "User accounts" in prompt
         assert "English" in prompt
         assert "Türkçe" in prompt

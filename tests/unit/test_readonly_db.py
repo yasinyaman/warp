@@ -1,4 +1,5 @@
 """Tests for the optional read-only connection used by the raw SQL endpoint."""
+
 from typing import Any
 
 from warp.config.settings import DatabaseConfig

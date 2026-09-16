@@ -17,8 +17,8 @@ help:
 	@echo "  make install      - Install dependencies (uses pyproject.toml)"
 	@echo "  make dev          - Run development server"
 	@echo "  make test         - Run tests"
-	@echo "  make lint         - Run linter (ruff + mypy)"
-	@echo "  make format       - Format code (black + isort)"
+	@echo "  make lint         - Lint, format-check, type-check, import contracts"
+	@echo "  make format       - Auto-fix lint + format code (ruff)"
 	@echo ""
 	@echo "Docker (Development):"
 	@echo "  make docker-build - Build Docker images"
@@ -46,12 +46,13 @@ test:
 
 lint:
 	ruff check src/ tests/
+	ruff format --check src/ tests/
 	mypy src/
+	lint-imports
 
 format:
-	black src/ tests/
-	isort src/ tests/
 	ruff check --fix src/ tests/
+	ruff format src/ tests/
 
 # ===========================================
 # Docker Development

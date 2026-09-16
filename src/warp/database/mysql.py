@@ -1,4 +1,5 @@
 """MySQL database adapter implementation."""
+
 from typing import Any
 
 import aiomysql
@@ -25,7 +26,7 @@ class MySQLAdapter(DatabaseAdapter):
             password=self.config["password"],
             minsize=options.get("pool_min_size", 2),
             maxsize=options.get("pool_size", 10),
-            autocommit=True
+            autocommit=True,
         )
 
     async def disconnect(self) -> None:
@@ -56,7 +57,7 @@ class MySQLAdapter(DatabaseAdapter):
             "columns": [],
             "primary_key": None,
             "foreign_keys": [],
-            "indexes": []
+            "indexes": [],
         }
 
         db_name = self.config["database"]
@@ -84,18 +85,20 @@ class MySQLAdapter(DatabaseAdapter):
             columns = await cur.fetchall()
 
             for col in columns:
-                schema["columns"].append({
-                    "name": col["COLUMN_NAME"],
-                    "type": col["DATA_TYPE"],
-                    "full_type": col["COLUMN_TYPE"],
-                    "nullable": col["IS_NULLABLE"] == "YES",
-                    "default": col["COLUMN_DEFAULT"],
-                    "max_length": col["CHARACTER_MAXIMUM_LENGTH"],
-                    "precision": col["NUMERIC_PRECISION"],
-                    "scale": col["NUMERIC_SCALE"],
-                    "key": col["COLUMN_KEY"],
-                    "extra": col["EXTRA"]
-                })
+                schema["columns"].append(
+                    {
+                        "name": col["COLUMN_NAME"],
+                        "type": col["DATA_TYPE"],
+                        "full_type": col["COLUMN_TYPE"],
+                        "nullable": col["IS_NULLABLE"] == "YES",
+                        "default": col["COLUMN_DEFAULT"],
+                        "max_length": col["CHARACTER_MAXIMUM_LENGTH"],
+                        "precision": col["NUMERIC_PRECISION"],
+                        "scale": col["NUMERIC_SCALE"],
+                        "key": col["COLUMN_KEY"],
+                        "extra": col["EXTRA"],
+                    }
+                )
 
                 # Check for primary key
                 if col["COLUMN_KEY"] == "PRI":
@@ -122,12 +125,14 @@ class MySQLAdapter(DatabaseAdapter):
             fks = await cur.fetchall()
 
             for fk in fks:
-                schema["foreign_keys"].append({
-                    "column": fk["COLUMN_NAME"],
-                    "references_table": fk["REFERENCED_TABLE_NAME"],
-                    "references_column": fk["REFERENCED_COLUMN_NAME"],
-                    "constraint_name": fk["CONSTRAINT_NAME"]
-                })
+                schema["foreign_keys"].append(
+                    {
+                        "column": fk["COLUMN_NAME"],
+                        "references_table": fk["REFERENCED_TABLE_NAME"],
+                        "references_column": fk["REFERENCED_COLUMN_NAME"],
+                        "constraint_name": fk["CONSTRAINT_NAME"],
+                    }
+                )
 
             # Get indexes
             idx_query = """
@@ -150,11 +155,7 @@ class MySQLAdapter(DatabaseAdapter):
             for idx in indexes:
                 name = idx["INDEX_NAME"]
                 if name not in idx_map:
-                    idx_map[name] = {
-                        "name": name,
-                        "columns": [],
-                        "unique": idx["NON_UNIQUE"] == 0
-                    }
+                    idx_map[name] = {"name": name, "columns": [], "unique": idx["NON_UNIQUE"] == 0}
                 idx_map[name]["columns"].append(idx["COLUMN_NAME"])
 
             schema["indexes"] = list(idx_map.values())
@@ -162,9 +163,7 @@ class MySQLAdapter(DatabaseAdapter):
         return schema
 
     async def execute_query(
-        self,
-        query: str,
-        params: dict[str, Any] | None = None
+        self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a raw SQL query."""
         async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
@@ -182,11 +181,7 @@ class MySQLAdapter(DatabaseAdapter):
             rows = await cur.fetchall()
             return list(rows)
 
-    async def insert(
-        self,
-        table: str,
-        data: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def insert(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
         """Insert a new record."""
         query, values = self._qb.build_insert(table, data)
 
@@ -196,9 +191,7 @@ class MySQLAdapter(DatabaseAdapter):
 
             # Fetch the inserted record (assumes an auto-increment `id` PK)
             if last_id:
-                refetch, refetch_params = self._qb.build_select_by_id(
-                    table, "id", last_id, None
-                )
+                refetch, refetch_params = self._qb.build_select_by_id(table, "id", last_id, None)
                 await cur.execute(refetch, refetch_params)
                 row = await cur.fetchone()
                 return row if row else data
@@ -210,7 +203,7 @@ class MySQLAdapter(DatabaseAdapter):
         columns: list[str] | None = None,
         filters: list[tuple[str, str, Any]] | None = None,
         pagination: dict[str, int] | None = None,
-        sort: list[tuple[str, str]] | None = None
+        sort: list[tuple[str, str]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Select records with filtering, pagination, and sorting."""
         count_query, query, params = self._qb.build_select(
@@ -226,11 +219,7 @@ class MySQLAdapter(DatabaseAdapter):
             return list(rows), total
 
     async def select_by_id(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any,
-        columns: list[str] | None = None
+        self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Select a single record by ID."""
         query, params = self._qb.build_select_by_id(table, id_column, id_value, columns)
@@ -240,11 +229,7 @@ class MySQLAdapter(DatabaseAdapter):
             return row
 
     async def update(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any,
-        data: dict[str, Any]
+        self, table: str, id_column: str, id_value: Any, data: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Update an existing record."""
         if not data:
@@ -258,12 +243,7 @@ class MySQLAdapter(DatabaseAdapter):
                 return await self.select_by_id(table, id_column, id_value)
             return None
 
-    async def delete(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any
-    ) -> bool:
+    async def delete(self, table: str, id_column: str, id_value: Any) -> bool:
         """Delete a record by ID."""
         query, params = self._qb.build_delete(table, id_column, id_value)
         async with self._pool.acquire() as conn, conn.cursor() as cur:
@@ -274,12 +254,7 @@ class MySQLAdapter(DatabaseAdapter):
         """Validate a SQL identifier (delegates to the shared sanitizer)."""
         return sanitize_identifier(name)
 
-    def _build_where_clause(
-        self,
-        column: str,
-        operator: str,
-        value: Any
-    ) -> tuple[str, list[Any]]:
+    def _build_where_clause(self, column: str, operator: str, value: Any) -> tuple[str, list[Any]]:
         """Build a WHERE clause component (delegates to the shared builder)."""
         clause, _, params = self._qb.where_clause(column, operator, value, 1)
         return clause, params

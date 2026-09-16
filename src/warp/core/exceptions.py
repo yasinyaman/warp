@@ -1,16 +1,12 @@
 """Custom exceptions for Auto CRUD API."""
+
 from typing import Any
 
 
 class AutoCrudException(Exception):
     """Base exception for Auto CRUD API."""
 
-    def __init__(
-        self,
-        message: str,
-        details: dict[str, Any] | None = None,
-        status_code: int = 500
-    ):
+    def __init__(self, message: str, details: dict[str, Any] | None = None, status_code: int = 500):
         """Initialize the exception with a message, details, and HTTP status."""
         self.message = message
         self.details = details or {}
@@ -19,11 +15,7 @@ class AutoCrudException(Exception):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert exception to dictionary for API response."""
-        return {
-            "error": self.__class__.__name__,
-            "message": self.message,
-            "details": self.details
-        }
+        return {"error": self.__class__.__name__, "message": self.message, "details": self.details}
 
 
 class DatabaseConnectionError(AutoCrudException):
@@ -34,7 +26,7 @@ class DatabaseConnectionError(AutoCrudException):
         super().__init__(
             message=message,
             details=details,
-            status_code=503  # Service Unavailable
+            status_code=503,  # Service Unavailable
         )
 
 
@@ -43,11 +35,7 @@ class DatabaseQueryError(AutoCrudException):
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
         """Initialize the error with a message and optional details payload."""
-        super().__init__(
-            message=message,
-            details=details,
-            status_code=500
-        )
+        super().__init__(message=message, details=details, status_code=500)
 
 
 class ConfigurationError(AutoCrudException):
@@ -55,11 +43,7 @@ class ConfigurationError(AutoCrudException):
 
     def __init__(self, message: str, details: dict[str, Any] | None = None):
         """Initialize the error with a message and optional details payload."""
-        super().__init__(
-            message=message,
-            details=details,
-            status_code=500
-        )
+        super().__init__(message=message, details=details, status_code=500)
 
 
 class ValidationError(AutoCrudException):
@@ -70,7 +54,7 @@ class ValidationError(AutoCrudException):
         super().__init__(
             message=message,
             details=details,
-            status_code=400  # Bad Request
+            status_code=400,  # Bad Request
         )
 
 
@@ -82,7 +66,7 @@ class NotFoundError(AutoCrudException):
         super().__init__(
             message=f"{resource} not found",
             details={"resource": resource, "identifier": str(identifier)},
-            status_code=404
+            status_code=404,
         )
 
 

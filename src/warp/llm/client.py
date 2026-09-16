@@ -82,9 +82,7 @@ class OpenAIProvider(LLMProvider):
         try:
             from openai import AsyncOpenAI
         except ImportError as e:
-            raise LLMProviderNotFoundError(
-                "openai - install with: pip install openai"
-            ) from e
+            raise LLMProviderNotFoundError("openai - install with: pip install openai") from e
 
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
@@ -141,9 +139,7 @@ class AnthropicProvider(LLMProvider):
         try:
             from anthropic import AsyncAnthropic
         except ImportError as e:
-            raise LLMProviderNotFoundError(
-                "anthropic - install with: pip install anthropic"
-            ) from e
+            raise LLMProviderNotFoundError("anthropic - install with: pip install anthropic") from e
 
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
@@ -200,9 +196,7 @@ class GeminiProvider(LLMProvider):
             from google import genai
             from google.genai import types
         except ImportError as e:
-            raise LLMProviderNotFoundError(
-                "gemini - install with: pip install google-genai"
-            ) from e
+            raise LLMProviderNotFoundError("gemini - install with: pip install google-genai") from e
 
         self._types = types
         client_kwargs: dict[str, Any] = {"api_key": api_key}
@@ -225,9 +219,7 @@ class GeminiProvider(LLMProvider):
             system_instruction=system_prompt,
             temperature=temperature,
             max_output_tokens=max_tokens,
-            response_mime_type=(
-                "application/json" if response_format == "json" else None
-            ),
+            response_mime_type=("application/json" if response_format == "json" else None),
         )
 
         try:
@@ -285,9 +277,7 @@ class OllamaProvider(LLMProvider):
             original = url
             url = url.replace("localhost", "host.docker.internal")
             url = url.replace("127.0.0.1", "host.docker.internal")
-            logger.info(
-                f"Docker detected: Ollama URL rewritten {original} -> {url}"
-            )
+            logger.info(f"Docker detected: Ollama URL rewritten {original} -> {url}")
 
         return url
 
@@ -357,9 +347,7 @@ class OllamaProvider(LLMProvider):
                         "or use --add-host=host.docker.internal:host-gateway in docker run."
                     )
                 else:
-                    hint += (
-                        "Check that Ollama is listening on the configured host/port."
-                    )
+                    hint += "Check that Ollama is listening on the configured host/port."
                 raise LLMGenerationError(hint) from e
             raise LLMGenerationError(f"Ollama generation failed: {e}") from e
 
@@ -401,9 +389,7 @@ def create_llm_provider(
 
     if provider_lower not in PROVIDER_REGISTRY:
         available = ", ".join(PROVIDER_REGISTRY.keys())
-        raise LLMProviderNotFoundError(
-            f"{provider}. Available providers: {available}"
-        )
+        raise LLMProviderNotFoundError(f"{provider}. Available providers: {available}")
 
     cls = PROVIDER_REGISTRY[provider_lower]
 
@@ -428,9 +414,7 @@ def create_llm_provider(
             f"{_PROVIDER_ENV_VARS[provider_lower]} environment variable."
         )
 
-    logger.info(
-        f"Creating LLM provider: {provider_lower} (model={model or 'default'})"
-    )
+    logger.info(f"Creating LLM provider: {provider_lower} (model={model or 'default'})")
 
     return cls(**kwargs)
 
@@ -499,9 +483,7 @@ class LLMClient:
             response_format=response_format,
         )
         elapsed = time.monotonic() - t0
-        logger.debug(
-            f"LLM response: {len(result)} chars in {elapsed:.1f}s"
-        )
+        logger.debug(f"LLM response: {len(result)} chars in {elapsed:.1f}s")
         return result
 
     async def generate_json(

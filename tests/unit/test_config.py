@@ -1,6 +1,7 @@
 """
 Tests for configuration loading and settings.
 """
+
 import pytest
 import yaml
 
@@ -47,13 +48,7 @@ class TestInterpolateEnvVars:
         monkeypatch.setenv("DB_HOST", "localhost")
         monkeypatch.setenv("DB_PORT", "5432")
 
-        data = {
-            "host": "${DB_HOST}",
-            "port": "${DB_PORT}",
-            "nested": {
-                "value": "${DB_HOST}"
-            }
-        }
+        data = {"host": "${DB_HOST}", "port": "${DB_PORT}", "nested": {"value": "${DB_HOST}"}}
         result = interpolate_env_vars(data)
 
         assert result["host"] == "localhost"
@@ -88,12 +83,7 @@ class TestDatabaseConfig:
 
     def test_minimal_config(self):
         """Test with minimal required fields."""
-        config = DatabaseConfig(
-            name="test",
-            type="postgresql",
-            database="mydb",
-            username="user"
-        )
+        config = DatabaseConfig(name="test", type="postgresql", database="mydb", username="user")
         assert config.name == "test"
         assert config.type == "postgresql"
         assert config.host == "localhost"  # default
@@ -110,7 +100,7 @@ class TestDatabaseConfig:
             database="production",
             username="app",
             password="secret123",
-            options={"pool_size": 20}
+            options={"pool_size": 20},
         )
         assert config.host == "db.example.com"
         assert config.port == 3306
@@ -150,7 +140,7 @@ class TestSettingsConfig:
             auto_discover_tables=False,
             excluded_tables=["migrations", "sessions"],
             enable_raw_query=False,
-            api_prefix="/api/v2"
+            api_prefix="/api/v2",
         )
         assert config.auto_discover_tables is False
         assert "migrations" in config.excluded_tables
@@ -170,12 +160,7 @@ class TestSettings:
         """Test with database config."""
         settings = Settings(
             databases=[
-                DatabaseConfig(
-                    name="test",
-                    type="postgresql",
-                    database="testdb",
-                    username="user"
-                )
+                DatabaseConfig(name="test", type="postgresql", database="testdb", username="user")
             ]
         )
         assert len(settings.databases) == 1
@@ -213,12 +198,10 @@ class TestLoadConfig:
                     "port": 5432,
                     "database": "mydb",
                     "username": "user",
-                    "password": "${TEST_DB_PASS}"
+                    "password": "${TEST_DB_PASS}",
                 }
             ],
-            "settings": {
-                "auto_discover_tables": True
-            }
+            "settings": {"auto_discover_tables": True},
         }
 
         config_file = tmp_path / "config.yaml"
@@ -243,7 +226,7 @@ class TestLoadConfig:
                     "port": "${DB_PORT}",
                     "database": "mydb",
                     "username": "user",
-                    "password": ""
+                    "password": "",
                 }
             ]
         }

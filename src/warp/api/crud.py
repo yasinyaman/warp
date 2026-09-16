@@ -1,4 +1,5 @@
 """Generic CRUD operations for database tables."""
+
 from typing import Any
 
 from pydantic import BaseModel
@@ -21,7 +22,7 @@ class CRUDOperations:
         db: DatabaseAdapter,
         table_schema: TableSchema,
         response_model: type[BaseModel] | None = None,
-        readonly_columns: list[str] | None = None
+        readonly_columns: list[str] | None = None,
     ):
         """Initialize CRUD operations.
 
@@ -54,7 +55,7 @@ class CRUDOperations:
         columns: list[str] | None = None,
         filters: list[tuple[str, str, Any]] | None = None,
         pagination: PaginationParams | None = None,
-        sort: list[tuple[str, str]] | None = None
+        sort: list[tuple[str, str]] | None = None,
     ) -> PaginatedResponse[Any]:
         """Get all records with filtering, pagination, and sorting.
 
@@ -74,15 +75,13 @@ class CRUDOperations:
             columns=columns,
             filters=filters,
             pagination=pagination.to_dict(),
-            sort=sort
+            sort=sort,
         )
 
         return paginate_response(items, total, pagination)
 
     async def get_by_id(
-        self,
-        id_value: Any,
-        columns: list[str] | None = None
+        self, id_value: Any, columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Get a single record by its primary key.
 
@@ -94,10 +93,7 @@ class CRUDOperations:
             Record dictionary or None if not found.
         """
         return await self.db.select_by_id(
-            table=self.table_name,
-            id_column=self.pk_column,
-            id_value=id_value,
-            columns=columns
+            table=self.table_name, id_column=self.pk_column, id_value=id_value, columns=columns
         )
 
     async def create(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -112,21 +108,11 @@ class CRUDOperations:
         self._reject_non_writable(data, self._creatable_columns, "set")
 
         # Filter out None values if column is not nullable without default
-        clean_data = {
-            k: v for k, v in data.items()
-            if v is not None or self._is_nullable(k)
-        }
+        clean_data = {k: v for k, v in data.items() if v is not None or self._is_nullable(k)}
 
-        return await self.db.insert(
-            table=self.table_name,
-            data=clean_data
-        )
+        return await self.db.insert(table=self.table_name, data=clean_data)
 
-    async def update(
-        self,
-        id_value: Any,
-        data: dict[str, Any]
-    ) -> dict[str, Any] | None:
+    async def update(self, id_value: Any, data: dict[str, Any]) -> dict[str, Any] | None:
         """Update an existing record.
 
         Args:
@@ -146,10 +132,7 @@ class CRUDOperations:
             return await self.get_by_id(id_value)
 
         return await self.db.update(
-            table=self.table_name,
-            id_column=self.pk_column,
-            id_value=id_value,
-            data=clean_data
+            table=self.table_name, id_column=self.pk_column, id_value=id_value, data=clean_data
         )
 
     async def delete(self, id_value: Any) -> bool:
@@ -162,9 +145,7 @@ class CRUDOperations:
             True if deleted, False if not found.
         """
         return await self.db.delete(
-            table=self.table_name,
-            id_column=self.pk_column,
-            id_value=id_value
+            table=self.table_name, id_column=self.pk_column, id_value=id_value
         )
 
     async def exists(self, id_value: Any) -> bool:
@@ -179,10 +160,7 @@ class CRUDOperations:
         record = await self.get_by_id(id_value, columns=[self.pk_column])
         return record is not None
 
-    async def count(
-        self,
-        filters: list[tuple[str, str, Any]] | None = None
-    ) -> int:
+    async def count(self, filters: list[tuple[str, str, Any]] | None = None) -> int:
         """Count records matching filters.
 
         Args:
@@ -192,18 +170,11 @@ class CRUDOperations:
             Number of matching records.
         """
         _, total = await self.db.select(
-            table=self.table_name,
-            filters=filters,
-            pagination={"limit": 1, "offset": 0}
+            table=self.table_name, filters=filters, pagination={"limit": 1, "offset": 0}
         )
         return total
 
-    def _reject_non_writable(
-        self,
-        data: dict[str, Any],
-        allowed: set[str],
-        action: str
-    ) -> None:
+    def _reject_non_writable(self, data: dict[str, Any], allowed: set[str], action: str) -> None:
         """Reject attempts to write read-only, auto-generated, or unknown columns.
 
         Raises:
@@ -212,8 +183,7 @@ class CRUDOperations:
         offending = set(data) - allowed
         if offending:
             raise ValidationError(
-                f"Cannot {action} read-only or unknown column(s): "
-                f"{', '.join(sorted(offending))}",
+                f"Cannot {action} read-only or unknown column(s): {', '.join(sorted(offending))}",
                 details={
                     "columns": sorted(offending),
                     "writable": sorted(allowed),

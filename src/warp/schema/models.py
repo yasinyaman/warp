@@ -1,4 +1,5 @@
 """Schema models for representing database table structures."""
+
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -6,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class ColumnSchema(BaseModel):
     """Represents a database column."""
+
     name: str
     type: str
     full_type: str | None = None
@@ -21,6 +23,7 @@ class ColumnSchema(BaseModel):
 
 class ForeignKeySchema(BaseModel):
     """Represents a foreign key relationship."""
+
     column: str
     references_table: str
     references_column: str
@@ -29,6 +32,7 @@ class ForeignKeySchema(BaseModel):
 
 class IndexSchema(BaseModel):
     """Represents a database index."""
+
     name: str
     columns: list[str]
     unique: bool = False
@@ -40,6 +44,7 @@ class TableSchema(BaseModel):
     Contains all metadata needed to generate API endpoints and
     Pydantic models dynamically.
     """
+
     table_name: str
     columns: list[ColumnSchema] = Field(default_factory=list)
     primary_key: str | list[str] | None = None
@@ -74,8 +79,10 @@ class TableSchema(BaseModel):
     def get_required_columns(self) -> list[str]:
         """Get list of non-nullable columns without defaults."""
         return [
-            col.name for col in self.columns
-            if not col.nullable and col.default is None
+            col.name
+            for col in self.columns
+            if not col.nullable
+            and col.default is None
             and col.name != self.pk_column
             and "auto_increment" not in (col.extra or "").lower()
             and "nextval" not in (col.default or "").lower()
@@ -90,7 +97,9 @@ class TableSchema(BaseModel):
             if col.extra and "auto_increment" in col.extra.lower():
                 excluded.add(col.name)
             # Exclude serial/identity columns in PostgreSQL
-            if col.default and ("nextval" in col.default.lower() or "identity" in col.default.lower()):
+            if col.default and (
+                "nextval" in col.default.lower() or "identity" in col.default.lower()
+            ):
                 excluded.add(col.name)
 
         return [col.name for col in self.columns if col.name not in excluded]
@@ -98,6 +107,7 @@ class TableSchema(BaseModel):
 
 class DatabaseSchema(BaseModel):
     """Complete schema for a database."""
+
     database_name: str
     tables: dict[str, TableSchema] = Field(default_factory=dict)
 

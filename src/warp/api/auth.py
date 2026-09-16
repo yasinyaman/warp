@@ -1,4 +1,5 @@
 """Authentication and authorization module for API endpoints."""
+
 import hashlib
 import secrets
 from collections.abc import Awaitable, Callable
@@ -12,6 +13,7 @@ from ..config.settings import ApiKeyConfig, AuthConfig
 
 class Permission(StrEnum):
     """Available permissions for API operations."""
+
     READ = "read"
     CREATE = "create"
     UPDATE = "update"
@@ -56,18 +58,14 @@ class AuthManager:
         # Store sha256(key) -> config instead of plaintext keys. Empty/unset
         # keys are dropped so they can never authenticate.
         self._key_hashes: list[tuple[str, ApiKeyConfig]] = [
-            (self._hash_key(key.key), key)
-            for key in auth_config.api_keys
-            if key.key
+            (self._hash_key(key.key), key) for key in auth_config.api_keys if key.key
         ]
         self.api_key_count = len(self._key_hashes)
         self.public_paths = auth_config.public_paths
 
         # Create API key header scheme
         self.api_key_header = APIKeyHeader(
-            name=self.header_name,
-            auto_error=False,
-            description="API Key for authentication"
+            name=self.header_name, auto_error=False, description="API Key for authentication"
         )
 
     @staticmethod
@@ -96,9 +94,7 @@ class AuthManager:
         return any(path.startswith(public_path) for public_path in self.public_paths)
 
     async def get_current_user(
-        self,
-        request: Request,
-        api_key: str | None = None
+        self, request: Request, api_key: str | None = None
     ) -> AuthenticatedUser | None:
         """Get the current authenticated user from API key.
 
@@ -121,7 +117,7 @@ class AuthManager:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="API key required",
-                headers={self.header_name: "API key is missing"}
+                headers={self.header_name: "API key is missing"},
             )
 
         # Validate API key
@@ -130,7 +126,7 @@ class AuthManager:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid API key",
-                headers={self.header_name: "Invalid API key"}
+                headers={self.header_name: "Invalid API key"},
             )
 
         return AuthenticatedUser(key_config)
@@ -141,9 +137,9 @@ class AuthManager:
         Usage:
             @router.get("/items", dependencies=[Depends(auth.require(Permission.READ))])
         """
+
         async def permission_checker(
-            request: Request,
-            api_key: str | None = Depends(self.api_key_header)
+            request: Request, api_key: str | None = Depends(self.api_key_header)
         ) -> AuthenticatedUser | None:
             # If auth is disabled, allow all
             if not self.enabled:
@@ -164,22 +160,24 @@ class AuthManager:
             if not user.has_permission(permission):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Permission denied: '{permission.value}' required"
+                    detail=f"Permission denied: '{permission.value}' required",
                 )
 
             return user
 
         return permission_checker
 
-    def require_any(self, permissions: list[Permission]) -> Callable[..., Awaitable[AuthenticatedUser | None]]:
+    def require_any(
+        self, permissions: list[Permission]
+    ) -> Callable[..., Awaitable[AuthenticatedUser | None]]:
         """Create a dependency that requires any of the specified permissions.
 
         Usage:
             @router.put("/items/{id}", dependencies=[Depends(auth.require_any([Permission.UPDATE, Permission.ALL]))])
         """
+
         async def permission_checker(
-            request: Request,
-            api_key: str | None = Depends(self.api_key_header)
+            request: Request, api_key: str | None = Depends(self.api_key_header)
         ) -> AuthenticatedUser | None:
             if not self.enabled:
                 return None
@@ -200,7 +198,7 @@ class AuthManager:
             perm_names = [p.value for p in permissions]
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Permission denied: one of {perm_names} required"
+                detail=f"Permission denied: one of {perm_names} required",
             )
 
         return permission_checker

@@ -1,4 +1,5 @@
 """Schema analyzer for discovering and analyzing database structures."""
+
 from typing import Any
 
 from pydantic import BaseModel, Field, create_model
@@ -23,7 +24,6 @@ TYPE_EXAMPLES = {
     "int": 1,
     "tinyint": 1,
     "mediumint": 100,
-
     # Float types
     "real": 3.14,
     "double precision": 3.14159265359,
@@ -31,11 +31,9 @@ TYPE_EXAMPLES = {
     "decimal": 199.99,
     "float": 3.14,
     "double": 3.14159265359,
-
     # Boolean
     "boolean": True,
     "bit": True,
-
     # String types
     "character varying": "example text",
     "varchar": "example text",
@@ -45,7 +43,6 @@ TYPE_EXAMPLES = {
     "tinytext": "Short text",
     "mediumtext": "Medium length text content",
     "longtext": "Long text content for detailed descriptions",
-
     # Date/Time types
     "date": "2024-01-15",
     "timestamp": "2024-01-15T10:30:00Z",
@@ -56,14 +53,12 @@ TYPE_EXAMPLES = {
     "time without time zone": "10:30:00",
     "datetime": "2024-01-15T10:30:00",
     "year": 2024,
-
     # Special types
     "uuid": "550e8400-e29b-41d4-a716-446655440000",
     "json": {"key": "value", "nested": {"data": 123}},
     "jsonb": {"key": "value", "items": [1, 2, 3]},
     "enum": "active",
     "set": "option1,option2",
-
     # Binary types
     "bytea": "base64_encoded_data",
     "blob": "binary_data",
@@ -100,7 +95,6 @@ DB_TYPE_MAPPING = {
     "time without time zone": str,
     "bytea": bytes,
     "array": list,
-
     # MySQL types
     "int": int,
     "tinyint": int,
@@ -133,11 +127,7 @@ class SchemaAnalyzer:
         UserModel = analyzer.generate_pydantic_model(schema.tables['users'])
     """
 
-    def __init__(
-        self,
-        db_adapter: DatabaseAdapter,
-        excluded_tables: list[str] | None = None
-    ):
+    def __init__(self, db_adapter: DatabaseAdapter, excluded_tables: list[str] | None = None):
         """Initialize the schema analyzer.
 
         Args:
@@ -178,24 +168,18 @@ class SchemaAnalyzer:
         raw_schema = await self.db.get_table_schema(table_name)
 
         # Convert raw schema to typed models
-        columns = [
-            ColumnSchema(**col) for col in raw_schema.get("columns", [])
-        ]
+        columns = [ColumnSchema(**col) for col in raw_schema.get("columns", [])]
 
-        foreign_keys = [
-            ForeignKeySchema(**fk) for fk in raw_schema.get("foreign_keys", [])
-        ]
+        foreign_keys = [ForeignKeySchema(**fk) for fk in raw_schema.get("foreign_keys", [])]
 
-        indexes = [
-            IndexSchema(**idx) for idx in raw_schema.get("indexes", [])
-        ]
+        indexes = [IndexSchema(**idx) for idx in raw_schema.get("indexes", [])]
 
         return TableSchema(
             table_name=table_name,
             columns=columns,
             primary_key=raw_schema.get("primary_key"),
             foreign_keys=foreign_keys,
-            indexes=indexes
+            indexes=indexes,
         )
 
     def generate_pydantic_model(
@@ -203,7 +187,7 @@ class SchemaAnalyzer:
         table_schema: TableSchema,
         model_name: str | None = None,
         for_create: bool = False,
-        for_update: bool = False
+        for_update: bool = False,
     ) -> type[BaseModel]:
         """Generate a Pydantic model from table schema.
 
@@ -236,7 +220,9 @@ class SchemaAnalyzer:
             if for_create:
                 if col.extra and "auto_increment" in col.extra.lower():
                     continue
-                if col.default and ("nextval" in col.default.lower() or "identity" in col.default.lower()):
+                if col.default and (
+                    "nextval" in col.default.lower() or "identity" in col.default.lower()
+                ):
                     continue
 
             python_type: Any = self._get_python_type(col)
@@ -253,13 +239,13 @@ class SchemaAnalyzer:
                 field_info = Field(
                     default=None,
                     description=description,
-                    json_schema_extra={"example": example_value} if example_value else None
+                    json_schema_extra={"example": example_value} if example_value else None,
                 )
             else:
                 field_info = Field(
                     ...,
                     description=description,
-                    json_schema_extra={"example": example_value} if example_value else None
+                    json_schema_extra={"example": example_value} if example_value else None,
                 )
 
             fields[col.name] = (python_type, field_info)
@@ -270,10 +256,7 @@ class SchemaAnalyzer:
 
         return model
 
-    def generate_crud_models(
-        self,
-        table_schema: TableSchema
-    ) -> dict[str, type[BaseModel]]:
+    def generate_crud_models(self, table_schema: TableSchema) -> dict[str, type[BaseModel]]:
         """Generate all CRUD-related Pydantic models for a table.
 
         Returns dictionary with:
@@ -292,9 +275,7 @@ class SchemaAnalyzer:
             "update": self.generate_pydantic_model(
                 table_schema, f"{base_name}Update", for_update=True
             ),
-            "response": self.generate_pydantic_model(
-                table_schema, f"{base_name}Response"
-            ),
+            "response": self.generate_pydantic_model(table_schema, f"{base_name}Response"),
         }
 
     def _get_python_type(self, col: ColumnSchema) -> type:
@@ -439,5 +420,5 @@ class SchemaAnalyzer:
     @staticmethod
     def _to_pascal_case(snake_str: str) -> str:
         """Convert snake_case to PascalCase."""
-        components = snake_str.split('_')
-        return ''.join(x.title() for x in components)
+        components = snake_str.split("_")
+        return "".join(x.title() for x in components)

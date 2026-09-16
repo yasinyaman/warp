@@ -3,6 +3,7 @@
 Automatically generates REST CRUD endpoints from database schema.
 Production-ready with connection retry, proper error handling, and logging.
 """
+
 import asyncio
 import os
 import time
@@ -42,6 +43,7 @@ logger = get_logger(__name__)
 # Application state
 class AppState:
     """Container for application state."""
+
     settings: Settings | None = None
     databases: dict[str, DatabaseAdapter] = {}
     readonly_databases: dict[str, DatabaseAdapter] = {}
@@ -53,9 +55,7 @@ state = AppState()
 
 
 async def connect_with_retry(
-    adapter: DatabaseAdapter,
-    max_retries: int = 5,
-    retry_delay: float = 2.0
+    adapter: DatabaseAdapter, max_retries: int = 5, retry_delay: float = 2.0
 ) -> None:
     """Connect to database with exponential backoff retry.
 
@@ -77,8 +77,7 @@ async def connect_with_retry(
             if attempt < max_retries:
                 wait_time = retry_delay * (2 ** (attempt - 1))
                 logger.warning(
-                    f"Failed to connect to {adapter.name}: {e}. "
-                    f"Retrying in {wait_time:.1f}s..."
+                    f"Failed to connect to {adapter.name}: {e}. Retrying in {wait_time:.1f}s..."
                 )
                 await asyncio.sleep(wait_time)
             else:
@@ -86,7 +85,7 @@ async def connect_with_retry(
 
     raise DatabaseConnectionError(
         f"Failed to connect to {adapter.name} after {max_retries} attempts",
-        details={"last_error": str(last_error)}
+        details={"last_error": str(last_error)},
     )
 
 
@@ -141,8 +140,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912,
             # Analyze schema
             if state.settings.settings.auto_discover_tables:
                 analyzer = SchemaAnalyzer(
-                    adapter,
-                    excluded_tables=state.settings.settings.excluded_tables
+                    adapter, excluded_tables=state.settings.settings.excluded_tables
                 )
                 schema = await analyzer.analyze()
                 state.schemas[db_name] = schema
@@ -164,7 +162,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912,
                     max_limit=state.settings.settings.pagination.max_limit,
                     db_name=use_db_name,
                     auth_manager=auth_manager,
-                    readonly_columns=state.settings.settings.readonly_columns
+                    readonly_columns=state.settings.settings.readonly_columns,
                 )
 
                 routers = router_factory.create_routers_for_all_tables(schema.tables)
@@ -174,8 +172,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912,
 
                 for router in routers:
                     app.include_router(
-                        router,
-                        prefix=f"{state.settings.settings.api_prefix}{db_prefix}"
+                        router, prefix=f"{state.settings.settings.api_prefix}{db_prefix}"
                     )
 
                 # Raw query endpoint: use a separate read-only connection when
@@ -187,21 +184,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: C901, PLR0912,
                     await connect_with_retry(readonly_adapter)
                     state.readonly_databases[db_name] = readonly_adapter
                     query_adapter = readonly_adapter
-                    logger.info(
-                        f"Raw query endpoint for {db_name} uses a read-only connection"
-                    )
+                    logger.info(f"Raw query endpoint for {db_name} uses a read-only connection")
 
                 # Add raw query router
                 query_router = create_query_router(
                     db=query_adapter,
                     whitelist=state.settings.settings.raw_query_whitelist,
                     enabled=state.settings.settings.enable_raw_query,
-                    auth_manager=auth_manager
+                    auth_manager=auth_manager,
                 )
                 app.include_router(
                     query_router,
                     prefix=f"{state.settings.settings.api_prefix}{db_prefix}",
-                    tags=[f"{db_name} - Raw Query"] if len(state.settings.databases) > 1 else ["Raw Query"]
+                    tags=[f"{db_name} - Raw Query"]
+                    if len(state.settings.databases) > 1
+                    else ["Raw Query"],
                 )
 
         except DatabaseConnectionError:
@@ -312,7 +309,7 @@ GET /api/v1/users?limit=20&offset=40
         # Disable default docs — we serve custom /docs with cache-busting
         docs_url=None,
         redoc_url=None,
-        lifespan=lifespan
+        lifespan=lifespan,
     )
 
     # Custom /docs and /redoc with cache-busting for OpenAPI JSON
@@ -349,10 +346,7 @@ GET /api/v1/users?limit=20&offset=40
     @app.exception_handler(AutoCrudException)
     async def auto_crud_exception_handler(request: Request, exc: AutoCrudException) -> JSONResponse:
         logger.error(f"Application error: {exc.message}")
-        return JSONResponse(
-            status_code=exc.status_code,
-            content=exc.to_dict()
-        )
+        return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -362,8 +356,8 @@ GET /api/v1/users?limit=20&offset=40
             content={
                 "error": "InternalServerError",
                 "message": "An unexpected error occurred",
-                "details": {} if APP_ENV == "production" else {"error": str(exc)}
-            }
+                "details": {} if APP_ENV == "production" else {"error": str(exc)},
+            },
         )
 
     # Health check endpoint (Kubernetes/Docker compatible)
@@ -392,7 +386,7 @@ GET /api/v1/users?limit=20&offset=40
             "status": status,
             "ready": state.is_ready,
             "databases": db_status,
-            "environment": APP_ENV
+            "environment": APP_ENV,
         }
 
         if not all_healthy:
@@ -409,8 +403,7 @@ GET /api/v1/users?limit=20&offset=40
         """
         if not state.is_ready:
             return JSONResponse(
-                status_code=503,
-                content={"ready": False, "message": "Application not ready"}
+                status_code=503, content={"ready": False, "message": "Application not ready"}
             )
 
         return {"ready": True}
@@ -432,7 +425,7 @@ GET /api/v1/users?limit=20&offset=40
         for db_name, schema in state.schemas.items():
             tables_info[db_name] = {
                 "tables": schema.get_table_names(),
-                "table_count": len(schema.tables)
+                "table_count": len(schema.tables),
             }
 
         # Catalog info
@@ -458,11 +451,17 @@ GET /api/v1/users?limit=20&offset=40
             "settings": {
                 "api_prefix": state.settings.settings.api_prefix if state.settings else "/api/v1",
                 "pagination": {
-                    "default_limit": state.settings.settings.pagination.default_limit if state.settings else 50,
-                    "max_limit": state.settings.settings.pagination.max_limit if state.settings else 1000
+                    "default_limit": state.settings.settings.pagination.default_limit
+                    if state.settings
+                    else 50,
+                    "max_limit": state.settings.settings.pagination.max_limit
+                    if state.settings
+                    else 1000,
                 },
-                "raw_query_enabled": state.settings.settings.enable_raw_query if state.settings else False
-            }
+                "raw_query_enabled": state.settings.settings.enable_raw_query
+                if state.settings
+                else False,
+            },
         }
 
     return app
@@ -487,7 +486,7 @@ def main() -> None:
         port=port,
         workers=workers if not reload else 1,
         reload=reload,
-        access_log=APP_ENV != "production"
+        access_log=APP_ENV != "production",
     )
 
 

@@ -68,14 +68,10 @@ class CrossReferenceProvider:
 
         return "\n".join(parts)
 
-    def _find_similar_tables(
-        self, table_name: str
-    ) -> list[tuple[str, TableCatalogEntry]]:
+    def _find_similar_tables(self, table_name: str) -> list[tuple[str, TableCatalogEntry]]:
         """Find tables with similar names in existing catalogs."""
         try:
-            results = self.store.find_similar_tables(
-                table_name, exclude_db=self.exclude_db
-            )
+            results = self.store.find_similar_tables(table_name, exclude_db=self.exclude_db)
             return results[: self.max_table_refs]
         except Exception as e:
             logger.warning(f"Cross-reference table search failed for {table_name}: {e}")
@@ -89,12 +85,9 @@ class CrossReferenceProvider:
 
         for col_name in column_names[:15]:
             try:
-                refs = self.store.find_similar_columns(
-                    col_name, exclude_db=self.exclude_db
-                )
+                refs = self.store.find_similar_columns(col_name, exclude_db=self.exclude_db)
                 useful_refs = [
-                    r for r in refs
-                    if not r[2].description.is_empty or r[2].semantic_type
+                    r for r in refs if not r[2].description.is_empty or r[2].semantic_type
                 ]
                 if useful_refs:
                     result[col_name] = useful_refs[: self.max_column_refs]

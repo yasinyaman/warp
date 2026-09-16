@@ -1,4 +1,5 @@
 """Configuration loader with YAML support and environment variable interpolation."""
+
 import os
 import re
 from pathlib import Path
@@ -10,6 +11,7 @@ from pydantic import BaseModel, Field
 
 class DatabaseConfig(BaseModel):
     """Database connection configuration."""
+
     name: str
     type: str  # postgresql, mysql
     host: str = "localhost"
@@ -41,12 +43,14 @@ class DatabaseConfig(BaseModel):
 
 class PaginationConfig(BaseModel):
     """Pagination settings."""
+
     default_limit: int = 50
     max_limit: int = 1000
 
 
 class ApiKeyConfig(BaseModel):
     """API Key configuration with permissions."""
+
     key: str
     name: str = "default"
     permissions: list[str] = Field(default_factory=lambda: ["read"])
@@ -56,15 +60,19 @@ class ApiKeyConfig(BaseModel):
 
 class AuthConfig(BaseModel):
     """Authentication configuration."""
+
     enabled: bool = False
     header_name: str = "X-API-Key"
     api_keys: list[ApiKeyConfig] = Field(default_factory=list)
     # Public endpoints that don't require auth (e.g., health check)
-    public_paths: list[str] = Field(default_factory=lambda: ["/health", "/docs", "/redoc", "/openapi.json"])
+    public_paths: list[str] = Field(
+        default_factory=lambda: ["/health", "/docs", "/redoc", "/openapi.json"]
+    )
 
 
 class CatalogConfig(BaseModel):
     """Catalog storage configuration."""
+
     storage_path: str = "./catalogs"
     default_format: str = "json"
     auto_cross_reference: bool = True
@@ -74,6 +82,7 @@ class CatalogConfig(BaseModel):
 
 class AnalysisConfig(BaseModel):
     """Schema analysis configuration."""
+
     sample_limit: int = 5
     include_row_count: bool = True
     excluded_tables: list[str] = Field(default_factory=list)
@@ -87,16 +96,33 @@ class AnalysisConfig(BaseModel):
     mask_pii_samples: bool = True
     pii_column_patterns: list[str] = Field(
         default_factory=lambda: [
-            "email", "mail", "phone", "tel", "mobile", "ssn", "password",
-            "passwd", "secret", "token", "api_key", "apikey", "credit_card",
-            "card_number", "cvv", "iban", "account_number", "tax_id",
-            "passport", "national_id",
+            "email",
+            "mail",
+            "phone",
+            "tel",
+            "mobile",
+            "ssn",
+            "password",
+            "passwd",
+            "secret",
+            "token",
+            "api_key",
+            "apikey",
+            "credit_card",
+            "card_number",
+            "cvv",
+            "iban",
+            "account_number",
+            "tax_id",
+            "passport",
+            "national_id",
         ]
     )
 
 
 class LLMConfig(BaseModel):
     """LLM provider configuration."""
+
     provider: str = "openai"
     model: str = "gpt-4o-mini"
     api_key: str = ""
@@ -108,6 +134,7 @@ class LLMConfig(BaseModel):
 
 class I18nConfig(BaseModel):
     """Internationalization configuration."""
+
     default_language: str = "en"
     languages: list[str] = Field(default_factory=lambda: ["en"])
     fallback_language: str = "en"
@@ -117,6 +144,7 @@ class I18nConfig(BaseModel):
 
 class SettingsConfig(BaseModel):
     """Application settings."""
+
     auto_discover_tables: bool = True
     excluded_tables: list[str] = Field(default_factory=list)
     pagination: PaginationConfig = Field(default_factory=PaginationConfig)
@@ -124,9 +152,7 @@ class SettingsConfig(BaseModel):
     raw_query_whitelist: list[str] = Field(default_factory=lambda: ["SELECT"])
     # Columns clients may never write (mass-assignment protection). The primary
     # key and auto-generated columns are always protected in addition to these.
-    readonly_columns: list[str] = Field(
-        default_factory=lambda: ["created_at", "updated_at"]
-    )
+    readonly_columns: list[str] = Field(default_factory=lambda: ["created_at", "updated_at"])
     api_prefix: str = "/api/v1"
     docs_url: str = "/docs"
     redoc_url: str = "/redoc"
@@ -139,6 +165,7 @@ class SettingsConfig(BaseModel):
 
 class Settings(BaseModel):
     """Main configuration container."""
+
     databases: list[DatabaseConfig] = Field(default_factory=list)
     settings: SettingsConfig = Field(default_factory=SettingsConfig)
 
@@ -149,7 +176,7 @@ def interpolate_env_vars(value: Any) -> Any:
     Supports ${VAR_NAME} and ${VAR_NAME:default} syntax.
     """
     if isinstance(value, str):
-        pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'
+        pattern = r"\$\{([^}:]+)(?::([^}]*))?\}"
 
         def replacer(match: re.Match[str]) -> str:
             var_name = match.group(1)

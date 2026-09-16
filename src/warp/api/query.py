@@ -1,4 +1,5 @@
 """Raw SQL query endpoint."""
+
 import re
 from typing import Any
 
@@ -14,15 +15,16 @@ logger = get_logger(__name__)
 
 class QueryRequest(BaseModel):
     """Request model for raw SQL query execution."""
+
     query: str = Field(..., description="SQL query to execute")
     params: dict[str, Any] | None = Field(
-        default=None,
-        description="Named parameters for the query (e.g., {'name': 'John'})"
+        default=None, description="Named parameters for the query (e.g., {'name': 'John'})"
     )
 
 
 class QueryResponse(BaseModel):
     """Response model for query results."""
+
     success: bool = True
     rows: list[dict[str, Any]] = Field(default_factory=list)
     row_count: int = 0
@@ -77,25 +79,21 @@ class QueryValidator:
 
         for pattern in dangerous_patterns:
             if re.search(pattern, normalized):
-                raise ValueError(
-                    "Query contains potentially dangerous patterns"
-                )
+                raise ValueError("Query contains potentially dangerous patterns")
 
         # Check if query starts with allowed command
         for allowed in self.whitelist:
             if normalized.startswith(allowed):
                 return True
 
-        raise ValueError(
-            f"Query must start with one of: {', '.join(self.whitelist)}"
-        )
+        raise ValueError(f"Query must start with one of: {', '.join(self.whitelist)}")
 
 
 def create_query_router(
     db: DatabaseAdapter,
     whitelist: list[str] | None = None,
     enabled: bool = True,
-    auth_manager: AuthManager | None = None
+    auth_manager: AuthManager | None = None,
 ) -> APIRouter:
     """Create a router for raw SQL query execution.
 
@@ -123,13 +121,12 @@ def create_query_router(
         return []
 
     if not enabled:
+
         @router.post("/execute", response_model=QueryResponse)
         async def execute_query_disabled(request: QueryRequest) -> QueryResponse:
             """Raw query execution is disabled."""
-            raise HTTPException(
-                status_code=403,
-                detail="Raw SQL query execution is disabled"
-            )
+            raise HTTPException(status_code=403, detail="Raw SQL query execution is disabled")
+
         return router
 
     @router.post(
@@ -152,7 +149,7 @@ Execute a raw SQL query against the database.
 }
 ```
         """,
-        dependencies=get_auth_deps(Permission.QUERY)
+        dependencies=get_auth_deps(Permission.QUERY),
     )
     async def execute_query(request: QueryRequest) -> QueryResponse:
         """Execute a raw SQL query."""
@@ -161,16 +158,9 @@ Execute a raw SQL query against the database.
             validator.validate(request.query)
 
             # Execute query
-            rows = await db.execute_query(
-                query=request.query,
-                params=request.params
-            )
+            rows = await db.execute_query(query=request.query, params=request.params)
 
-            return QueryResponse(
-                success=True,
-                rows=rows,
-                row_count=len(rows)
-            )
+            return QueryResponse(success=True, rows=rows, row_count=len(rows))
 
         except ValueError as e:
             # Validation errors are our own safe messages — fine to return.
@@ -179,21 +169,15 @@ Execute a raw SQL query against the database.
             # Never leak DB/driver errors (schema, SQL text) to the client;
             # log the detail server-side instead.
             logger.exception(f"Raw query execution failed: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail="Query execution failed"
-            ) from e
+            raise HTTPException(status_code=500, detail="Query execution failed") from e
 
     @router.get(
         "/allowed-commands",
         summary="Get Allowed SQL Commands",
-        description="Returns the list of SQL commands that are allowed for raw queries."
+        description="Returns the list of SQL commands that are allowed for raw queries.",
     )
     async def get_allowed_commands() -> dict[str, Any]:
         """Get list of allowed SQL commands."""
-        return {
-            "allowed_commands": validator.whitelist,
-            "enabled": enabled
-        }
+        return {"allowed_commands": validator.whitelist, "enabled": enabled}
 
     return router

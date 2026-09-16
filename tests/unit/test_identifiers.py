@@ -1,4 +1,5 @@
 """Tests for centralized SQL identifier sanitization/quoting."""
+
 import pytest
 
 from warp.database.identifiers import quote_identifier, sanitize_identifier

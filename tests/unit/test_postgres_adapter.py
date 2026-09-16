@@ -4,6 +4,7 @@ No real database: the pool's acquire() returns an async-context-manager wrapping
 a fake connection whose fetch/fetchrow/fetchval are AsyncMocks returning canned
 rows. Asserts rows are mapped correctly and SQL is built as expected.
 """
+
 from typing import Any
 from unittest.mock import AsyncMock
 

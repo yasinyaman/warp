@@ -1,4 +1,5 @@
 """Tests for CrossReferenceProvider over a real CatalogFileStore."""
+
 from pathlib import Path
 
 import pytest

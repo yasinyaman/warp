@@ -4,6 +4,7 @@ Drives create_catalog_router with a real CatalogFileStore (tmp_path) and a
 seeded DatabaseCatalog via fastapi.testclient.TestClient. The /analyze endpoint
 (which needs an LLM) is exercised only for its early error paths.
 """
+
 from pathlib import Path
 
 import pytest
@@ -346,9 +347,7 @@ class TestOpenAPIEnrichmentRefresh:
         # OpenAPI schema is now enriched/cached
         assert client.get("/openapi.json").status_code == 200
 
-    def test_approve_single_completes_and_refreshes(
-        self, store: CatalogFileStore
-    ) -> None:
+    def test_approve_single_completes_and_refreshes(self, store: CatalogFileStore) -> None:
         client = self._client_with_enrichment(store)
         client.post("/catalog/testdb/approve/users")
         r = client.post("/catalog/testdb/approve/orders")
@@ -374,9 +373,7 @@ class TestAnalyzeEarlyPaths:
     def test_analyze_no_adapters(self, store: CatalogFileStore) -> None:
         app = FastAPI()
         # config present but adapters empty -> 503
-        app.include_router(
-            create_catalog_router(store=store, config=Settings(), adapters=None)
-        )
+        app.include_router(create_catalog_router(store=store, config=Settings(), adapters=None))
         c = TestClient(app)
         r = c.post("/catalog/analyze", json={"database": "testdb"})
         assert r.status_code == 503
@@ -384,9 +381,7 @@ class TestAnalyzeEarlyPaths:
     def test_analyze_db_not_connected(self, store: CatalogFileStore) -> None:
         app = FastAPI()
         app.include_router(
-            create_catalog_router(
-                store=store, config=Settings(), adapters={"other": object()}
-            )
+            create_catalog_router(store=store, config=Settings(), adapters={"other": object()})
         )
         c = TestClient(app)
         r = c.post("/catalog/analyze", json={"database": "testdb"})
@@ -396,9 +391,7 @@ class TestAnalyzeEarlyPaths:
         # adapter named "testdb" exists, but no matching db in config.databases
         app = FastAPI()
         app.include_router(
-            create_catalog_router(
-                store=store, config=Settings(), adapters={"testdb": object()}
-            )
+            create_catalog_router(store=store, config=Settings(), adapters={"testdb": object()})
         )
         c = TestClient(app)
         r = c.post("/catalog/analyze", json={"database": "testdb"})

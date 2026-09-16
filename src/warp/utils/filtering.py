@@ -1,4 +1,5 @@
 """Filtering utilities for parsing query parameters into filter conditions."""
+
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -13,6 +14,7 @@ class FilterCondition:
         operator: Filter operator (eq, ne, gt, gte, lt, lte, like, in, is_null).
         value: Value to filter against.
     """
+
     column: str
     operator: str
     value: Any
@@ -43,9 +45,7 @@ class FilterParser:
     - is_null: IS NULL check (value should be 'true' or 'false')
     """
 
-    OPERATORS = {
-        "eq", "ne", "gt", "gte", "lt", "lte", "like", "in", "is_null"
-    }
+    OPERATORS = {"eq", "ne", "gt", "gte", "lt", "lte", "like", "in", "is_null"}
 
     # Pattern for filter[column] or filter[column][operator]
     FILTER_PATTERN = re.compile(r"filter\[(\w+)\](?:\[(\w+)\])?")
@@ -88,18 +88,13 @@ class FilterParser:
             # Validate operator
             if operator not in self.OPERATORS:
                 raise ValueError(
-                    f"Invalid operator '{operator}'. "
-                    f"Allowed: {', '.join(self.OPERATORS)}"
+                    f"Invalid operator '{operator}'. Allowed: {', '.join(self.OPERATORS)}"
                 )
 
             # Parse value based on operator
             parsed_value = self._parse_value(value, operator)
 
-            filters.append(FilterCondition(
-                column=column,
-                operator=operator,
-                value=parsed_value
-            ))
+            filters.append(FilterCondition(column=column, operator=operator, value=parsed_value))
 
         return filters
 
@@ -146,8 +141,7 @@ class FilterParser:
 
 
 def parse_filters_from_request(
-    query_params: dict[str, str],
-    allowed_columns: list[str] | None = None
+    query_params: dict[str, str], allowed_columns: list[str] | None = None
 ) -> list[tuple[str, str, Any]]:
     """Convenience function to parse filters from request query params.
 

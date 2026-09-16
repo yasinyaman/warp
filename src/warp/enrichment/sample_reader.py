@@ -16,10 +16,28 @@ logger = get_logger(__name__)
 # Column-name substrings that indicate likely PII. Sample values for matching
 # columns are masked before being sent to an LLM.
 DEFAULT_PII_PATTERNS = [
-    "email", "mail", "phone", "tel", "mobile", "ssn", "social_security",
-    "password", "passwd", "secret", "token", "api_key", "apikey",
-    "credit_card", "card_number", "cardno", "cvv", "iban", "account_number",
-    "tax_id", "passport", "national_id",
+    "email",
+    "mail",
+    "phone",
+    "tel",
+    "mobile",
+    "ssn",
+    "social_security",
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "credit_card",
+    "card_number",
+    "cardno",
+    "cvv",
+    "iban",
+    "account_number",
+    "tax_id",
+    "passport",
+    "national_id",
 ]
 
 _MASK_VALUE = "***"
@@ -63,9 +81,7 @@ def is_pii_column(name: str, patterns: list[str] | None = None) -> bool:
     return any(p in lowered for p in (patterns or DEFAULT_PII_PATTERNS))
 
 
-def mask_pii_samples(
-    samples: TableSamples, patterns: list[str] | None = None
-) -> TableSamples:
+def mask_pii_samples(samples: TableSamples, patterns: list[str] | None = None) -> TableSamples:
     """Return a copy of ``samples`` with PII-looking column values masked.
 
     Intended for use before sending sample data to an LLM: values of columns
@@ -113,12 +129,10 @@ class SampleReader:
     def _qualified_table(self, table_name: str) -> str:
         """Get fully qualified table name."""
         if self.db_type == "postgresql":
-            return f'{self._quote_identifier(self.schema)}.{self._quote_identifier(table_name)}'
+            return f"{self._quote_identifier(self.schema)}.{self._quote_identifier(table_name)}"
         return self._quote_identifier(table_name)
 
-    async def read_samples(
-        self, table_name: str, limit: int = 5
-    ) -> dict[str, list[Any]]:
+    async def read_samples(self, table_name: str, limit: int = 5) -> dict[str, list[Any]]:
         """Read sample rows from a table."""
         try:
             qualified = self._qualified_table(table_name)
@@ -188,9 +202,7 @@ class SampleReader:
 
         if not columns:
             try:
-                sample_rows = await self.adapter.execute_query(
-                    f"SELECT * FROM {qualified} LIMIT 1"
-                )
+                sample_rows = await self.adapter.execute_query(f"SELECT * FROM {qualified} LIMIT 1")
                 if sample_rows:
                     columns = list(sample_rows[0].keys())
                 else:

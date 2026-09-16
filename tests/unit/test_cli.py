@@ -5,6 +5,7 @@ tmp dir seeded with a catalog. Store-only commands (list, info, export, review
 --auto-approve, enrich-openapi) are exercised end-to-end; analyze/pipeline are
 covered only for early/argument paths.
 """
+
 from pathlib import Path
 
 import yaml
@@ -32,9 +33,7 @@ def _seed_catalog(storage_path: Path) -> CatalogFileStore:
                 description=LocalizedText(texts={"en": "User accounts"}),
                 human_name=LocalizedText(texts={"en": "Users"}),
                 columns=[
-                    ColumnCatalogEntry(
-                        name="id", data_type="integer", is_primary_key=True
-                    ),
+                    ColumnCatalogEntry(name="id", data_type="integer", is_primary_key=True),
                     ColumnCatalogEntry(
                         name="email",
                         data_type="varchar",
@@ -160,9 +159,7 @@ class TestExportCommand:
         storage.mkdir()
         cfg = _write_config(tmp_path, storage)
         out = tmp_path / "out.json"
-        result = CliRunner().invoke(
-            main, ["-c", str(cfg), "export", "-d", "ghost", "-o", str(out)]
-        )
+        result = CliRunner().invoke(main, ["-c", str(cfg), "export", "-d", "ghost", "-o", str(out)])
         assert result.exit_code == 1
         assert "not found" in result.output
 
@@ -192,9 +189,7 @@ class TestReviewCommand:
         store = _seed_catalog(storage)
         cfg = _write_config(tmp_path, storage)
         # single table -> answer "a" to approve it, then it auto-approves catalog
-        result = CliRunner().invoke(
-            main, ["-c", str(cfg), "review", "-d", "testdb"], input="a\n"
-        )
+        result = CliRunner().invoke(main, ["-c", str(cfg), "review", "-d", "testdb"], input="a\n")
         assert result.exit_code == 0
         assert store.load_or_raise("testdb").status.value == "approved"
 
@@ -202,9 +197,7 @@ class TestReviewCommand:
         storage = tmp_path / "catalogs"
         store = _seed_catalog(storage)
         cfg = _write_config(tmp_path, storage)
-        result = CliRunner().invoke(
-            main, ["-c", str(cfg), "review", "-d", "testdb"], input="q\n"
-        )
+        result = CliRunner().invoke(main, ["-c", str(cfg), "review", "-d", "testdb"], input="q\n")
         assert result.exit_code == 0
         assert "paused" in result.output
         assert store.load_or_raise("testdb").status.value == "draft"
@@ -214,9 +207,7 @@ class TestReviewCommand:
         store = _seed_catalog(storage)
         store.approve_catalog("testdb")
         cfg = _write_config(tmp_path, storage)
-        result = CliRunner().invoke(
-            main, ["-c", str(cfg), "review", "-d", "testdb"], input="n\n"
-        )
+        result = CliRunner().invoke(main, ["-c", str(cfg), "review", "-d", "testdb"], input="n\n")
         assert result.exit_code == 0
         assert "already approved" in result.output
 
@@ -227,15 +218,20 @@ class TestEnrichOpenapiCommand:
         _seed_catalog(storage)
         cfg = _write_config(tmp_path, storage)
         spec = tmp_path / "spec.json"
-        spec.write_text(
-            '{"openapi": "3.0.0", "info": {"title": "x", "version": "1"}, "paths": {}}'
-        )
+        spec.write_text('{"openapi": "3.0.0", "info": {"title": "x", "version": "1"}, "paths": {}}')
         out = tmp_path / "enriched.json"
         result = CliRunner().invoke(
             main,
             [
-                "-c", str(cfg), "enrich-openapi",
-                "-d", "testdb", "-i", str(spec), "-o", str(out),
+                "-c",
+                str(cfg),
+                "enrich-openapi",
+                "-d",
+                "testdb",
+                "-i",
+                str(spec),
+                "-o",
+                str(out),
             ],
         )
         assert result.exit_code == 0
@@ -259,8 +255,6 @@ class TestAnalyzeEarlyPath:
         storage = tmp_path / "catalogs"
         storage.mkdir()
         cfg = _write_config(tmp_path, storage)
-        result = CliRunner().invoke(
-            main, ["-c", str(cfg), "analyze", "-d", "missing_db"]
-        )
+        result = CliRunner().invoke(main, ["-c", str(cfg), "analyze", "-d", "missing_db"])
         assert result.exit_code == 1
         assert "not found" in result.output

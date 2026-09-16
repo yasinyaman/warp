@@ -11,6 +11,7 @@ Invariants:
 - Identifiers are validated and quoted via :mod:`warp.database.identifiers`.
 - Only integer pagination (already range-validated upstream) is interpolated.
 """
+
 from typing import Any
 
 from .identifiers import quote_identifier
@@ -192,9 +193,7 @@ class SafeQueryBuilder:
         sql = f"UPDATE {tbl} SET {', '.join(set_parts)} WHERE {where}{returning}"
         return sql, params
 
-    def build_delete(
-        self, table: str, id_column: str, id_value: Any
-    ) -> tuple[str, list[Any]]:
+    def build_delete(self, table: str, id_column: str, id_value: Any) -> tuple[str, list[Any]]:
         """Build a DELETE-by-id statement (``RETURNING`` id on PostgreSQL)."""
         col = self.quote(id_column)
         returning = f" RETURNING {col}" if self.supports_returning else ""

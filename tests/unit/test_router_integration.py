@@ -3,6 +3,7 @@
 Exercises router_factory + crud + filtering/sorting/pagination together, and
 verifies validation behavior (404s, invalid fields, mass-assignment 400s).
 """
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

@@ -5,6 +5,7 @@ These exercise the identifier sanitizer and WHERE-clause builder directly
 - identifiers are whitelist-validated (injection rejected), and
 - all values are parameterized (never interpolated into the SQL string).
 """
+
 import pytest
 
 from warp.database.mysql import MySQLAdapter
@@ -94,7 +95,11 @@ class TestMySQLWhereClause:
         assert params == [5]
 
     def test_in_uses_multiple_placeholders(self):
-        clause, params = MY._build_where_clause("id", "in", [1, 2], )
+        clause, params = MY._build_where_clause(
+            "id",
+            "in",
+            [1, 2],
+        )
         assert clause == "`id` IN (%s, %s)"
         assert params == [1, 2]
 

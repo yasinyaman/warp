@@ -27,15 +27,19 @@ logger = get_logger(__name__)
 
 class AnalyzeRequest(BaseModel):
     """Request body for catalog analysis."""
+
     database: str = Field(..., description="Database config name")
     tables: list[str] | None = Field(default=None, description="Specific tables to analyze")
     lang: str | None = Field(default=None, description="Language override")
     format: str = Field(default="json", description="Storage format: json or yaml")
-    auto_approve: bool = Field(default=False, description="Auto-approve catalog after analysis (skip review)")
+    auto_approve: bool = Field(
+        default=False, description="Auto-approve catalog after analysis (skip review)"
+    )
 
 
 class AnalyzeResponse(BaseModel):
     """Response from catalog analysis."""
+
     database: str
     table_count: int
     languages: list[str]
@@ -44,6 +48,7 @@ class AnalyzeResponse(BaseModel):
 
 class CatalogListEntry(BaseModel):
     """Summary of a catalog in the list."""
+
     database_name: str
     database_type: str = "postgresql"
     table_count: int = 0
@@ -54,12 +59,14 @@ class CatalogListEntry(BaseModel):
 
 class CatalogListResponse(BaseModel):
     """Response for catalog list."""
+
     catalogs: list[CatalogListEntry]
     total: int
 
 
 class CatalogInfoResponse(BaseModel):
     """Detailed catalog info."""
+
     database_name: str
     database_type: str
     table_count: int
@@ -71,12 +78,14 @@ class CatalogInfoResponse(BaseModel):
 
 class ExportRequest(BaseModel):
     """Request for catalog export."""
+
     format: str = Field(default="json", description="Export format: json, yaml, markdown")
     lang: str = Field(default="en", description="Language for export")
 
 
 class TableEditRequest(BaseModel):
     """Partial update for a table's editable fields."""
+
     description: dict[str, str] | None = Field(
         default=None,
         description="Localized description updates, e.g. {'en': 'New desc'}",
@@ -97,6 +106,7 @@ class TableEditRequest(BaseModel):
 
 class ColumnEditRequest(BaseModel):
     """Partial update for a column's editable fields."""
+
     description: dict[str, str] | None = Field(
         default=None,
         description="Localized description updates",
@@ -113,6 +123,7 @@ class ColumnEditRequest(BaseModel):
 
 class ApproveRequest(BaseModel):
     """Request to approve tables or entire catalog."""
+
     tables: list[str] | None = Field(
         default=None,
         description="Specific table names to approve. If None, approve all.",
@@ -121,6 +132,7 @@ class ApproveRequest(BaseModel):
 
 class DraftInfoResponse(BaseModel):
     """Draft catalog info with per-table review status."""
+
     database_name: str
     database_type: str
     status: str
@@ -132,6 +144,7 @@ class DraftInfoResponse(BaseModel):
 
 class TableReviewDetail(BaseModel):
     """Detailed table info for review."""
+
     table_name: str
     human_name: dict[str, str]
     description: dict[str, str]
@@ -240,14 +253,16 @@ def create_catalog_router(  # noqa: C901, PLR0915
         for name in catalog_names:
             idx_entry = index.catalogs.get(name)
             if idx_entry:
-                entries.append(CatalogListEntry(
-                    database_name=idx_entry.database_name,
-                    database_type=idx_entry.database_type,
-                    table_count=idx_entry.table_count,
-                    languages=idx_entry.languages,
-                    version=idx_entry.version,
-                    status=getattr(idx_entry, "status", "draft"),
-                ))
+                entries.append(
+                    CatalogListEntry(
+                        database_name=idx_entry.database_name,
+                        database_type=idx_entry.database_type,
+                        table_count=idx_entry.table_count,
+                        languages=idx_entry.languages,
+                        version=idx_entry.version,
+                        status=getattr(idx_entry, "status", "draft"),
+                    )
+                )
             else:
                 entries.append(CatalogListEntry(database_name=name))
 
@@ -271,14 +286,16 @@ def create_catalog_router(  # noqa: C901, PLR0915
         for tname, table in catalog.tables.items():
             human = table.human_name.get(lang) or tname
             desc = table.description.get(lang) or ""
-            tables_info.append({
-                "table_name": tname,
-                "human_name": human,
-                "description": desc,
-                "column_count": len(table.columns),
-                "row_count": table.row_count,
-                "tags": table.tags,
-            })
+            tables_info.append(
+                {
+                    "table_name": tname,
+                    "human_name": human,
+                    "description": desc,
+                    "column_count": len(table.columns),
+                    "row_count": table.row_count,
+                    "tags": table.tags,
+                }
+            )
 
         return CatalogInfoResponse(
             database_name=catalog.database_name,
@@ -321,9 +338,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         return Response(
             content=content,
             media_type=content_types.get(format, "text/plain"),
-            headers={
-                "Content-Disposition": f'attachment; filename="{db_name}_catalog.{format}"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="{db_name}_catalog.{format}"'},
         )
 
     @router.post(
@@ -439,16 +454,18 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
         tables_info = []
         for tname, table in catalog.tables.items():
-            tables_info.append({
-                "table_name": tname,
-                "human_name": table.human_name.get(lang) or tname,
-                "description": table.description.get(lang) or "",
-                "review_status": table.review_status.value,
-                "column_count": len(table.columns),
-                "row_count": table.row_count,
-                "tags": table.tags,
-                "has_overrides": bool(table.user_overrides),
-            })
+            tables_info.append(
+                {
+                    "table_name": tname,
+                    "human_name": table.human_name.get(lang) or tname,
+                    "description": table.description.get(lang) or "",
+                    "review_status": table.review_status.value,
+                    "column_count": len(table.columns),
+                    "row_count": table.row_count,
+                    "tags": table.tags,
+                    "has_overrides": bool(table.user_overrides),
+                }
+            )
 
         return DraftInfoResponse(
             database_name=catalog.database_name,
@@ -484,29 +501,33 @@ def create_catalog_router(  # noqa: C901, PLR0915
 
         columns_info = []
         for col in table.columns:
-            columns_info.append({
-                "name": col.name,
-                "data_type": col.data_type,
-                "description": col.description.texts,
-                "semantic_type": col.semantic_type,
-                "nullable": col.nullable,
-                "is_primary_key": col.is_primary_key,
-                "is_foreign_key": col.is_foreign_key,
-                "references": col.references,
-                "tags": col.tags,
-                "sample_values": col.sample_values,
-                "has_overrides": bool(col.user_overrides),
-            })
+            columns_info.append(
+                {
+                    "name": col.name,
+                    "data_type": col.data_type,
+                    "description": col.description.texts,
+                    "semantic_type": col.semantic_type,
+                    "nullable": col.nullable,
+                    "is_primary_key": col.is_primary_key,
+                    "is_foreign_key": col.is_foreign_key,
+                    "references": col.references,
+                    "tags": col.tags,
+                    "sample_values": col.sample_values,
+                    "has_overrides": bool(col.user_overrides),
+                }
+            )
 
         relationships_info = []
         for rel in table.relationships:
-            relationships_info.append({
-                "source_column": rel.source_column,
-                "target_table": rel.target_table,
-                "target_column": rel.target_column,
-                "relationship_type": rel.relationship_type,
-                "description": rel.description.texts,
-            })
+            relationships_info.append(
+                {
+                    "source_column": rel.source_column,
+                    "target_table": rel.target_table,
+                    "target_column": rel.target_column,
+                    "relationship_type": rel.relationship_type,
+                    "description": rel.description.texts,
+                }
+            )
 
         return TableReviewDetail(
             table_name=table.table_name,

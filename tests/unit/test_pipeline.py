@@ -3,6 +3,7 @@
 All heavy collaborators (DatabaseFactory, LLMClient, EnrichedAnalyzer,
 OpenAPIEnricher, get_exporter) are patched so no DB/LLM/network is touched.
 """
+
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -69,12 +70,10 @@ async def test_pipeline_run_basic(tmp_path: Path) -> None:
     fake_analyzer.analyze = AsyncMock(return_value=catalog)
     fake_llm = AsyncMock()
 
-    with patch(
-        "warp.integration.pipeline.DatabaseFactory.create", return_value=fake_adapter
-    ), patch(
-        "warp.integration.pipeline.LLMClient.from_config", return_value=fake_llm
-    ), patch(
-        "warp.integration.pipeline.EnrichedAnalyzer", return_value=fake_analyzer
+    with (
+        patch("warp.integration.pipeline.DatabaseFactory.create", return_value=fake_adapter),
+        patch("warp.integration.pipeline.LLMClient.from_config", return_value=fake_llm),
+        patch("warp.integration.pipeline.EnrichedAnalyzer", return_value=fake_analyzer),
     ):
         result = await pipeline_run(settings)
 
@@ -101,14 +100,11 @@ async def test_pipeline_run_with_export_path(tmp_path: Path) -> None:
     fake_exporter = MagicMock()
     fake_exporter.export.return_value = out
 
-    with patch(
-        "warp.integration.pipeline.DatabaseFactory.create", return_value=fake_adapter
-    ), patch(
-        "warp.integration.pipeline.LLMClient.from_config", return_value=AsyncMock()
-    ), patch(
-        "warp.integration.pipeline.EnrichedAnalyzer", return_value=fake_analyzer
-    ), patch(
-        "warp.integration.pipeline.get_exporter", return_value=fake_exporter
+    with (
+        patch("warp.integration.pipeline.DatabaseFactory.create", return_value=fake_adapter),
+        patch("warp.integration.pipeline.LLMClient.from_config", return_value=AsyncMock()),
+        patch("warp.integration.pipeline.EnrichedAnalyzer", return_value=fake_analyzer),
+        patch("warp.integration.pipeline.get_exporter", return_value=fake_exporter),
     ):
         pipeline = Pipeline(settings)
         result = await pipeline.run(
@@ -129,14 +125,11 @@ async def test_pipeline_run_with_export_content(tmp_path: Path) -> None:
     fake_exporter = MagicMock()
     fake_exporter.export_string.return_value = "rendered"
 
-    with patch(
-        "warp.integration.pipeline.DatabaseFactory.create", return_value=AsyncMock()
-    ), patch(
-        "warp.integration.pipeline.LLMClient.from_config", return_value=AsyncMock()
-    ), patch(
-        "warp.integration.pipeline.EnrichedAnalyzer", return_value=fake_analyzer
-    ), patch(
-        "warp.integration.pipeline.get_exporter", return_value=fake_exporter
+    with (
+        patch("warp.integration.pipeline.DatabaseFactory.create", return_value=AsyncMock()),
+        patch("warp.integration.pipeline.LLMClient.from_config", return_value=AsyncMock()),
+        patch("warp.integration.pipeline.EnrichedAnalyzer", return_value=fake_analyzer),
+        patch("warp.integration.pipeline.get_exporter", return_value=fake_exporter),
     ):
         pipeline = Pipeline(settings)
         result = await pipeline.run(database_name="testdb", export_format="yaml")
@@ -156,19 +149,14 @@ async def test_pipeline_run_with_openapi(tmp_path: Path) -> None:
     fake_enricher = MagicMock()
     fake_enricher.enrich_file.return_value = enriched_out
 
-    with patch(
-        "warp.integration.pipeline.DatabaseFactory.create", return_value=AsyncMock()
-    ), patch(
-        "warp.integration.pipeline.LLMClient.from_config", return_value=AsyncMock()
-    ), patch(
-        "warp.integration.pipeline.EnrichedAnalyzer", return_value=fake_analyzer
-    ), patch(
-        "warp.integration.pipeline.OpenAPIEnricher", return_value=fake_enricher
+    with (
+        patch("warp.integration.pipeline.DatabaseFactory.create", return_value=AsyncMock()),
+        patch("warp.integration.pipeline.LLMClient.from_config", return_value=AsyncMock()),
+        patch("warp.integration.pipeline.EnrichedAnalyzer", return_value=fake_analyzer),
+        patch("warp.integration.pipeline.OpenAPIEnricher", return_value=fake_enricher),
     ):
         pipeline = Pipeline(settings)
-        result = await pipeline.run(
-            database_name="testdb", openapi_spec_path="spec.json"
-        )
+        result = await pipeline.run(database_name="testdb", openapi_spec_path="spec.json")
 
     assert result.enriched_openapi_path == str(enriched_out)
     fake_enricher.enrich_file.assert_called_once_with("spec.json")

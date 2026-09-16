@@ -1,6 +1,7 @@
 """
 Tests for CRUD operations.
 """
+
 import pytest
 
 from warp.api.crud import CRUDOperations
@@ -22,16 +23,13 @@ class TestCRUDOperations:
                 ColumnSchema(name="email", type="varchar", nullable=False),
                 ColumnSchema(name="status", type="varchar", nullable=True, default="active"),
             ],
-            primary_key="id"
+            primary_key="id",
         )
 
     @pytest.fixture
     def crud(self, mock_db_with_data, table_schema):
         """Create CRUD operations instance."""
-        return CRUDOperations(
-            db=mock_db_with_data,
-            table_schema=table_schema
-        )
+        return CRUDOperations(db=mock_db_with_data, table_schema=table_schema)
 
     @pytest.mark.asyncio
     async def test_get_all_returns_paginated_response(self, crud):
@@ -71,11 +69,7 @@ class TestCRUDOperations:
     @pytest.mark.asyncio
     async def test_create(self, crud):
         """Test creating a new record."""
-        data = {
-            "username": "newuser",
-            "email": "new@test.com",
-            "status": "active"
-        }
+        data = {"username": "newuser", "email": "new@test.com", "status": "active"}
 
         record = await crud.create(data)
 
@@ -176,16 +170,13 @@ class TestCRUDWithColumns:
                 ColumnSchema(name="price", type="decimal", nullable=False),
                 ColumnSchema(name="status", type="varchar", nullable=True),
             ],
-            primary_key="id"
+            primary_key="id",
         )
 
     @pytest.fixture
     def crud(self, mock_db_with_data, table_schema):
         """Create CRUD operations for products."""
-        return CRUDOperations(
-            db=mock_db_with_data,
-            table_schema=table_schema
-        )
+        return CRUDOperations(db=mock_db_with_data, table_schema=table_schema)
 
     @pytest.mark.asyncio
     async def test_get_all_with_columns(self, crud):
@@ -216,17 +207,15 @@ class TestCRUDNullableHandling:
                 ColumnSchema(name="required_field", type="varchar", nullable=False),
                 ColumnSchema(name="optional_field", type="varchar", nullable=True),
             ],
-            primary_key="id"
+            primary_key="id",
         )
 
     @pytest.fixture
     def crud(self, mock_db, table_schema):
         """Create CRUD instance."""
-        mock_db.add_mock_table("test_table", {
-            "table_name": "test_table",
-            "columns": [],
-            "primary_key": "id"
-        }, [])
+        mock_db.add_mock_table(
+            "test_table", {"table_name": "test_table", "columns": [], "primary_key": "id"}, []
+        )
         return CRUDOperations(mock_db, table_schema)
 
     def test_is_nullable_true(self, crud):

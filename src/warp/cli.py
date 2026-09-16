@@ -26,7 +26,8 @@ if TYPE_CHECKING:
 @click.group()
 @click.version_option(version=__version__)
 @click.option(
-    "-c", "--config",
+    "-c",
+    "--config",
     default="config/database.yaml",
     help="Config file path",
     type=click.Path(),
@@ -128,12 +129,16 @@ async def _run_analyze(
                 table_names=table_names,
                 auto_approve=auto_approve,
             )
-            click.echo(f"Catalog generated: {catalog.table_count} tables, languages: {catalog.languages}")
+            click.echo(
+                f"Catalog generated: {catalog.table_count} tables, languages: {catalog.languages}"
+            )
 
             if auto_approve:
                 click.echo("Status: APPROVED (auto-approved)")
             else:
-                click.echo(f"Status: DRAFT - Run 'warp review -d {database}' to review and approve.")
+                click.echo(
+                    f"Status: DRAFT - Run 'warp review -d {database}' to review and approve."
+                )
 
             if output:
                 exporter = get_exporter(fmt)
@@ -272,11 +277,11 @@ def review_catalog(ctx: click.Context, database: str, lang: str, auto_approve: b
             table.review_status = TableReviewStatus.pending
         store.save(catalog)
 
-    click.echo(f"\n{'='*60}")
+    click.echo(f"\n{'=' * 60}")
     click.echo(f" Review: {catalog.database_name} ({catalog.table_count} tables)")
     click.echo(f" Status: {catalog.status.value}")
     click.echo(f" Languages: {catalog.languages}")
-    click.echo(f"{'='*60}\n")
+    click.echo(f"{'=' * 60}\n")
 
     if auto_approve:
         store.approve_catalog(database)
@@ -424,8 +429,11 @@ def _interactive_edit_table(
                     default=col.description.get(lang),
                 )
                 store.update_column_fields(
-                    db_name, table_name, col_name,
-                    {"description": new_val}, lang,
+                    db_name,
+                    table_name,
+                    col_name,
+                    {"description": new_val},
+                    lang,
                 )
                 click.echo("  -> Column description updated.")
 
@@ -435,8 +443,11 @@ def _interactive_edit_table(
                     default=col.semantic_type or "",
                 )
                 store.update_column_fields(
-                    db_name, table_name, col_name,
-                    {"semantic_type": new_val if new_val else None}, lang,
+                    db_name,
+                    table_name,
+                    col_name,
+                    {"semantic_type": new_val if new_val else None},
+                    lang,
                 )
                 click.echo("  -> Semantic type updated.")
 
@@ -448,8 +459,11 @@ def _interactive_edit_table(
                 )
                 tags = [t.strip() for t in new_val.split(",") if t.strip()]
                 store.update_column_fields(
-                    db_name, table_name, col_name,
-                    {"tags": tags}, lang,
+                    db_name,
+                    table_name,
+                    col_name,
+                    {"tags": tags},
+                    lang,
                 )
                 click.echo("  -> Column tags updated.")
 

@@ -100,8 +100,7 @@ class CatalogFileStore:
             self._update_index(catalog, str(file_path.relative_to(self.base_path)))
 
             logger.info(
-                f"Catalog saved: {catalog.database_name} "
-                f"({format}, {catalog.table_count} tables)"
+                f"Catalog saved: {catalog.database_name} ({format}, {catalog.table_count} tables)"
             )
 
             return file_path
@@ -131,9 +130,7 @@ class CatalogFileStore:
                 try:
                     return self._load_file(file_path)
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to load catalog file {file_path}: {e}"
-                    )
+                    logger.warning(f"Failed to load catalog file {file_path}: {e}")
 
         return None
 
@@ -459,9 +456,7 @@ class CatalogFileStore:
                 ]
 
             # Restore table user_overrides (without columns key)
-            table.user_overrides = {
-                k: v for k, v in table_overrides.items() if k != "columns"
-            }
+            table.user_overrides = {k: v for k, v in table_overrides.items() if k != "columns"}
             if any(k != "columns" for k in table_overrides):
                 table.review_status = TableReviewStatus.modified
 
@@ -544,9 +539,7 @@ class CatalogFileStore:
 
             for tname, table in catalog.tables.items():
                 for col in table.columns:
-                    if self._names_are_similar(
-                        normalized, self._normalize_name(col.name)
-                    ):
+                    if self._names_are_similar(normalized, self._normalize_name(col.name)):
                         if data_type and col.data_type != data_type:
                             continue
                         results.append((db_name, tname, col))
@@ -570,17 +563,13 @@ class CatalogFileStore:
                 parts.append(f"  - {db_name}.{table.table_name}: {desc}")
 
         for col_name in column_names[:10]:
-            similar_cols = self.find_similar_columns(
-                col_name, exclude_db=exclude_db
-            )
+            similar_cols = self.find_similar_columns(col_name, exclude_db=exclude_db)
             if similar_cols:
                 for db_name, tname, col in similar_cols[:2]:
                     if col.semantic_type or not col.description.is_empty:
                         desc = str(col.description) if not col.description.is_empty else ""
                         sem = f" [semantic: {col.semantic_type}]" if col.semantic_type else ""
-                        parts.append(
-                            f"  - {db_name}.{tname}.{col.name}: {desc}{sem}"
-                        )
+                        parts.append(f"  - {db_name}.{tname}.{col.name}: {desc}{sem}")
 
         if not parts:
             return "No previous catalog data available for cross-reference."
@@ -637,7 +626,7 @@ class CatalogFileStore:
         n = name.lower().strip()
         for prefix in ("tbl_", "t_", "tb_", "dim_", "fact_"):
             if n.startswith(prefix):
-                n = n[len(prefix):]
+                n = n[len(prefix) :]
                 break
         for suffix in ("_id", "_key", "_fk", "_pk"):
             if n.endswith(suffix):

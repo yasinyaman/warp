@@ -1,4 +1,5 @@
 """Tests for QueryStrategy (catalog-aware SQL generation)."""
+
 from unittest.mock import AsyncMock
 
 import pytest

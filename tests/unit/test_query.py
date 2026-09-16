@@ -1,4 +1,5 @@
 """Tests for the raw SQL query validator and endpoint."""
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient

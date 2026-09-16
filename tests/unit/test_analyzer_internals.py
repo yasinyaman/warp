@@ -4,6 +4,7 @@ Covers privacy controls (_samples_for_llm), entry builders, conversion helpers,
 the translation flow, and an end-to-end analyze() with sample data and
 cross-references. The adapter and LLM client are mocked - no DB/LLM/network.
 """
+
 import json
 from pathlib import Path
 from typing import Any
@@ -218,9 +219,7 @@ def test_build_enriched_entry(tmp_path: Path) -> None:
             {"name": "email", "type": "varchar"},
             {"name": "org_id", "type": "integer"},
         ],
-        fk_dicts=[
-            {"column": "org_id", "references_table": "orgs", "references_column": "id"}
-        ],
+        fk_dicts=[{"column": "org_id", "references_table": "orgs", "references_column": "id"}],
         idx_dicts=[],
         primary_key="id",
         samples=_samples(),
@@ -398,9 +397,7 @@ async def test_analyze_partial_llm_failure_fallback(tmp_path: Path) -> None:
     analyzer = _analyzer(tmp_path, settings)
     # Two tables: first returns valid JSON, second is invalid -> fallback entry.
     analyzer.adapter.get_tables = AsyncMock(return_value=["users", "orders"])
-    good = json.dumps(
-        {"table_description": {"en": "x"}, "columns": {}, "relationships": []}
-    )
+    good = json.dumps({"table_description": {"en": "x"}, "columns": {}, "relationships": []})
     llm = AsyncMock()
     llm.generate_json = AsyncMock(side_effect=[good, "not valid json"])
     analyzer.llm_client = llm

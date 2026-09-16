@@ -2,6 +2,7 @@
 
 All database implementations must inherit from this class.
 """
+
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -66,9 +67,7 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     async def execute_query(
-        self,
-        query: str,
-        params: dict[str, Any] | None = None
+        self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a raw SQL query.
 
@@ -82,11 +81,7 @@ class DatabaseAdapter(ABC):
         pass
 
     @abstractmethod
-    async def insert(
-        self,
-        table: str,
-        data: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def insert(self, table: str, data: dict[str, Any]) -> dict[str, Any]:
         """Insert a new record into a table.
 
         Args:
@@ -105,7 +100,7 @@ class DatabaseAdapter(ABC):
         columns: list[str] | None = None,
         filters: list[tuple[str, str, Any]] | None = None,
         pagination: dict[str, int] | None = None,
-        sort: list[tuple[str, str]] | None = None
+        sort: list[tuple[str, str]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Select records from a table with filtering, pagination, and sorting.
 
@@ -124,11 +119,7 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     async def select_by_id(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any,
-        columns: list[str] | None = None
+        self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Select a single record by its ID.
 
@@ -145,11 +136,7 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     async def update(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any,
-        data: dict[str, Any]
+        self, table: str, id_column: str, id_value: Any, data: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Update an existing record.
 
@@ -165,12 +152,7 @@ class DatabaseAdapter(ABC):
         pass
 
     @abstractmethod
-    async def delete(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any
-    ) -> bool:
+    async def delete(self, table: str, id_column: str, id_value: Any) -> bool:
         """Delete a record by its ID.
 
         Args:

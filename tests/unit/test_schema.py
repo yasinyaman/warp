@@ -17,6 +17,7 @@ from warp.schema.models import (
 # ColumnSchema Tests
 # ===========================================
 
+
 class TestColumnSchema:
     """Tests for ColumnSchema model."""
 
@@ -39,7 +40,7 @@ class TestColumnSchema:
             default="0.00",
             max_length=None,
             precision=10,
-            scale=2
+            scale=2,
         )
 
         assert col.precision == 10
@@ -51,6 +52,7 @@ class TestColumnSchema:
 # ForeignKeySchema Tests
 # ===========================================
 
+
 class TestForeignKeySchema:
     """Tests for ForeignKeySchema model."""
 
@@ -60,7 +62,7 @@ class TestForeignKeySchema:
             column="user_id",
             references_table="users",
             references_column="id",
-            constraint_name="fk_orders_user"
+            constraint_name="fk_orders_user",
         )
 
         assert fk.column == "user_id"
@@ -72,16 +74,13 @@ class TestForeignKeySchema:
 # IndexSchema Tests
 # ===========================================
 
+
 class TestIndexSchema:
     """Tests for IndexSchema model."""
 
     def test_simple_index(self):
         """Test simple index."""
-        idx = IndexSchema(
-            name="idx_users_email",
-            columns=["email"],
-            unique=True
-        )
+        idx = IndexSchema(name="idx_users_email", columns=["email"], unique=True)
 
         assert idx.name == "idx_users_email"
         assert idx.columns == ["email"]
@@ -90,9 +89,7 @@ class TestIndexSchema:
     def test_composite_index(self):
         """Test composite index."""
         idx = IndexSchema(
-            name="idx_orders_user_status",
-            columns=["user_id", "status"],
-            unique=False
+            name="idx_orders_user_status", columns=["user_id", "status"], unique=False
         )
 
         assert len(idx.columns) == 2
@@ -101,6 +98,7 @@ class TestIndexSchema:
 # ===========================================
 # TableSchema Tests
 # ===========================================
+
 
 class TestTableSchema:
     """Tests for TableSchema model."""
@@ -115,13 +113,13 @@ class TestTableSchema:
                 ColumnSchema(name="username", type="varchar", nullable=False),
                 ColumnSchema(name="email", type="varchar", nullable=False),
                 ColumnSchema(name="status", type="varchar", nullable=True, default="'active'"),
-                ColumnSchema(name="created_at", type="timestamp", nullable=True, default="CURRENT_TIMESTAMP"),
+                ColumnSchema(
+                    name="created_at", type="timestamp", nullable=True, default="CURRENT_TIMESTAMP"
+                ),
             ],
             primary_key="id",
             foreign_keys=[],
-            indexes=[
-                IndexSchema(name="idx_email", columns=["email"], unique=True)
-            ]
+            indexes=[IndexSchema(name="idx_email", columns=["email"], unique=True)],
         )
 
     def test_pk_column_single(self, users_schema):
@@ -131,9 +129,7 @@ class TestTableSchema:
     def test_pk_column_composite(self):
         """Test getting composite primary key."""
         schema = TableSchema(
-            table_name="order_items",
-            columns=[],
-            primary_key=["order_id", "product_id"]
+            table_name="order_items", columns=[], primary_key=["order_id", "product_id"]
         )
         assert schema.pk_column == "order_id"  # First column
         assert schema.has_composite_pk is True
@@ -185,6 +181,7 @@ class TestTableSchema:
 # DatabaseSchema Tests
 # ===========================================
 
+
 class TestDatabaseSchema:
     """Tests for DatabaseSchema model."""
 
@@ -216,6 +213,7 @@ class TestDatabaseSchema:
 # ===========================================
 # SchemaAnalyzer Tests
 # ===========================================
+
 
 class TestSchemaAnalyzer:
     """Tests for SchemaAnalyzer."""
@@ -279,10 +277,7 @@ class TestSchemaAnalyzerPydanticModels:
         # Add auto_increment to id
         sample_table_schema.columns[0].extra = "auto_increment"
 
-        Model = analyzer.generate_pydantic_model(
-            sample_table_schema,
-            for_create=True
-        )
+        Model = analyzer.generate_pydantic_model(sample_table_schema, for_create=True)
 
         assert Model.__name__ == "TestTableCreate"
 
@@ -293,10 +288,7 @@ class TestSchemaAnalyzerPydanticModels:
 
     def test_generate_update_model(self, analyzer, sample_table_schema):
         """Test generating update model (all optional)."""
-        Model = analyzer.generate_pydantic_model(
-            sample_table_schema,
-            for_update=True
-        )
+        Model = analyzer.generate_pydantic_model(sample_table_schema, for_update=True)
 
         assert Model.__name__ == "TestTableUpdate"
 
@@ -325,10 +317,7 @@ class TestSchemaAnalyzerPydanticModels:
 
     def test_custom_model_name(self, analyzer, sample_table_schema):
         """Test custom model name."""
-        Model = analyzer.generate_pydantic_model(
-            sample_table_schema,
-            model_name="CustomName"
-        )
+        Model = analyzer.generate_pydantic_model(sample_table_schema, model_name="CustomName")
 
         assert Model.__name__ == "CustomName"
 
