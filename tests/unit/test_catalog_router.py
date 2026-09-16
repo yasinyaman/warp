@@ -397,3 +397,25 @@ class TestAnalyzeEarlyPaths:
         r = c.post("/catalog/analyze", json={"database": "testdb"})
         assert r.status_code == 404
         assert "config not found" in r.json()["detail"]
+
+
+class TestCatalogNamePathSafety:
+    """`{db_name}` path params are validated before they can reach the filesystem."""
+
+    def test_delete_traversal_rejected(self, client: TestClient, store: CatalogFileStore) -> None:
+        sibling = store.base_path.parent / "sibling"
+        sibling.mkdir()
+        (sibling / "keep.txt").write_text("x")
+
+        r = client.delete("/catalog/%2e%2e")  # decodes to ".."
+        assert r.status_code == 422
+
+        assert store.base_path.exists()
+        assert (sibling / "keep.txt").exists()
+        assert client.get("/catalog/testdb").status_code == 200
+
+    @pytest.mark.parametrize("name", ["%2e%2e", "_index", "a.b", "bad%20name"])
+    def test_read_endpoints_reject_unsafe_names(self, client: TestClient, name: str) -> None:
+        assert client.get(f"/catalog/{name}").status_code == 422
+        assert client.get(f"/catalog/{name}/draft").status_code == 422
+        assert client.post(f"/catalog/{name}/approve").status_code == 422

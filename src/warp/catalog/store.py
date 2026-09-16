@@ -5,6 +5,7 @@ Provides cross-catalog search capabilities.
 """
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -25,11 +26,30 @@ from warp.core.exceptions import (
     CatalogError,
     CatalogNotFoundError,
     ColumnNotFoundInCatalogError,
+    InvalidCatalogNameError,
     TableNotFoundInCatalogError,
 )
 from warp.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+# A catalog name becomes a directory name under the store root. Only plain
+# identifiers are allowed: no path separators, no dot segments, no leading "_"
+# (reserved for store-internal files such as the index), max 64 characters.
+CATALOG_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+_CATALOG_NAME_RE = re.compile(CATALOG_NAME_PATTERN)
+
+
+def validate_catalog_name(name: str) -> str:
+    """Return `name` if it is a safe catalog identifier, else raise.
+
+    Raises:
+        InvalidCatalogNameError: If the name could escape or collide inside
+            the storage directory.
+    """
+    if not isinstance(name, str) or not _CATALOG_NAME_RE.fullmatch(name):
+        raise InvalidCatalogNameError(str(name))
+    return name
 
 
 class CatalogFileStore:
@@ -58,6 +78,22 @@ class CatalogFileStore:
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
 
+    def _db_dir(self, db_name: str) -> Path:
+        """Resolve the directory for `db_name`, refusing anything outside the root.
+
+        The name is validated first; the resolved path is then checked to be a
+        direct child of the (resolved) base path as defense in depth against
+        symlinks or platform path quirks.
+
+        Raises:
+            InvalidCatalogNameError: If the name is unsafe or escapes the root.
+        """
+        validate_catalog_name(db_name)
+        db_dir = self.base_path / db_name
+        if db_dir.resolve().parent != self.base_path.resolve():
+            raise InvalidCatalogNameError(db_name)
+        return db_dir
+
     def save(
         self,
         catalog: DatabaseCatalog,
@@ -75,7 +111,7 @@ class CatalogFileStore:
         Raises:
             CatalogError: If save fails
         """
-        db_dir = self.base_path / catalog.database_name
+        db_dir = self._db_dir(catalog.database_name)
         db_dir.mkdir(parents=True, exist_ok=True)
 
         ext = "yaml" if format == "yaml" else "json"
@@ -119,7 +155,7 @@ class CatalogFileStore:
         Returns:
             DatabaseCatalog or None if not found
         """
-        db_dir = self.base_path / db_name
+        db_dir = self._db_dir(db_name)
 
         if not db_dir.exists():
             return None
@@ -176,7 +212,7 @@ class CatalogFileStore:
         Returns:
             True if deleted, False if not found
         """
-        db_dir = self.base_path / db_name
+        db_dir = self._db_dir(db_name)
         if not db_dir.exists():
             return False
 

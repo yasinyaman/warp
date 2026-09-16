@@ -12,7 +12,8 @@ from warp.catalog.models import (
     LocalizedText,
     TableCatalogEntry,
 )
-from warp.catalog.store import CatalogFileStore
+from warp.catalog.store import CatalogFileStore, validate_catalog_name
+from warp.core.exceptions import InvalidCatalogNameError
 
 
 @pytest.fixture
@@ -283,3 +284,44 @@ class TestNameNormalization:
     def test_names_are_similar(self, name1, name2, expected):
         result = CatalogFileStore._names_are_similar(name1, name2)
         assert result == expected
+
+
+class TestPathSafety:
+    """Catalog names are directory names: traversal and collisions must be refused."""
+
+    @pytest.mark.parametrize(
+        "bad", ["..", "../x", "a/b", "a\\b", "_index", "", "a b", ".hidden", "x" * 65, "ünïcode"]
+    )
+    def test_invalid_names_rejected(self, bad):
+        with pytest.raises(InvalidCatalogNameError):
+            validate_catalog_name(bad)
+
+    @pytest.mark.parametrize("good", ["testdb", "primary_db", "db-1", "A9", "x" * 64])
+    def test_valid_names_accepted(self, good):
+        assert validate_catalog_name(good) == good
+
+    def test_delete_cannot_escape_root(self, temp_dir):
+        root = temp_dir / "catalogs"
+        store = CatalogFileStore(root)
+        sibling = temp_dir / "sibling"
+        sibling.mkdir()
+        (sibling / "keep.txt").write_text("x")
+
+        for name in ("..", "../sibling", "../../"):
+            with pytest.raises(InvalidCatalogNameError):
+                store.delete(name)
+
+        assert (sibling / "keep.txt").exists()
+        assert root.exists()
+
+    def test_load_and_save_reject_traversal(self, store, sample_catalog):
+        with pytest.raises(InvalidCatalogNameError):
+            store.load("../../etc")
+        with pytest.raises(InvalidCatalogNameError):
+            store.load_or_raise("..")
+
+        evil = sample_catalog.model_copy(update={"database_name": "../evil"})
+        with pytest.raises(InvalidCatalogNameError):
+            store.save(evil)
+        assert not (store.base_path.parent / "evil").exists()
+        assert store.list_catalogs() == []

@@ -8,18 +8,29 @@ Provides REST endpoints for catalog operations:
 - Enrich OpenAPI spec
 """
 
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import Path as PathParam
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from warp.catalog.store import CatalogFileStore
+from warp.catalog.store import CATALOG_NAME_PATTERN, CatalogFileStore
 from warp.core.logging import get_logger
 from warp.export.markdown_exporter import get_exporter
 from warp.integration.openapi_enricher import OpenAPIEnricher
 
 logger = get_logger(__name__)
+
+# Path parameter type for catalog names: rejects anything that is not a plain
+# identifier (e.g. "..", "a/b", "_index") with a 422 before it reaches the store.
+CatalogName = Annotated[
+    str,
+    PathParam(
+        pattern=CATALOG_NAME_PATTERN,
+        description="Catalog (database) name: letters, digits, '_' or '-'.",
+    ),
+]
 
 
 # --- Request/Response models ---
@@ -274,7 +285,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         summary="Get catalog info",
     )
     async def get_catalog_info(
-        db_name: str,
+        db_name: CatalogName,
         lang: str = Query(default="en", description="Language for descriptions"),
     ) -> CatalogInfoResponse:
         """Get detailed information about a specific catalog."""
@@ -312,7 +323,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         summary="Export catalog",
     )
     async def export_catalog(
-        db_name: str,
+        db_name: CatalogName,
         format: str = Query(default="json", description="Export format"),
         lang: str = Query(default="en", description="Language"),
     ) -> Response:
@@ -430,7 +441,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         "/{db_name}",
         summary="Delete a catalog",
     )
-    async def delete_catalog(db_name: str) -> dict[str, Any]:
+    async def delete_catalog(db_name: CatalogName) -> dict[str, Any]:
         """Delete a stored catalog."""
         if store.delete(db_name):
             return {"deleted": True, "database": db_name}
@@ -444,7 +455,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         summary="Get draft catalog with review status",
     )
     async def get_draft_info(
-        db_name: str,
+        db_name: CatalogName,
         lang: str = Query(default="en", description="Language for descriptions"),
     ) -> DraftInfoResponse:
         """Get draft catalog overview with per-table review status."""
@@ -483,7 +494,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         summary="Get single table detail for review",
     )
     async def get_draft_table(
-        db_name: str,
+        db_name: CatalogName,
         table_name: str,
         lang: str = Query(default="en", description="Language"),
     ) -> TableReviewDetail:
@@ -547,7 +558,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         summary="Edit table fields in draft",
     )
     async def edit_draft_table(
-        db_name: str,
+        db_name: CatalogName,
         table_name: str,
         request: TableEditRequest,
         lang: str = Query(default="en", description="Default language for string values"),
@@ -587,7 +598,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         summary="Edit column fields in draft",
     )
     async def edit_draft_column(
-        db_name: str,
+        db_name: CatalogName,
         table_name: str,
         col_name: str,
         request: ColumnEditRequest,
@@ -629,7 +640,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         summary="Approve catalog (all or specific tables)",
     )
     async def approve_catalog_endpoint(
-        db_name: str,
+        db_name: CatalogName,
         request: ApproveRequest = ApproveRequest(),
     ) -> dict[str, Any]:
         """Approve all tables or specific tables in a draft catalog.
@@ -669,7 +680,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         summary="Approve a single table",
     )
     async def approve_single_table(
-        db_name: str,
+        db_name: CatalogName,
         table_name: str,
     ) -> dict[str, Any]:
         """Approve a single table in the draft catalog."""

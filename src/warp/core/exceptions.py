@@ -93,6 +93,28 @@ class CatalogNotFoundError(CatalogError):
         self.db_name = db_name
 
 
+class InvalidCatalogNameError(CatalogError):
+    """Raised when a catalog/database name is not a safe storage identifier.
+
+    Catalog names become directory names under the store's base path, so
+    anything that is not a plain identifier (path separators, dot segments,
+    leading underscores, control characters) is rejected before it can touch
+    the filesystem.
+    """
+
+    def __init__(self, name: str):
+        """Build the error for an unsafe catalog `name`."""
+        super().__init__(
+            message=(
+                "Invalid catalog name: must start with a letter or digit and contain "
+                "only letters, digits, '_' or '-' (max 64 characters)"
+            ),
+            details={"name": name},
+        )
+        self.status_code = 400  # Bad Request
+        self.name = name
+
+
 class TableNotFoundInCatalogError(CatalogError):
     """Raised when a table is not found in a catalog."""
 
