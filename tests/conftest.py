@@ -217,7 +217,7 @@ def sample_product_data():
 @pytest.fixture
 def sample_table_schema():
     """Sample table schema for testing."""
-    from warp.schema.models import ColumnSchema, TableSchema
+    from warp.domain.schema import ColumnSchema, TableSchema
 
     return TableSchema(
         table_name="test_table",

@@ -198,10 +198,6 @@ addopts = [
     "--tb=short",
     "-ra",
 ]
-markers = [
-    "slow: marks tests as slow",
-    "integration: marks tests as integration tests",
-]
 
 [tool.coverage.run]
 source = ["src/warp"]
@@ -223,49 +219,32 @@ show_missing = true
 fail_under = 80
 
 # ===========================================
-# Import Linter - layered architecture contracts
+# Import Linter - hexagonal architecture contracts (ADR-0007)
+#
+# Layers (top -> bottom): entrypoints/infrastructure > adapters > application
+# > domain. The full `layers` contract lands with the ports/composition-root
+# commit; until then the domain contracts below are enforced.
 # ===========================================
 
 [tool.importlinter]
 root_package = "warp"
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
-name = "core is the lowest layer (imports nothing else in warp)"
+name = "domain is framework-free and imports nothing above it"
 type = "forbidden"
-source_modules = ["warp.core"]
+source_modules = ["warp.domain"]
 forbidden_modules = [
-    "warp.config", "warp.database", "warp.schema", "warp.utils",
-    "warp.catalog", "warp.llm", "warp.enrichment", "warp.i18n",
-    "warp.query", "warp.export", "warp.integration", "warp.api",
+    "fastapi", "starlette", "click", "asyncpg", "aiomysql", "pymysql",
+    "openai", "anthropic", "google", "httpx", "yaml", "uvicorn", "dotenv",
+    "warp.application", "warp.adapters", "warp.infrastructure",
 ]
 
+# The application layer still reaches concrete adapters (and, through them,
+# drivers/SDKs) until the ports + composition-root commit replaces those
+# imports with Protocols; the framework list joins this contract then.
 [[tool.importlinter.contracts]]
-name = "config depends on nothing else in warp"
+name = "application does not import infrastructure"
 type = "forbidden"
-source_modules = ["warp.config"]
-forbidden_modules = [
-    "warp.database", "warp.schema", "warp.utils", "warp.catalog",
-    "warp.llm", "warp.enrichment", "warp.i18n", "warp.query",
-    "warp.export", "warp.integration", "warp.api",
-]
-
-[[tool.importlinter.contracts]]
-name = "database is a low layer (no app/domain imports)"
-type = "forbidden"
-source_modules = ["warp.database"]
-forbidden_modules = [
-    "warp.api", "warp.catalog", "warp.schema", "warp.llm",
-    "warp.enrichment", "warp.integration", "warp.query", "warp.export",
-]
-
-[[tool.importlinter.contracts]]
-name = "catalog must not depend on llm, enrichment, api, or integration"
-type = "forbidden"
-source_modules = ["warp.catalog"]
-forbidden_modules = ["warp.llm", "warp.enrichment", "warp.api", "warp.integration"]
-
-[[tool.importlinter.contracts]]
-name = "schema and utils must not depend on api or integration"
-type = "forbidden"
-source_modules = ["warp.schema", "warp.utils"]
-forbidden_modules = ["warp.api", "warp.integration"]
+source_modules = ["warp.application"]
+forbidden_modules = ["warp.infrastructure"]

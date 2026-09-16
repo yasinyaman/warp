@@ -1,0 +1,1 @@
+"""Click command-line interface."""

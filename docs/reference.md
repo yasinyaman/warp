@@ -6,8 +6,8 @@ Selected internal modules, generated from docstrings.
 
 The single source of truth for validating/quoting dynamic SQL identifiers.
 
-::: warp.database.identifiers
+::: warp.adapters.outbound.db.identifiers
 
 ## Configuration
 
-::: warp.config.settings.validate_production_config
+::: warp.application.config.validate_production_config
