@@ -447,3 +447,59 @@ class TestParseSortFromRequest:
         """Test None returns empty list without default."""
         result = parse_sort_from_request(None)
         assert result == []
+
+
+class TestTypedFilterParsing:
+    """With column kinds known, values are converted to the column's type, never guessed."""
+
+    KINDS = {"zip": "str", "id": "int", "price": "float", "active": "bool", "name": "str"}
+
+    def _parse(self, params):
+        return FilterParser(column_kinds=self.KINDS).parse(params)
+
+    def test_text_columns_keep_text(self):
+        assert self._parse({"filter[zip]": "00123"})[0].value == "00123"
+        assert self._parse({"filter[name]": "true"})[0].value == "true"
+        assert self._parse({"filter[name]": "null"})[0].value == "null"
+        assert self._parse({"filter[zip]": "1e5"})[0].value == "1e5"
+
+    def test_int_column_converts_or_rejects(self):
+        assert self._parse({"filter[id]": "42"})[0].value == 42
+        with pytest.raises(ValueError, match="must be an integer"):
+            self._parse({"filter[id]": "abc"})
+        with pytest.raises(ValueError, match="must be an integer"):
+            self._parse({"filter[id]": "1.5"})
+
+    def test_float_column_converts_or_rejects(self):
+        assert self._parse({"filter[price][gte]": "19.99"})[0].value == 19.99
+        with pytest.raises(ValueError, match="must be a number"):
+            self._parse({"filter[price]": "cheap"})
+
+    def test_bool_column_accepts_common_spellings(self):
+        assert self._parse({"filter[active]": "1"})[0].value is True
+        assert self._parse({"filter[active]": "no"})[0].value is False
+        with pytest.raises(ValueError, match="must be a boolean"):
+            self._parse({"filter[active]": "maybe"})
+
+    def test_in_operator_uses_column_kind(self):
+        assert self._parse({"filter[id][in]": "1,2,3"})[0].value == [1, 2, 3]
+        assert self._parse({"filter[zip][in]": "01,02"})[0].value == ["01", "02"]
+
+    def test_like_pattern_is_always_text(self):
+        assert self._parse({"filter[id][like]": "%1%"})[0].value == "%1%"
+
+    def test_unknown_kind_falls_back_to_guessing(self):
+        parser = FilterParser(column_kinds={"id": "int"})
+        assert parser.parse({"filter[other]": "42"})[0].value == 42
+        assert parser.parse({"filter[other]": "true"})[0].value is True
+
+    def test_convenience_function_threads_kinds(self):
+        result = parse_filters_from_request({"filter[zip]": "007"}, ["zip"], {"zip": "str"})
+        assert result == [("zip", "eq", "007")]
+
+
+class TestPaginationLimitIsNotCapped:
+    def test_limit_above_legacy_cap_is_valid(self):
+        # The configurable pagination.max_limit is enforced at the route, not here.
+        assert PaginationParams(limit=5000).limit == 5000
+        assert PaginationParams.from_page(page=2, page_size=2000).offset == 2000

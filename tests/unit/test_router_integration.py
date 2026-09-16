@@ -117,3 +117,59 @@ class TestWrite:
 
     def test_delete_missing_404(self, client):
         assert client.delete("/api/v1/users/999").status_code == 404
+
+
+@pytest.fixture
+def big_limit_client(mock_db):
+    mock_db.add_mock_table("users", {"table_name": "users", "primary_key": "id"}, [])
+    factory = RouterFactory(db=mock_db, schema_analyzer=SchemaAnalyzer(mock_db), max_limit=5000)
+    app = FastAPI()
+    app.include_router(factory.create_router(SCHEMA), prefix="/api/v1")
+    return TestClient(app)
+
+
+class TestInputValidation:
+    """Bad client input is a 4xx, never a 500 from an unhandled ValueError."""
+
+    def test_non_numeric_id_is_422(self, client):
+        for method in ("get", "put", "patch", "delete"):
+            kwargs = {"json": {"username": "x"}} if method in ("put", "patch") else {}
+            r = getattr(client, method)("/api/v1/users/abc", **kwargs)
+            assert r.status_code == 422, method
+            assert "expected an integer" in r.json()["detail"]
+
+    def test_get_rejects_unknown_fields(self, client):
+        r = client.get("/api/v1/users/1?fields=id,nope")
+        assert r.status_code == 400
+        assert "nope" in r.json()["detail"]
+        assert client.get("/api/v1/users/1?fields=id,username").status_code == 200
+
+    def test_filter_value_of_wrong_kind_is_400(self, client):
+        r = client.get("/api/v1/users?filter[id]=abc")
+        assert r.status_code == 400
+        assert "must be an integer" in r.json()["detail"]
+
+    def test_unknown_filter_column_is_400(self, client):
+        assert client.get("/api/v1/users?filter[nope]=1").status_code == 400
+
+    def test_bad_sort_is_400(self, client):
+        assert client.get("/api/v1/users?sort=id:sideways").status_code == 400
+        assert client.get("/api/v1/users?sort=nope:asc").status_code == 400
+
+    def test_text_filter_values_are_not_coerced(self, client, mock_db):
+        # "007" on a varchar column must reach the adapter as text.
+        captured = {}
+
+        original = mock_db.select
+
+        async def spy(*args, **kwargs):
+            captured.update(kwargs)
+            return await original(*args, **kwargs)
+
+        mock_db.select = spy
+        assert client.get("/api/v1/users?filter[username]=007").status_code == 200
+        assert captured["filters"] == [("username", "eq", "007")]
+
+    def test_configured_max_limit_above_1000(self, big_limit_client):
+        assert big_limit_client.get("/api/v1/users?limit=2000").status_code == 200
+        assert big_limit_client.get("/api/v1/users?limit=6000").status_code == 422

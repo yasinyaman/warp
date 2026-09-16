@@ -10,6 +10,7 @@ from ..core.logging import get_logger
 from ..database.base import DatabaseAdapter
 from ..schema.analyzer import SchemaAnalyzer
 from ..schema.models import TableSchema
+from ..schema.types import type_kind
 from ..utils.filtering import parse_filters_from_request
 from ..utils.pagination import PaginatedResponse, PaginationParams
 from ..utils.sorting import parse_sort_from_request
@@ -19,31 +20,30 @@ from .crud import CRUDOperations
 logger = get_logger(__name__)
 
 
-def convert_id_type(value: str, column_type: str) -> Any:
-    """Convert string id to the appropriate type based on column type.
+def parse_id(value: str, kind: str, column: str = "id") -> Any:
+    """Convert a path id to the primary key's kind, or fail with 422.
 
     Args:
-        value: The string value to convert.
-        column_type: The database column type.
+        value: Raw path segment.
+        kind: Column kind from ``type_kind`` (``int``, ``float``, ``str``...).
+        column: Primary-key column name (for the error message).
 
     Returns:
-        The converted value.
+        The converted id (strings, including UUIDs, pass through).
+
+    Raises:
+        HTTPException: 422 when the text cannot be converted to the kind.
     """
-    column_type_lower = column_type.lower()
-
-    # Integer types
-    if any(t in column_type_lower for t in ["int", "serial", "bigint", "smallint"]):
-        return int(value)
-
-    # Float types
-    if any(t in column_type_lower for t in ["float", "double", "decimal", "numeric", "real"]):
-        return float(value)
-
-    # UUID type
-    if "uuid" in column_type_lower:
-        return str(value)  # Keep as string for UUID
-
-    # Default to string
+    try:
+        if kind == "int":
+            return int(value)
+        if kind == "float":
+            return float(value)
+    except ValueError:
+        expected = "an integer" if kind == "int" else "a number"
+        raise HTTPException(
+            status_code=422, detail=f"Invalid {column}: expected {expected}, got {value!r}"
+        ) from None
     return value
 
 
@@ -105,9 +105,16 @@ class RouterFactory:
         pk_column = table_schema.pk_column or "id"
         column_names = table_schema.get_column_names()
 
-        # Get PK column type for proper type conversion
+        # Column kinds drive id parsing and typed filter coercion.
         pk_col_schema = table_schema.get_column(pk_column)
-        pk_type = pk_col_schema.type if pk_col_schema else "integer"
+        pk_kind = (
+            type_kind(pk_col_schema.type, pk_col_schema.udt_name, pk_col_schema.full_type)
+            if pk_col_schema
+            else "int"
+        )
+        column_kinds = {
+            c.name: type_kind(c.type, c.udt_name, c.full_type) for c in table_schema.columns
+        }
 
         # Generate models if not provided
         if models is None:
@@ -137,6 +144,18 @@ class RouterFactory:
             if self.auth_manager and self.auth_manager.enabled:
                 return [Depends(self.auth_manager.require(permission))]
             return []
+
+        def parse_fields(fields: str | None) -> list[str] | None:
+            """Validate a comma-separated `fields` selection against the schema."""
+            if not fields:
+                return None
+            columns = [f.strip() for f in fields.split(",") if f.strip()]
+            invalid = set(columns) - set(column_names)
+            if invalid:
+                raise HTTPException(
+                    status_code=400, detail=f"Invalid fields: {', '.join(sorted(invalid))}"
+                )
+            return columns or None
 
         # LIST endpoint
         @router.get(
@@ -184,23 +203,15 @@ Retrieve a paginated list of {table_name} records.
                 default=None, description="Comma-separated list of fields to return"
             ),
         ) -> PaginatedResponse[Any]:
-            # Parse query params for filters
+            # Filters (typed by column kind) and sort; both validate against the schema.
             query_params = dict(request.query_params)
-            filters = parse_filters_from_request(query_params, column_names)
+            try:
+                filters = parse_filters_from_request(query_params, column_names, column_kinds)
+                sort_fields = parse_sort_from_request(sort, column_names)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
 
-            # Parse sort
-            sort_fields = parse_sort_from_request(sort, column_names)
-
-            # Parse fields
-            columns = None
-            if fields:
-                columns = [f.strip() for f in fields.split(",")]
-                # Validate columns
-                invalid = set(columns) - set(column_names)
-                if invalid:
-                    raise HTTPException(
-                        status_code=400, detail=f"Invalid fields: {', '.join(invalid)}"
-                    )
+            columns = parse_fields(fields)
 
             pagination = PaginationParams(limit=limit, offset=offset)
 
@@ -222,13 +233,8 @@ Retrieve a paginated list of {table_name} records.
                 default=None, description="Comma-separated list of fields to return"
             ),
         ) -> dict[str, Any]:
-            # Convert id to proper type
-            typed_id = convert_id_type(id, pk_type)
-
-            # Parse fields
-            columns = None
-            if fields:
-                columns = [f.strip() for f in fields.split(",")]
+            typed_id = parse_id(id, pk_kind, pk_column)
+            columns = parse_fields(fields)
 
             record = await crud.get_by_id(typed_id, columns=columns)
 
@@ -268,8 +274,7 @@ Retrieve a paginated list of {table_name} records.
             dependencies=get_auth_deps(Permission.UPDATE),
         )
         async def update_record(id: str, data: UpdateModel) -> dict[str, Any] | None:
-            # Convert id to proper type
-            typed_id = convert_id_type(id, pk_type)
+            typed_id = parse_id(id, pk_kind, pk_column)
 
             # Check if exists
             if not await crud.exists(typed_id):
@@ -296,8 +301,7 @@ Retrieve a paginated list of {table_name} records.
             dependencies=get_auth_deps(Permission.UPDATE),
         )
         async def patch_record(id: str, data: UpdateModel) -> dict[str, Any] | None:
-            # Convert id to proper type
-            typed_id = convert_id_type(id, pk_type)
+            typed_id = parse_id(id, pk_kind, pk_column)
 
             # Check if exists
             if not await crud.exists(typed_id):
@@ -324,8 +328,7 @@ Retrieve a paginated list of {table_name} records.
             dependencies=get_auth_deps(Permission.DELETE),
         )
         async def delete_record(id: str) -> None:
-            # Convert id to proper type
-            typed_id = convert_id_type(id, pk_type)
+            typed_id = parse_id(id, pk_kind, pk_column)
 
             deleted = await crud.delete(typed_id)
 

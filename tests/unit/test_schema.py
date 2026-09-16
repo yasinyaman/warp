@@ -379,3 +379,26 @@ class TestPascalCaseConversion:
     def test_already_capitalized(self):
         """Test already capitalized words."""
         assert SchemaAnalyzer._to_pascal_case("User") == "User"
+
+
+class TestTypeKind:
+    """Coarse kinds used for id parsing and typed filters."""
+
+    def test_kinds(self):
+        from warp.schema.types import python_type_for, type_kind
+
+        assert type_kind("integer") == "int"
+        assert type_kind("bigserial") == "int"
+        assert type_kind("numeric") == "float"
+        assert type_kind("boolean") == "bool"
+        assert type_kind("character varying") == "str"
+        assert type_kind("uuid") == "str"
+        assert type_kind("jsonb") == "json"
+        assert type_kind("bytea") == "bytes"
+        assert type_kind("USER-DEFINED", udt_name="_int4") == "list"
+        assert type_kind("ARRAY", udt_name="_text") == "list"
+        assert type_kind("USER-DEFINED", udt_name="mood_enum") == "str"  # PG enum/domain
+        assert type_kind("tinyint", full_type="tinyint(1)") == "bool"
+        assert type_kind("tinyint", full_type="tinyint(4)") == "int"
+        assert type_kind("interval") == "str"  # unknown -> text passthrough
+        assert python_type_for("point") is str

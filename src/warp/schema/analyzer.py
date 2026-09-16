@@ -12,6 +12,9 @@ from .models import (
     IndexSchema,
     TableSchema,
 )
+from .types import DB_TYPE_MAPPING, python_type_for
+
+__all__ = ["DB_TYPE_MAPPING", "SchemaAnalyzer", "TYPE_EXAMPLES"]
 
 # Example values for different data types (used in OpenAPI docs)
 TYPE_EXAMPLES = {
@@ -66,54 +69,6 @@ TYPE_EXAMPLES = {
 }
 
 # Mapping from database types to Python types for Pydantic model generation
-DB_TYPE_MAPPING = {
-    # PostgreSQL types
-    "integer": int,
-    "bigint": int,
-    "smallint": int,
-    "serial": int,
-    "bigserial": int,
-    "real": float,
-    "double precision": float,
-    "numeric": float,
-    "decimal": float,
-    "boolean": bool,
-    "character varying": str,
-    "varchar": str,
-    "character": str,
-    "char": str,
-    "text": str,
-    "uuid": str,
-    "json": dict,
-    "jsonb": dict,
-    "date": str,
-    "timestamp": str,
-    "timestamp with time zone": str,
-    "timestamp without time zone": str,
-    "time": str,
-    "time with time zone": str,
-    "time without time zone": str,
-    "bytea": bytes,
-    "array": list,
-    # MySQL types
-    "int": int,
-    "tinyint": int,
-    "mediumint": int,
-    "float": float,
-    "double": float,
-    "bit": bool,
-    "datetime": str,
-    "year": int,
-    "enum": str,
-    "set": str,
-    "blob": bytes,
-    "tinyblob": bytes,
-    "mediumblob": bytes,
-    "longblob": bytes,
-    "tinytext": str,
-    "mediumtext": str,
-    "longtext": str,
-}
 
 
 class SchemaAnalyzer:
@@ -280,29 +235,7 @@ class SchemaAnalyzer:
 
     def _get_python_type(self, col: ColumnSchema) -> type:
         """Map database column type to Python type."""
-        db_type = col.type.lower()
-
-        # Check direct mapping
-        if db_type in DB_TYPE_MAPPING:
-            return DB_TYPE_MAPPING[db_type]
-
-        # Check udt_name for PostgreSQL
-        if col.udt_name:
-            udt = col.udt_name.lower()
-            if udt in DB_TYPE_MAPPING:
-                return DB_TYPE_MAPPING[udt]
-            # Handle array types
-            if udt.startswith("_"):
-                return list
-
-        # Check full_type for MySQL
-        if col.full_type:
-            full = col.full_type.lower()
-            if "tinyint(1)" in full:
-                return bool
-
-        # Default to string
-        return str
+        return python_type_for(col.type, udt_name=col.udt_name, full_type=col.full_type)
 
     def _get_example_value(self, col: ColumnSchema) -> Any:
         """Get an example value for the column based on its type and name."""

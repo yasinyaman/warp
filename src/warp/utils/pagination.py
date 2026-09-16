@@ -13,13 +13,15 @@ class PaginationParams(BaseModel):
     Usage:
         @app.get("/items")
         async def list_items(
-            limit: int = Query(50, ge=1, le=1000),
+            limit: int = Query(50, ge=1, le=settings.pagination.max_limit),
             offset: int = Query(0, ge=0)
         ):
             pagination = PaginationParams(limit=limit, offset=offset)
     """
 
-    limit: int = Field(default=50, ge=1, le=1000, description="Number of records to return")
+    # No upper bound here: the configurable `pagination.max_limit` is enforced
+    # by the route's Query(le=...) validation, not by this value object.
+    limit: int = Field(default=50, ge=1, description="Number of records to return")
     offset: int = Field(default=0, ge=0, description="Number of records to skip")
 
     @property
