@@ -6,6 +6,7 @@ and LLM generation to produce a complete DatabaseCatalog.
 
 import json
 import logging
+from dataclasses import dataclass, field
 from typing import Any
 
 from warp.application.config import Settings
@@ -34,6 +35,21 @@ from warp.domain.errors import AnalysisError
 from warp.domain.samples import TableSamples, mask_pii_samples, samples_for_storage
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class AnalysisReport:
+    """Outcome of `CatalogAnalysisService.analyze()` beyond the catalog itself."""
+
+    catalog: DatabaseCatalog
+    failed_tables: list[str] = field(default_factory=list)  # dropped: schema read failed
+    fallback_tables: list[str] = field(default_factory=list)  # kept, but without LLM output
+    llm_successes: int = 0
+
+    @property
+    def has_problems(self) -> bool:
+        """Whether any table was dropped or built without the LLM."""
+        return bool(self.failed_tables or self.fallback_tables)
 
 
 class CatalogAnalysisService:
@@ -74,6 +90,7 @@ class CatalogAnalysisService:
         self.i18n = localization or LocalizationManager.from_config(config)
         self.db_type = db_type
         self.database_name = database_name
+        self.report: AnalysisReport | None = None
 
     async def analyze(  # noqa: C901, PLR0912, PLR0915
         self,
@@ -130,8 +147,8 @@ class CatalogAnalysisService:
 
             table_entries: dict[str, TableCatalogEntry] = {}
             llm_successes = 0
-            llm_failures = 0
-            failed_tables: list[str] = []
+            failed_tables: list[str] = []  # dropped from the catalog entirely
+            fallback_tables: list[str] = []  # present, but schema-only (no LLM output)
 
             for table_name in table_names:
                 try:
@@ -144,25 +161,30 @@ class CatalogAnalysisService:
                         llm_successes += 1
                         logger.info(f"Table analyzed: {table_name}")
                     else:
-                        llm_failures += 1
+                        fallback_tables.append(table_name)
                         logger.warning(f"Table analyzed without LLM (fallback): {table_name}")
                 except Exception as e:
-                    llm_failures += 1
                     failed_tables.append(table_name)
                     logger.error(f"Failed to analyze table {table_name}: {e}")
 
-            if llm_failures > 0 and llm_successes == 0 and table_names:
+            problems = len(failed_tables) + len(fallback_tables)
+            if problems > 0 and llm_successes == 0 and table_names:
                 raise AnalysisError(
-                    f"LLM generation failed for all {llm_failures} table(s). "
+                    f"LLM generation failed for all {problems} table(s). "
                     "Check your LLM provider API key and quota. "
                     "You can switch provider in settings.llm.provider "
                     "(openai, anthropic, gemini, ollama)."
                 )
 
-            if llm_failures > 0:
+            if fallback_tables:
                 logger.warning(
-                    f"LLM failed for {llm_failures}/{len(table_names)} table(s) "
-                    f"- fallback entries created"
+                    f"LLM failed for {len(fallback_tables)}/{len(table_names)} table(s); "
+                    f"schema-only entries created: {', '.join(fallback_tables)}"
+                )
+            if failed_tables:
+                logger.error(
+                    f"{len(failed_tables)} table(s) could not be read and were left out of "
+                    f"the catalog: {', '.join(failed_tables)}"
                 )
 
             catalog = DatabaseCatalog(
@@ -190,6 +212,12 @@ class CatalogAnalysisService:
                     self.review.approve_catalog(self.database_name)
                     catalog.status = CatalogStatus.approved
 
+            self.report = AnalysisReport(
+                catalog=catalog,
+                failed_tables=failed_tables,
+                fallback_tables=fallback_tables,
+                llm_successes=llm_successes,
+            )
             logger.info(
                 f"Analysis complete: {self.database_name} "
                 f"({catalog.table_count} tables, {catalog.languages})"

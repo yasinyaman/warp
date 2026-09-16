@@ -20,6 +20,7 @@ from warp.adapters.inbound.http.auth import AuthManager, Permission
 from warp.application.container import Container
 from warp.application.ports.database import DatabaseGateway
 from warp.application.services.openapi_enrichment import OpenAPIEnricher
+from warp.domain.catalog import CatalogStatus
 from warp.domain.catalog_naming import CATALOG_NAME_PATTERN
 from warp.domain.errors import (
     AnalysisError,
@@ -62,6 +63,12 @@ class AnalyzeResponse(BaseModel):
     table_count: int
     languages: list[str]
     status: str = "draft"
+    failed_tables: list[str] = Field(
+        default_factory=list, description="Tables left out because their schema could not be read"
+    )
+    fallback_tables: list[str] = Field(
+        default_factory=list, description="Tables catalogued without LLM descriptions"
+    )
 
 
 class CatalogListEntry(BaseModel):
@@ -185,65 +192,50 @@ def _refresh_openapi_enrichment(
     Clears the cached OpenAPI schema and sets up a new enriched_openapi
     function using all available catalogs.
     """
+    from fastapi.openapi.utils import get_openapi
+
     store = container.repository
     config = container.settings
-    adapters = gateways
-    if not config or not config.settings.catalog.auto_enrich_openapi:
+    if not config.settings.catalog.auto_enrich_openapi:
         logger.debug("OpenAPI enrichment disabled in config")
         return
 
-    app.openapi_schema = None  # Clear cache
-
     enrichment_lang = config.settings.catalog.openapi_enrichment_lang
     enrichers = []
-
-    for db_name in adapters:
+    for db_name in gateways:
         catalog = store.load(db_name)
-        if catalog:
-            logger.debug(
-                f"OpenAPI enrichment: loaded catalog '{db_name}' "
-                f"(status={catalog.status.value}, "
-                f"tables={list(catalog.tables.keys())})"
-            )
-            enrichers.append(
-                OpenAPIEnricher(
-                    catalog,
-                    lang=enrichment_lang,
-                    include_examples=config.settings.catalog.openapi_include_examples,
-                )
-            )
-        else:
+        if catalog is None:
             logger.debug(f"OpenAPI enrichment: no catalog found for '{db_name}'")
-
-    if enrichers:
-        from fastapi.openapi.utils import get_openapi
-
-        def enriched_openapi() -> dict[str, Any]:
-            if app.openapi_schema:
-                return app.openapi_schema
-
-            logger.debug("Generating enriched OpenAPI schema...")
-
-            schema = get_openapi(
-                title=app.title,
-                version=app.version,
-                description=app.description,
-                routes=app.routes,
+            continue
+        if catalog.status != CatalogStatus.approved:
+            # Drafts are still under review; only approved descriptions are published.
+            logger.debug(f"OpenAPI enrichment: skipping draft catalog '{db_name}'")
+            continue
+        enrichers.append(
+            OpenAPIEnricher(
+                catalog,
+                lang=enrichment_lang,
+                include_examples=config.settings.catalog.openapi_include_examples,
             )
+        )
 
-            for enricher in enrichers:
-                schema = enricher.enrich(schema)
-
-            app.openapi_schema = schema
-            logger.debug("Enriched OpenAPI schema cached")
+    def enriched_openapi() -> dict[str, Any]:
+        if app.openapi_schema:
             return app.openapi_schema
+        schema = get_openapi(
+            title=app.title, version=app.version, description=app.description, routes=app.routes
+        )
+        for enricher in enrichers:  # each merges into one top-level x-llm-context
+            schema = enricher.enrich(schema)
+        app.openapi_schema = schema
+        return app.openapi_schema
 
-        app.openapi = enriched_openapi  # type: ignore[method-assign]
-        # Force regeneration: call it now so the next /openapi.json returns enriched
-        enriched_openapi()
-        logger.info(f"OpenAPI enrichment refreshed with {len(enrichers)} catalog(s)")
-    else:
-        app.openapi_schema = None
+    # Always replace both the generator and the cache: a stale closure would
+    # keep serving descriptions of catalogs that were deleted or re-opened.
+    app.openapi = enriched_openapi  # type: ignore[method-assign]
+    app.openapi_schema = None
+    enriched_openapi()
+    logger.info(f"OpenAPI enrichment refreshed with {len(enrichers)} approved catalog(s)")
 
 
 def create_catalog_router(  # noqa: C901, PLR0915
@@ -411,9 +403,11 @@ def create_catalog_router(  # noqa: C901, PLR0915
                     table_names=request.tables,
                     auto_approve=request.auto_approve,
                 )
+                report = analysis.report
 
-            # Refresh OpenAPI docs if catalog was auto-approved
-            if catalog.status.value == "approved" and app and adapters:
+            # A re-analysis re-opens the catalog as a draft (or auto-approves it):
+            # either way the published OpenAPI context must follow.
+            if app and adapters:
                 _refresh_openapi_enrichment(app, container, adapters)
 
             return AnalyzeResponse(
@@ -421,6 +415,8 @@ def create_catalog_router(  # noqa: C901, PLR0915
                 table_count=catalog.table_count,
                 languages=catalog.languages,
                 status=catalog.status.value,
+                failed_tables=report.failed_tables if report else [],
+                fallback_tables=report.fallback_tables if report else [],
             )
         except DatabaseNotConfiguredError as e:
             raise HTTPException(status_code=404, detail=e.message) from e
@@ -442,8 +438,10 @@ def create_catalog_router(  # noqa: C901, PLR0915
         summary="Delete a catalog",
     )
     async def delete_catalog(db_name: CatalogName) -> dict[str, Any]:
-        """Delete a stored catalog."""
+        """Delete a stored catalog (its descriptions leave the OpenAPI spec too)."""
         if store.delete(db_name):
+            if app and adapters:
+                _refresh_openapi_enrichment(app, container, adapters)
             return {"deleted": True, "database": db_name}
         raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
 

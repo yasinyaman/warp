@@ -12,7 +12,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from warp.adapters.inbound.http.auth import AuthManager
-from warp.adapters.inbound.http.routes.catalog import create_catalog_router
+from warp.adapters.inbound.http.routes.catalog import (
+    _refresh_openapi_enrichment,
+    create_catalog_router,
+)
 from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
 from warp.application.config import ApiKeyConfig, AuthConfig, DatabaseConfig, Settings
 from warp.application.services.catalog_review import CatalogReviewService
@@ -359,6 +362,34 @@ class TestOpenAPIEnrichmentRefresh:
         assert r.status_code == 200
         assert r.json()["catalog_status"] == "approved"
 
+    def test_delete_clears_enrichment(self, store: CatalogFileStore) -> None:
+        client = self._client_with_enrichment(store)
+        assert client.post("/catalog/testdb/approve", json={}).status_code == 200
+        assert "x-llm-context" in client.get("/openapi.json").json()
+
+        assert client.delete("/catalog/testdb").status_code == 200
+        spec = client.get("/openapi.json").json()
+        assert "x-llm-context" not in spec
+        assert "Users" not in str(spec["paths"].get("/api/v1/users", ""))
+
+    def test_draft_catalog_is_not_published(self, store: CatalogFileStore) -> None:
+        app = FastAPI(title="t", version="1.0.0")
+        config = Settings()
+        config.settings.catalog.auto_enrich_openapi = True
+        container = _container(store, config)
+        app.include_router(
+            create_catalog_router(container=container, gateways={"testdb": object()}, app=app)
+        )
+        client = TestClient(app)
+        assert client.post("/catalog/testdb/approve", json={}).status_code == 200
+        assert "x-llm-context" in client.get("/openapi.json").json()
+
+        # Re-opened as a draft (as a re-analysis does) -> its context is withdrawn.
+        catalog = store.load_or_raise("testdb")
+        CatalogReviewService(store).save_as_draft(catalog)
+        _refresh_openapi_enrichment(app, container, {"testdb": object()})
+        assert "x-llm-context" not in client.get("/openapi.json").json()
+
     def test_refresh_disabled_by_config(self, store: CatalogFileStore) -> None:
         app = FastAPI()
         config = Settings()
@@ -533,3 +564,37 @@ class TestAnalyzeErrorBodies:
         assert r.status_code == 500
         assert r.json() == {"detail": "Analysis failed"}
         assert "secret" not in r.text
+
+
+class TestAnalyzeReport:
+    def test_response_lists_failed_and_fallback_tables(self, store: CatalogFileStore) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from warp.application.services.catalog_analysis import AnalysisReport
+
+        settings = Settings(
+            databases=[DatabaseConfig(name="testdb", type="postgresql", database="x", username="u")]
+        )
+        catalog = _make_catalog()
+
+        fake = MagicMock()
+        fake.analyze = AsyncMock(return_value=catalog)
+        fake.report = AnalysisReport(
+            catalog=catalog, failed_tables=["broken"], fallback_tables=["orders"], llm_successes=1
+        )
+        container = build_container(
+            settings,
+            repository=store,
+            text_generator_factory=AsyncMock,
+            analysis_factory=lambda gateway, db_config, text_generator: fake,
+        )
+        app = FastAPI()
+        app.include_router(
+            create_catalog_router(container=container, gateways={"testdb": object()}, app=app)
+        )
+        r = TestClient(app).post("/catalog/analyze", json={"database": "testdb"})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["failed_tables"] == ["broken"]
+        assert body["fallback_tables"] == ["orders"]
+        fake.analyze.assert_awaited_once_with(table_names=None, auto_approve=False)

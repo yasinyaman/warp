@@ -434,3 +434,31 @@ async def test_analyze_resolves_case(tmp_path: Path) -> None:
     # adapter exposes "users"; request "Users" -> resolved
     catalog = await analyzer.analyze(table_names=["Users"])
     assert catalog.get_table("users") is not None
+
+
+@pytest.mark.asyncio
+async def test_report_lists_failed_and_fallback_tables(tmp_path: Path) -> None:
+    """A table whose schema cannot be read is dropped and reported; one whose LLM
+    output is unusable is kept schema-only and reported as a fallback."""
+    good = json.dumps({"table_description": {"en": "Users"}, "columns": {}})
+    llm = AsyncMock()
+    llm.generate_json = AsyncMock(side_effect=[good, "not json {{{"])
+    analyzer = _analyzer(tmp_path, _settings(tmp_path), llm)
+    analyzer.gateway.get_tables = AsyncMock(return_value=["users", "orders", "broken"])
+    original = analyzer.gateway.get_table_schema
+
+    async def schema(table: str):
+        if table == "broken":
+            raise RuntimeError("permission denied")
+        return await original(table)
+
+    analyzer.gateway.get_table_schema = schema
+
+    catalog = await analyzer.analyze()
+    report = analyzer.report
+    assert report is not None and report.catalog is catalog
+    assert set(catalog.tables) == {"users", "orders"}
+    assert report.failed_tables == ["broken"]
+    assert report.fallback_tables == ["orders"]
+    assert report.llm_successes == 1
+    assert report.has_problems

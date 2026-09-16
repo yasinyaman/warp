@@ -99,11 +99,24 @@ async def _run_analyze(  # noqa: PLR0913
     try:
         async with container.open_analysis(database) as analysis:
             catalog = await analysis.analyze(table_names=table_names, auto_approve=auto_approve)
+            report = analysis.report
     except DatabaseNotConfiguredError:
         click.echo(f"Error: Database config '{database}' not found", err=True)
         sys.exit(1)
 
     click.echo(f"Catalog generated: {catalog.table_count} tables, languages: {catalog.languages}")
+    if report and report.fallback_tables:
+        click.echo(
+            f"Warning: {len(report.fallback_tables)} table(s) have no LLM descriptions "
+            f"(schema only): {', '.join(report.fallback_tables)}",
+            err=True,
+        )
+    if report and report.failed_tables:
+        click.echo(
+            f"Warning: {len(report.failed_tables)} table(s) could not be read and are missing "
+            f"from the catalog: {', '.join(report.failed_tables)}",
+            err=True,
+        )
 
     if auto_approve:
         click.echo("Status: APPROVED (auto-approved)")

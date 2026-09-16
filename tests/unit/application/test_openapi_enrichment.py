@@ -218,3 +218,38 @@ class TestOpenAPIExamplesPolicy:
         found = self._find_keys(result, {"example", "examples"})
         assert found != []
         assert any("a@x.com" in json.dumps(v) for _, v in found)
+
+
+class TestMultiDatabaseContext:
+    """Several catalogs enrich one spec into a single, merged x-llm-context."""
+
+    @staticmethod
+    def _catalog(name: str) -> DatabaseCatalog:
+        return DatabaseCatalog(
+            database_name=name,
+            tables={"users": TableCatalogEntry(table_name="users")},
+        )
+
+    def test_single_catalog_keeps_flat_shape(self):
+        spec = OpenAPIEnricher(self._catalog("a")).enrich({"paths": {}})
+        assert spec["x-llm-context"]["database"] == "a"
+        assert "databases" not in spec["x-llm-context"]
+
+    def test_two_catalogs_are_merged_not_overwritten(self):
+        spec = {"paths": {}}
+        OpenAPIEnricher(self._catalog("a")).enrich(spec)
+        OpenAPIEnricher(self._catalog("b")).enrich(spec)
+        ctx = spec["x-llm-context"]
+        assert [d["database"] for d in ctx["databases"]] == ["a", "b"]
+        assert "database" not in ctx
+
+    def test_re_enriching_same_database_replaces_its_entry(self):
+        spec = {"paths": {}}
+        OpenAPIEnricher(self._catalog("a")).enrich(spec)
+        OpenAPIEnricher(self._catalog("b")).enrich(spec)
+        OpenAPIEnricher(self._catalog("a")).enrich(spec)
+        assert [d["database"] for d in spec["x-llm-context"]["databases"]] == ["b", "a"]
+        spec2 = {"paths": {}}
+        OpenAPIEnricher(self._catalog("a")).enrich(spec2)
+        OpenAPIEnricher(self._catalog("a")).enrich(spec2)
+        assert spec2["x-llm-context"]["database"] == "a"  # still flat, no duplicate

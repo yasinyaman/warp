@@ -5,7 +5,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 
 from warp.application.config import Settings
-from warp.application.services.catalog_analysis import CatalogAnalysisService
+from warp.application.services.catalog_analysis import AnalysisReport, CatalogAnalysisService
 from warp.application.services.catalog_export import CatalogExportService
 from warp.application.services.openapi_enrichment import OpenAPIEnricher
 from warp.domain.catalog import DatabaseCatalog
@@ -18,9 +18,10 @@ AnalysisOpener = Callable[[str], AbstractAsyncContextManager[CatalogAnalysisServ
 class PipelineResult:
     """Result from a pipeline run."""
 
-    def __init__(self, catalog: DatabaseCatalog):
-        """Store the generated catalog and initialize result fields."""
+    def __init__(self, catalog: DatabaseCatalog, report: AnalysisReport | None = None):
+        """Store the generated catalog (and analysis report) and initialize result fields."""
         self.catalog = catalog
+        self.report = report
         self.enriched_openapi_path: str | None = None
         self.export_path: str | None = None
         self.export_content: str | None = None
@@ -61,8 +62,9 @@ class PipelineService:
 
         async with self._open_analysis(database_name) as analysis:
             catalog = await analysis.analyze(table_names=table_names)
+            report = analysis.report
 
-        result = PipelineResult(catalog=catalog)
+        result = PipelineResult(catalog=catalog, report=report)
 
         if openapi_spec_path:
             enricher = OpenAPIEnricher(

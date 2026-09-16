@@ -16,6 +16,24 @@ from warp.domain.catalog import ColumnCatalogEntry, DatabaseCatalog, TableCatalo
 logger = logging.getLogger(__name__)
 
 
+def _merge_llm_context(existing: Any, entry: dict[str, Any]) -> dict[str, Any]:
+    """Combine per-database overviews into one top-level `x-llm-context`.
+
+    A single catalog keeps the flat shape (`{"database": ..., "tables": [...]}`);
+    once a second database is enriched into the same spec the extension
+    becomes `{"databases": [overview, overview, ...]}`. Re-enriching the same
+    database replaces its previous overview instead of duplicating it.
+    """
+    if not isinstance(existing, dict) or "database" not in existing and "databases" not in existing:
+        return entry
+    overviews: list[dict[str, Any]] = (
+        list(existing["databases"]) if "databases" in existing else [existing]
+    )
+    overviews = [o for o in overviews if o.get("database") != entry["database"]]
+    overviews.append(entry)
+    return overviews[0] if len(overviews) == 1 else {"databases": overviews}
+
+
 class OpenAPIEnricher:
     """Enriches warp's OpenAPI spec with catalog descriptions."""
 
@@ -402,7 +420,7 @@ class OpenAPIEnricher:
                 ]
             tables_overview.append(t_ctx)
 
-        spec["x-llm-context"] = {
+        entry = {
             "database": self.catalog.database_name,
             "database_type": self.catalog.database_type,
             "provider": self.catalog.llm_provider,
@@ -410,6 +428,7 @@ class OpenAPIEnricher:
             "table_count": self.catalog.table_count,
             "tables": tables_overview,
         }
+        spec["x-llm-context"] = _merge_llm_context(spec.get("x-llm-context"), entry)
 
     # ------------------------------------------------------------------
     # Column description builder
