@@ -240,11 +240,12 @@ forbidden_modules = [
     "warp.application", "warp.adapters", "warp.infrastructure",
 ]
 
-# The application layer still reaches concrete adapters (and, through them,
-# drivers/SDKs) until the ports + composition-root commit replaces those
-# imports with Protocols; the framework list joins this contract then.
 [[tool.importlinter.contracts]]
-name = "application does not import infrastructure"
+name = "application depends only on domain and its own ports (no adapters, no frameworks)"
 type = "forbidden"
 source_modules = ["warp.application"]
-forbidden_modules = ["warp.infrastructure"]
+forbidden_modules = [
+    "fastapi", "starlette", "click", "asyncpg", "aiomysql", "pymysql",
+    "openai", "anthropic", "google", "httpx", "yaml", "uvicorn", "dotenv",
+    "warp.adapters", "warp.infrastructure",
+]

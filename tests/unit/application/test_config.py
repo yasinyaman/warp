@@ -307,12 +307,12 @@ class TestCatalogConfig:
 
 
 class TestPIIPatternsSingleSource:
-    def test_config_default_matches_reader_default(self):
-        from warp.adapters.outbound.db import sample_reader
+    def test_config_default_matches_domain_default(self):
         from warp.application.config import DEFAULT_PII_PATTERNS, AnalysisConfig
+        from warp.domain import samples
 
         assert AnalysisConfig().pii_column_patterns == list(DEFAULT_PII_PATTERNS)
-        assert sample_reader.DEFAULT_PII_PATTERNS is DEFAULT_PII_PATTERNS
+        assert samples.DEFAULT_PII_PATTERNS is DEFAULT_PII_PATTERNS
         assert "social_security" in DEFAULT_PII_PATTERNS
 
 
@@ -362,3 +362,27 @@ class TestProductionValidation:
         assert "auth.enabled" in joined
         assert "CORS_ORIGINS" in joined
         assert "/openapi.json" in joined
+
+
+class TestSettingsHelpers:
+    def test_database_lookup(self):
+        from warp.application.config import DatabaseConfig, Settings
+        from warp.domain.errors import DatabaseNotConfiguredError
+
+        s = Settings(
+            databases=[DatabaseConfig(name="a", type="postgresql", database="x", username="u")]
+        )
+        assert s.database("a").name == "a"
+        with pytest.raises(DatabaseNotConfiguredError) as exc:
+            s.database("nope")
+        assert exc.value.status_code == 404
+        assert exc.value.details["available"] == ["a"]
+
+    @pytest.mark.parametrize(
+        "provider,cloud",
+        [("openai", True), ("Anthropic", True), ("gemini", True), ("ollama", False)],
+    )
+    def test_is_cloud_provider(self, provider, cloud):
+        from warp.application.config import LLMConfig
+
+        assert LLMConfig(provider=provider).is_cloud_provider is cloud

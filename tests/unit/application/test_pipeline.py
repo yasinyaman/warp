@@ -1,18 +1,16 @@
-"""Tests for the end-to-end Pipeline orchestrator.
+"""Tests for PipelineService with an injected analysis opener and export service."""
 
-All heavy collaborators (DatabaseFactory, LLMClient, EnrichedAnalyzer,
-OpenAPIEnricher, get_exporter) are patched so no DB/LLM/network is touched.
-"""
-
+from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from warp.application.config import Settings
-from warp.application.services.pipeline import Pipeline, PipelineResult
+from warp.application.services.catalog_export import CatalogExportService
+from warp.application.services.pipeline import PipelineResult, PipelineService
 from warp.domain.catalog import DatabaseCatalog, LocalizedText, TableCatalogEntry
-from warp.domain.errors import WarpError
+from warp.domain.errors import DatabaseNotConfiguredError, UnsupportedExportFormatError
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -37,10 +35,43 @@ def _catalog() -> DatabaseCatalog:
         database_name="testdb",
         tables={
             "users": TableCatalogEntry(
-                table_name="users",
-                description=LocalizedText(texts={"en": "Users"}),
+                table_name="users", description=LocalizedText(texts={"en": "Users"})
             )
         },
+    )
+
+
+class _Opener:
+    """Records how the analysis context is used."""
+
+    def __init__(self, catalog: DatabaseCatalog) -> None:
+        self.catalog = catalog
+        self.names: list[str] = []
+        self.entered = 0
+        self.exited = 0
+
+    def __call__(self, name: str):
+        self.names.append(name)
+
+        @asynccontextmanager
+        async def cm():
+            self.entered += 1
+            analysis = MagicMock()
+            analysis.analyze = AsyncMock(return_value=self.catalog)
+            try:
+                yield analysis
+            finally:
+                self.exited += 1
+
+        return cm()
+
+
+def _pipeline(
+    tmp_path: Path, opener: _Opener, exporter: MagicMock | None = None
+) -> PipelineService:
+    exporters = {"json": exporter or MagicMock(), "yaml": exporter or MagicMock()}
+    return PipelineService(
+        settings=_settings(tmp_path), analysis_opener=opener, export=CatalogExportService(exporters)
     )
 
 
@@ -55,116 +86,61 @@ def test_pipeline_result_defaults() -> None:
 
 @pytest.mark.asyncio
 async def test_pipeline_db_config_not_found(tmp_path: Path) -> None:
-    pipeline = Pipeline(_settings(tmp_path))
-    with pytest.raises(WarpError, match="config not found"):
-        await pipeline.run(database_name="missing")
+    opener = _Opener(_catalog())
+    with pytest.raises(DatabaseNotConfiguredError, match="config not found"):
+        await _pipeline(tmp_path, opener).run(database_name="missing")
+    assert opener.entered == 0
 
 
 @pytest.mark.asyncio
 async def test_pipeline_run_basic(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
     catalog = _catalog()
-
-    fake_adapter = AsyncMock()
-    fake_analyzer = MagicMock()
-    fake_analyzer.analyze = AsyncMock(return_value=catalog)
-    fake_llm = AsyncMock()
-
-    with (
-        patch(
-            "warp.application.services.pipeline.DatabaseFactory.create", return_value=fake_adapter
-        ),
-        patch("warp.application.services.pipeline.LLMClient.from_config", return_value=fake_llm),
-        patch("warp.application.services.pipeline.EnrichedAnalyzer", return_value=fake_analyzer),
-    ):
-        result = await pipeline_run(settings)
-
+    opener = _Opener(catalog)
+    result = await _pipeline(tmp_path, opener).run(database_name="testdb")
     assert result.catalog is catalog
-    fake_adapter.connect.assert_awaited_once()
-    fake_adapter.disconnect.assert_awaited_once()
-    fake_llm.close.assert_awaited_once()
-
-
-async def pipeline_run(settings: Settings) -> PipelineResult:
-    pipeline = Pipeline(settings)
-    return await pipeline.run(database_name="testdb")
+    assert opener.names == ["testdb"]
+    assert (opener.entered, opener.exited) == (1, 1)  # analysis context closed
 
 
 @pytest.mark.asyncio
 async def test_pipeline_run_with_export_path(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
-    catalog = _catalog()
     out = tmp_path / "out.json"
-
-    fake_adapter = AsyncMock()
-    fake_analyzer = MagicMock()
-    fake_analyzer.analyze = AsyncMock(return_value=catalog)
-    fake_exporter = MagicMock()
-    fake_exporter.export.return_value = out
-
-    with (
-        patch(
-            "warp.application.services.pipeline.DatabaseFactory.create", return_value=fake_adapter
-        ),
-        patch("warp.application.services.pipeline.LLMClient.from_config", return_value=AsyncMock()),
-        patch("warp.application.services.pipeline.EnrichedAnalyzer", return_value=fake_analyzer),
-        patch("warp.application.services.pipeline.get_exporter", return_value=fake_exporter),
-    ):
-        pipeline = Pipeline(settings)
-        result = await pipeline.run(
-            database_name="testdb", export_format="json", export_path=str(out)
-        )
-
+    exporter = MagicMock()
+    exporter.export.return_value = out
+    result = await _pipeline(tmp_path, _Opener(_catalog()), exporter).run(
+        database_name="testdb", export_format="json", export_path=str(out)
+    )
     assert result.export_path == str(out)
-    fake_exporter.export.assert_called_once()
+    exporter.export.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_pipeline_run_with_export_content(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
-    catalog = _catalog()
-
-    fake_analyzer = MagicMock()
-    fake_analyzer.analyze = AsyncMock(return_value=catalog)
-    fake_exporter = MagicMock()
-    fake_exporter.export_string.return_value = "rendered"
-
-    with (
-        patch(
-            "warp.application.services.pipeline.DatabaseFactory.create", return_value=AsyncMock()
-        ),
-        patch("warp.application.services.pipeline.LLMClient.from_config", return_value=AsyncMock()),
-        patch("warp.application.services.pipeline.EnrichedAnalyzer", return_value=fake_analyzer),
-        patch("warp.application.services.pipeline.get_exporter", return_value=fake_exporter),
-    ):
-        pipeline = Pipeline(settings)
-        result = await pipeline.run(database_name="testdb", export_format="yaml")
-
+    exporter = MagicMock()
+    exporter.export_string.return_value = "rendered"
+    result = await _pipeline(tmp_path, _Opener(_catalog()), exporter).run(
+        database_name="testdb", export_format="yaml"
+    )
     assert result.export_content == "rendered"
     assert result.export_path is None
 
 
 @pytest.mark.asyncio
-async def test_pipeline_run_with_openapi(tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
-    catalog = _catalog()
-    enriched_out = tmp_path / "enriched.json"
+async def test_pipeline_unknown_export_format(tmp_path: Path) -> None:
+    with pytest.raises(UnsupportedExportFormatError):
+        await _pipeline(tmp_path, _Opener(_catalog())).run(
+            database_name="testdb", export_format="xml"
+        )
 
-    fake_analyzer = MagicMock()
-    fake_analyzer.analyze = AsyncMock(return_value=catalog)
+
+@pytest.mark.asyncio
+async def test_pipeline_run_with_openapi(tmp_path: Path) -> None:
+    enriched_out = tmp_path / "enriched.json"
     fake_enricher = MagicMock()
     fake_enricher.enrich_file.return_value = enriched_out
-
-    with (
-        patch(
-            "warp.application.services.pipeline.DatabaseFactory.create", return_value=AsyncMock()
-        ),
-        patch("warp.application.services.pipeline.LLMClient.from_config", return_value=AsyncMock()),
-        patch("warp.application.services.pipeline.EnrichedAnalyzer", return_value=fake_analyzer),
-        patch("warp.application.services.pipeline.OpenAPIEnricher", return_value=fake_enricher),
-    ):
-        pipeline = Pipeline(settings)
-        result = await pipeline.run(database_name="testdb", openapi_spec_path="spec.json")
-
+    with patch("warp.application.services.pipeline.OpenAPIEnricher", return_value=fake_enricher):
+        result = await _pipeline(tmp_path, _Opener(_catalog())).run(
+            database_name="testdb", openapi_spec_path="spec.json"
+        )
     assert result.enriched_openapi_path == str(enriched_out)
     fake_enricher.enrich_file.assert_called_once_with("spec.json")

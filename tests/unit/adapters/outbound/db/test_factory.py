@@ -87,3 +87,19 @@ def test_register_new_adapter() -> None:
         from warp.adapters.outbound.db.factory import ADAPTERS
 
         ADAPTERS.pop("dummy", None)
+
+
+def test_database_config_keeps_options_nested() -> None:
+    from warp.application.config import DatabaseConfig
+
+    cfg = DatabaseConfig(
+        name="main",
+        type="postgresql",
+        database="d",
+        username="u",
+        options={"pool_size": 3, "ssl": True},
+    )
+    adapter = DatabaseFactory.create(cfg)
+    assert isinstance(adapter, PostgreSQLAdapter)
+    assert adapter.name == "main"
+    assert adapter.config["options"] == {"pool_size": 3, "ssl": True}

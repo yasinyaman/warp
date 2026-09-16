@@ -12,6 +12,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, NoReturn
 
+from warp.application.config import CLOUD_PROVIDERS
 from warp.domain.errors import LLMError, LLMGenerationError, LLMProviderNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -24,8 +25,9 @@ _PROVIDER_ENV_VARS: dict[str, str] = {
 }
 
 # Providers that send prompt data off the local machine to a third-party API.
-# (Ollama runs locally and is intentionally excluded.)
-CLOUD_PROVIDERS: frozenset[str] = frozenset(_PROVIDER_ENV_VARS)
+# (Ollama runs locally and is intentionally excluded.) Owned by the config layer
+# because the privacy policy is decided there; re-exported for convenience.
+assert frozenset(_PROVIDER_ENV_VARS) == CLOUD_PROVIDERS
 
 
 # Letter-boundaries rather than \b so "rate_limit_exceeded" matches while

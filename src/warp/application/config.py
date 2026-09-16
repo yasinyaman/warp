@@ -4,6 +4,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from warp.domain.errors import DatabaseNotConfiguredError
+from warp.domain.samples import DEFAULT_PII_PATTERNS
+
 
 class DatabaseConfig(BaseModel):
     """Database connection configuration."""
@@ -84,34 +87,6 @@ class CatalogConfig(BaseModel):
     openapi_include_examples: bool = False
 
 
-# Column-name substrings that indicate likely PII. Single source of truth for
-# both the config default and the enrichment masking helpers.
-DEFAULT_PII_PATTERNS: tuple[str, ...] = (
-    "email",
-    "mail",
-    "phone",
-    "tel",
-    "mobile",
-    "ssn",
-    "social_security",
-    "password",
-    "passwd",
-    "secret",
-    "token",
-    "api_key",
-    "apikey",
-    "credit_card",
-    "card_number",
-    "cardno",
-    "cvv",
-    "iban",
-    "account_number",
-    "tax_id",
-    "passport",
-    "national_id",
-)
-
-
 class AnalysisConfig(BaseModel):
     """Schema analysis configuration."""
 
@@ -129,6 +104,11 @@ class AnalysisConfig(BaseModel):
     pii_column_patterns: list[str] = Field(default_factory=lambda: list(DEFAULT_PII_PATTERNS))
 
 
+# Providers that send prompt data off the local machine to a third-party API.
+# (Ollama runs locally and is intentionally excluded.)
+CLOUD_PROVIDERS: frozenset[str] = frozenset({"openai", "anthropic", "gemini"})
+
+
 class LLMConfig(BaseModel):
     """LLM provider configuration."""
 
@@ -139,6 +119,11 @@ class LLMConfig(BaseModel):
     temperature: float = 0.3
     max_tokens: int = 4096
     language_prompts: dict[str, str] = Field(default_factory=dict)
+
+    @property
+    def is_cloud_provider(self) -> bool:
+        """Whether prompts (and any sample data) leave the local machine."""
+        return self.provider.lower() in CLOUD_PROVIDERS
 
 
 class I18nConfig(BaseModel):
@@ -177,6 +162,17 @@ class Settings(BaseModel):
 
     databases: list[DatabaseConfig] = Field(default_factory=list)
     settings: SettingsConfig = Field(default_factory=SettingsConfig)
+
+    def database(self, name: str) -> DatabaseConfig:
+        """Return the configuration of the database called `name`.
+
+        Raises:
+            DatabaseNotConfiguredError: If no database with that name is configured.
+        """
+        for db in self.databases:
+            if db.name == name:
+                return db
+        raise DatabaseNotConfiguredError(name, [db.name for db in self.databases])
 
 
 def validate_production_config(

@@ -1,4 +1,4 @@
-"""Enriched Schema Analyzer - Main orchestrator.
+"""Catalog analysis use case.
 
 Combines schema discovery, DB comments, sample data, cross-references,
 and LLM generation to produce a complete DatabaseCatalog.
@@ -8,23 +8,18 @@ import json
 import logging
 from typing import Any
 
-from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-from warp.adapters.outbound.db.comment_reader import CommentReader
-from warp.adapters.outbound.db.sample_reader import (
-    SampleReader,
-    TableSamples,
-    mask_pii_samples,
-    samples_for_storage,
-)
-from warp.adapters.outbound.llm.providers import CLOUD_PROVIDERS, LLMClient
 from warp.application.config import Settings
 from warp.application.localization import LocalizationManager
+from warp.application.ports.database import DatabaseGateway
+from warp.application.ports.metadata import CommentSource, SampleSource
+from warp.application.ports.text_generation import TextGenerator
 from warp.application.prompts import (
     build_system_prompt,
     build_table_analysis_prompt,
     build_translation_prompt,
 )
-from warp.application.services.cross_reference import CrossReferenceProvider
+from warp.application.services.catalog_review import CatalogReviewService
+from warp.application.services.cross_reference import CrossReferenceService
 from warp.domain.catalog import (
     CatalogStatus,
     ColumnCatalogEntry,
@@ -36,60 +31,49 @@ from warp.domain.catalog import (
     TableCatalogEntry,
 )
 from warp.domain.errors import AnalysisError
+from warp.domain.samples import TableSamples, mask_pii_samples, samples_for_storage
 
 logger = logging.getLogger(__name__)
 
 
-class EnrichedAnalyzer:
-    """Main orchestrator for database catalog generation.
+class CatalogAnalysisService:
+    """Use case: analyze a database and produce an enriched `DatabaseCatalog`.
 
     Pipeline:
-    1. Get table list from warp adapter
-    2. Read DB comments (CommentReader)
-    3. Read sample data (SampleReader)
-    4. Get cross-reference context (CrossReferenceProvider)
-    5. Generate descriptions via LLM
-    6. Build and store DatabaseCatalog
+    1. List tables through the database gateway
+    2. Read DB comments (CommentSource) and sample data (SampleSource)
+    3. Add cross-reference context from other catalogs (CrossReferenceService)
+    4. Generate descriptions via the TextGenerator (LLM)
+    5. Build the catalog and hand it to the review service (draft / approve)
+
+    Every collaborator is injected; the composition root wires the adapters.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - keyword-only; wired by the composition root
         self,
-        adapter: Any,
+        *,
+        gateway: DatabaseGateway,
         config: Settings,
-        llm_client: LLMClient,
-        store: CatalogFileStore | None = None,
+        text_generator: TextGenerator,
+        comments: CommentSource | None = None,
+        samples: SampleSource | None = None,
+        review: CatalogReviewService | None = None,
+        cross_reference: CrossReferenceService | None = None,
+        localization: LocalizationManager | None = None,
         db_type: str = "postgresql",
-        schema: str = "public",
         database_name: str = "",
     ):
-        """Wire up readers, i18n, and optional cross-reference for analysis."""
-        self.adapter = adapter
+        """Store the collaborators; `review=None` means the catalog is not persisted."""
+        self.gateway = gateway
         self.config = config
-        self.llm_client = llm_client
-        self.store = store
+        self.text_generator = text_generator
+        self.comments = comments
+        self.samples = samples
+        self.review = review
+        self.cross_reference = cross_reference
+        self.i18n = localization or LocalizationManager.from_config(config)
         self.db_type = db_type
-        self.schema = schema
         self.database_name = database_name
-
-        self.comment_reader = CommentReader(
-            adapter=adapter,
-            db_type=db_type,
-            schema=schema,
-            database=database_name,
-        )
-        self.sample_reader = SampleReader(
-            adapter=adapter,
-            db_type=db_type,
-            schema=schema,
-        )
-        self.i18n = LocalizationManager.from_config(config)
-
-        self.cross_ref: CrossReferenceProvider | None = None
-        if store and config.settings.catalog.auto_cross_reference:
-            self.cross_ref = CrossReferenceProvider(
-                store=store,
-                exclude_db=database_name,
-            )
 
     async def analyze(  # noqa: C901, PLR0912, PLR0915
         self,
@@ -106,13 +90,13 @@ class EnrichedAnalyzer:
 
         # Extract existing user overrides before regeneration
         existing_overrides: dict[str, dict[str, Any]] = {}
-        if self.store:
-            existing_overrides = self.store.extract_overrides(self.database_name)
+        if self.review:
+            existing_overrides = self.review.extract_overrides(self.database_name)
             if existing_overrides:
                 logger.info(f"Preserved user overrides for {len(existing_overrides)} table(s)")
 
         try:
-            all_db_tables = await self.adapter.get_tables()
+            all_db_tables = await self.gateway.get_tables()
 
             if table_names is None:
                 excluded = set(self.config.settings.analysis.excluded_tables)
@@ -140,7 +124,9 @@ class EnrichedAnalyzer:
 
             logger.info(f"Tables to analyze: {len(table_names)}")
 
-            all_comments = await self.comment_reader.read_all_comments(table_names)
+            all_comments = (
+                await self.comments.read_all_comments(table_names) if self.comments else {}
+            )
 
             table_entries: dict[str, TableCatalogEntry] = {}
             llm_successes = 0
@@ -192,16 +178,16 @@ class EnrichedAnalyzer:
             if self.i18n.is_multilingual and self.i18n.translation_strategy == "multi":
                 catalog = await self._translate_catalog(catalog)
 
-            if self.store:
-                self.store.save_as_draft(catalog)
+            if self.review:
+                self.review.save_as_draft(catalog)
 
                 # Re-apply user overrides from previous catalog
                 if existing_overrides:
-                    catalog = self.store.apply_overrides(self.database_name, existing_overrides)
+                    catalog = self.review.apply_overrides(self.database_name, existing_overrides)
                     logger.info("User overrides re-applied after regeneration")
 
                 if auto_approve:
-                    self.store.approve_catalog(self.database_name)
+                    self.review.approve_catalog(self.database_name)
                     catalog.status = CatalogStatus.approved
 
             logger.info(
@@ -227,7 +213,7 @@ class EnrichedAnalyzer:
             Tuple of (TableCatalogEntry, llm_success). llm_success is False
             when the entry was built without LLM (fallback mode).
         """
-        schema_data = await self.adapter.get_table_schema(table_name)
+        schema_data = await self.gateway.get_table_schema(table_name)
 
         columns = schema_data.get("columns", [])
         foreign_keys = schema_data.get("foreign_keys", [])
@@ -235,19 +221,19 @@ class EnrichedAnalyzer:
         primary_key = schema_data.get("primary_key")
 
         samples = None
-        if self.config.settings.analysis.sample_limit > 0:
-            samples = await self.sample_reader.read_table_samples(
+        if self.samples is not None and self.config.settings.analysis.sample_limit > 0:
+            samples = await self.samples.read_table_samples(
                 table_name=table_name,
                 sample_limit=self.config.settings.analysis.sample_limit,
                 include_row_count=self.config.settings.analysis.include_row_count,
             )
 
         cross_ref_context = ""
-        if self.cross_ref and self.cross_ref.has_references():
+        if self.cross_reference and self.cross_reference.has_references():
             col_names = [c.get("name", "") for c in columns if isinstance(c, dict)]
             if not col_names and columns:
                 col_names = [c.name if hasattr(c, "name") else str(c) for c in columns]
-            cross_ref_context = self.cross_ref.get_context_for_table(table_name, col_names)
+            cross_ref_context = self.cross_reference.get_context_for_table(table_name, col_names)
 
         db_table_comment = None
         db_column_comments: dict[str, str] = {}
@@ -303,7 +289,7 @@ class EnrichedAnalyzer:
             f"system={len(system_prompt)} chars)"
         )
         try:
-            llm_response = await self.llm_client.generate_json(
+            llm_response = await self.text_generator.generate_json(
                 prompt=prompt,
                 system_prompt=system_prompt,
             )
@@ -356,7 +342,7 @@ class EnrichedAnalyzer:
         analysis = self.config.settings.analysis
         provider = self.config.settings.llm.provider.lower()
 
-        if provider in CLOUD_PROVIDERS and not analysis.share_samples_with_cloud_llm:
+        if self.config.settings.llm.is_cloud_provider and not analysis.share_samples_with_cloud_llm:
             logger.info(
                 f"Not sending sample data to cloud LLM provider '{provider}' "
                 "(analysis.share_samples_with_cloud_llm is disabled)"
@@ -592,7 +578,7 @@ class EnrichedAnalyzer:
             return None
         try:
             prompt = build_translation_prompt(text, source_lang, target_lang)
-            return await self.llm_client.generate(prompt=prompt)
+            return await self.text_generator.generate(prompt=prompt)
         except Exception as e:
             logger.warning(f"Translation failed ({source_lang}->{target_lang}): {e}")
             return None

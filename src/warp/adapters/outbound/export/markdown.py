@@ -118,19 +118,10 @@ class MarkdownExporter(CatalogExporter):
 
 
 def get_exporter(format: str) -> CatalogExporter:
-    """Get an exporter by format name."""
-    from warp.adapters.outbound.export.json import JsonExporter
-    from warp.adapters.outbound.export.yaml import YamlExporter
+    """Get an exporter by format name (thin wrapper over the default registry)."""
+    from warp.adapters.outbound.export.registry import default_exporters
 
-    exporters: dict[str, type[CatalogExporter]] = {
-        "json": JsonExporter,
-        "yaml": YamlExporter,
-        "markdown": MarkdownExporter,
-        "md": MarkdownExporter,
-    }
-
+    exporters = default_exporters()
     if format not in exporters:
-        available = ", ".join(exporters.keys())
-        raise ValueError(f"Unknown export format: {format}. Available: {available}")
-
-    return exporters[format]()
+        raise ValueError(f"Unknown export format: {format}. Available: {', '.join(exporters)}")
+    return exporters[format]

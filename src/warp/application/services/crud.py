@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from warp.adapters.outbound.db.base import DatabaseAdapter
+from warp.application.ports.database import DatabaseGateway
 from warp.domain.errors import ValidationError
 from warp.domain.pagination import PaginatedResponse, PaginationParams, paginate_response
 from warp.domain.schema import TableSchema
@@ -19,7 +19,7 @@ class CRUDOperations:
 
     def __init__(
         self,
-        db: DatabaseAdapter,
+        db: DatabaseGateway,
         table_schema: TableSchema,
         response_model: type[BaseModel] | None = None,
         readonly_columns: list[str] | None = None,

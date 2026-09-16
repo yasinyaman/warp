@@ -4,7 +4,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, create_model
 
-from warp.adapters.outbound.db.base import DatabaseAdapter
+from warp.application.ports.database import DatabaseGateway
 from warp.domain.schema import (
     ColumnSchema,
     DatabaseSchema,
@@ -82,7 +82,7 @@ class SchemaAnalyzer:
         UserModel = analyzer.generate_pydantic_model(schema.tables['users'])
     """
 
-    def __init__(self, db_adapter: DatabaseAdapter, excluded_tables: list[str] | None = None):
+    def __init__(self, db_adapter: DatabaseGateway, excluded_tables: list[str] | None = None):
         """Initialize the schema analyzer.
 
         Args:

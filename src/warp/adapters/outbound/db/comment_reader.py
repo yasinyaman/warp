@@ -5,31 +5,11 @@ using warp's DatabaseAdapter.execute_query() method.
 """
 
 import logging
-from dataclasses import dataclass, field
-from typing import Any, Protocol
+
+from warp.application.ports.database import SqlReader
+from warp.domain.comments import TableComments
 
 logger = logging.getLogger(__name__)
-
-
-class DatabaseAdapterProtocol(Protocol):
-    """Protocol matching warp's DatabaseAdapter interface."""
-
-    async def execute_query(
-        self,
-        query: str,
-        params: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Run a SQL query and return rows as dicts."""
-        ...
-
-
-@dataclass
-class TableComments:
-    """Comments for a single table."""
-
-    table_name: str
-    table_comment: str | None = None
-    column_comments: dict[str, str] = field(default_factory=dict)
 
 
 # SQL queries for different database types
@@ -105,7 +85,7 @@ class CommentReader:
 
     def __init__(
         self,
-        adapter: DatabaseAdapterProtocol,
+        adapter: SqlReader,
         db_type: str = "postgresql",
         schema: str = "public",
         database: str = "",

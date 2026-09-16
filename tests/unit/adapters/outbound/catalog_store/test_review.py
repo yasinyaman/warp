@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
+from warp.application.services.catalog_review import CatalogReviewService
 from warp.domain.catalog import (
     CatalogStatus,
     ColumnCatalogEntry,
@@ -31,6 +32,21 @@ from warp.domain.errors import (
 )
 
 
+class ReviewStore(CatalogReviewService):
+    """Review service over a real file store that also exposes `save` for seeding."""
+
+    def __init__(self, base_path, default_format="json"):
+        self.file_store = CatalogFileStore(base_path, default_format=default_format)
+        super().__init__(self.file_store)
+
+    def save(self, catalog, format=None):
+        return self.file_store.save(catalog, format=format)
+
+    @property
+    def base_path(self):
+        return self.file_store.base_path
+
+
 @pytest.fixture
 def temp_dir():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -39,7 +55,7 @@ def temp_dir():
 
 @pytest.fixture
 def store(temp_dir):
-    return CatalogFileStore(temp_dir)
+    return ReviewStore(temp_dir)
 
 
 def _make_catalog(db_name: str = "testdb") -> DatabaseCatalog:
@@ -496,26 +512,6 @@ class TestUpdateColumnFields:
 # ---- List Drafts Tests ----
 
 
-class TestListDrafts:
-    def test_list_drafts_returns_only_drafts(self, store, draft_catalog):
-        store.save(draft_catalog)
-
-        # Create an approved catalog
-        approved = DatabaseCatalog(
-            database_name="approved_db",
-            status=CatalogStatus.approved,
-            tables={},
-        )
-        store.save(approved)
-
-        drafts = store.list_drafts()
-        assert "testdb" in drafts
-        assert "approved_db" not in drafts
-
-    def test_list_drafts_empty(self, store):
-        assert store.list_drafts() == []
-
-
 # ---- Backward Compatibility Tests ----
 
 
@@ -592,7 +588,7 @@ class TestUserOverridesTracking:
 
     @pytest.fixture
     def store_with_draft(self, tmp_path):
-        store = CatalogFileStore(tmp_path)
+        store = ReviewStore(tmp_path)
         catalog = _make_catalog("overdb")
         store.save_as_draft(catalog)
         return store
@@ -690,7 +686,7 @@ class TestExtractOverrides:
 
     @pytest.fixture
     def store_with_edited_catalog(self, tmp_path):
-        store = CatalogFileStore(tmp_path)
+        store = ReviewStore(tmp_path)
         catalog = _make_catalog("extractdb")
         store.save_as_draft(catalog)
         # Make some edits
@@ -720,12 +716,12 @@ class TestExtractOverrides:
         assert "orders" not in overrides
 
     def test_extract_overrides_nonexistent_catalog(self, tmp_path):
-        store = CatalogFileStore(tmp_path)
+        store = ReviewStore(tmp_path)
         overrides = store.extract_overrides("nonexistent")
         assert overrides == {}
 
     def test_extract_overrides_no_edits(self, tmp_path):
-        store = CatalogFileStore(tmp_path)
+        store = ReviewStore(tmp_path)
         catalog = _make_catalog("cleandb")
         store.save_as_draft(catalog)
         overrides = store.extract_overrides("cleandb")
@@ -740,7 +736,7 @@ class TestApplyOverrides:
 
     @pytest.fixture
     def store(self, tmp_path):
-        return CatalogFileStore(tmp_path)
+        return ReviewStore(tmp_path)
 
     def test_apply_table_description_override(self, store):
         catalog = _make_catalog("applydb")
@@ -853,7 +849,7 @@ class TestOverrideFullCycle:
 
     def test_full_override_cycle(self, tmp_path):
         """Full cycle: draft -> edit -> extract -> new draft -> apply -> verify."""
-        store = CatalogFileStore(tmp_path)
+        store = ReviewStore(tmp_path)
 
         # Step 1: Create initial draft
         catalog1 = _make_catalog("cycledb")
@@ -915,7 +911,7 @@ class TestOverrideFullCycle:
 
     def test_cycle_with_schema_change(self, tmp_path):
         """Override cycle where schema changes (table/column removed)."""
-        store = CatalogFileStore(tmp_path)
+        store = ReviewStore(tmp_path)
 
         # Create catalog with 2 tables
         catalog1 = _make_catalog("schemadb")
@@ -953,7 +949,7 @@ class TestOverrideFullCycle:
 
     def test_cycle_preserves_on_reload(self, tmp_path):
         """Overrides should persist through save/load cycles."""
-        store = CatalogFileStore(tmp_path)
+        store = ReviewStore(tmp_path)
 
         catalog = _make_catalog("persistdb")
         store.save_as_draft(catalog)
@@ -978,7 +974,7 @@ class TestOverrideBackwardCompatibility:
 
     def test_old_catalog_has_empty_overrides(self, tmp_path):
         """Catalogs saved before user_overrides feature have empty dicts."""
-        store = CatalogFileStore(tmp_path)
+        store = ReviewStore(tmp_path)
         db_dir = tmp_path / "oldoverdb"
         db_dir.mkdir()
         old_data = {
@@ -1009,7 +1005,7 @@ class TestOverrideBackwardCompatibility:
 
     def test_extract_overrides_from_old_catalog(self, tmp_path):
         """Extracting overrides from old catalog (no overrides) returns empty."""
-        store = CatalogFileStore(tmp_path)
+        store = ReviewStore(tmp_path)
         catalog = _make_catalog("olddb2")
         store.save(catalog)  # Save without overrides
         overrides = store.extract_overrides("olddb2")

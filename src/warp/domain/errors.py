@@ -194,17 +194,34 @@ class AnalysisError(WarpError):
         super().__init__(message=message, details=details, status_code=500)
 
 
-class ExportError(WarpError):
-    """Export related errors."""
+class DatabaseNotConfiguredError(WarpError):
+    """Raised when a request names a database that is not in the configuration."""
 
-    def __init__(self, message: str, details: dict[str, Any] | None = None):
-        """Initialize the error with a message and optional details payload."""
-        super().__init__(message=message, details=details, status_code=500)
+    def __init__(self, name: str, available: list[str] | None = None):
+        """Build the error for an unknown database `name`."""
+        super().__init__(
+            message=f"Database config not found: {name}",
+            details={"database": name, "available": available or []},
+            status_code=404,
+        )
+        self.name = name
 
 
-class I18nError(WarpError):
-    """Internationalization errors."""
+class UnsupportedExportFormatError(ValidationError):
+    """Raised when an export format is not registered."""
 
-    def __init__(self, message: str, details: dict[str, Any] | None = None):
-        """Initialize the error with a message and optional details payload."""
-        super().__init__(message=message, details=details, status_code=500)
+    def __init__(self, fmt: str, available: list[str]):
+        """Build the error for an unknown export `fmt`."""
+        super().__init__(
+            message=f"Unknown export format: {fmt}. Available: {', '.join(available)}",
+            details={"format": fmt, "available": available},
+        )
+        self.format = fmt
+
+
+class RawQueryDisabledError(WarpError):
+    """Raised when the raw SQL endpoint is called while disabled."""
+
+    def __init__(self) -> None:
+        """Build the error."""
+        super().__init__(message="Raw SQL query execution is disabled", status_code=403)

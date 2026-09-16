@@ -1,4 +1,4 @@
-"""Tests for EnrichedAnalyzer internal helpers and flows.
+"""Tests for CatalogAnalysisService internal helpers and flows.
 
 Covers privacy controls (_samples_for_llm), entry builders, conversion helpers,
 the translation flow, and an end-to-end analyze() with sample data and
@@ -13,9 +13,12 @@ from unittest.mock import AsyncMock
 import pytest
 
 from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-from warp.adapters.outbound.db.sample_reader import ColumnStats, TableSamples
+from warp.adapters.outbound.db.comment_reader import CommentReader
+from warp.adapters.outbound.db.sample_reader import SampleReader
 from warp.application.config import Settings
-from warp.application.services.catalog_analysis import EnrichedAnalyzer
+from warp.application.services.catalog_analysis import CatalogAnalysisService
+from warp.application.services.catalog_review import CatalogReviewService
+from warp.domain.samples import ColumnStats, TableSamples
 
 
 class FakeAdapter:
@@ -72,14 +75,16 @@ def _settings(
     )
 
 
-def _analyzer(tmp_path: Path, settings: Settings, llm: Any = None) -> EnrichedAnalyzer:
-    return EnrichedAnalyzer(
-        adapter=FakeAdapter(),
+def _analyzer(tmp_path: Path, settings: Settings, llm: Any = None) -> CatalogAnalysisService:
+    adapter = FakeAdapter()
+    return CatalogAnalysisService(
+        gateway=adapter,
         config=settings,
-        llm_client=llm or AsyncMock(),
-        store=CatalogFileStore(tmp_path / "catalogs"),
+        text_generator=llm or AsyncMock(),
+        comments=CommentReader(adapter, db_type="postgresql", schema="public", database="testdb"),
+        samples=SampleReader(adapter, db_type="postgresql", schema="public"),
+        review=CatalogReviewService(CatalogFileStore(tmp_path / "catalogs")),
         db_type="postgresql",
-        schema="public",
         database_name="testdb",
     )
 
@@ -142,7 +147,7 @@ def test_columns_to_dicts_variants() -> None:
             self.name = "d"
             self.type = "text"
 
-    result = EnrichedAnalyzer._columns_to_dicts(
+    result = CatalogAnalysisService._columns_to_dicts(
         [{"name": "a", "type": "int"}, WithModelDump(), WithDict()]
     )
     assert result[0]["name"] == "a"
@@ -155,16 +160,16 @@ def test_fks_and_indexes_to_dicts() -> None:
         def model_dump(self) -> dict[str, Any]:
             return {"column": "x"}
 
-    fks = EnrichedAnalyzer._fks_to_dicts([{"column": "a"}, WithModelDump()])
+    fks = CatalogAnalysisService._fks_to_dicts([{"column": "a"}, WithModelDump()])
     assert len(fks) == 2
-    idx = EnrichedAnalyzer._indexes_to_dicts([{"name": "i"}, WithModelDump()])
+    idx = CatalogAnalysisService._indexes_to_dicts([{"name": "i"}, WithModelDump()])
     assert len(idx) == 2
 
 
 def test_parse_localized() -> None:
-    assert EnrichedAnalyzer._parse_localized({"en": "x"}).get("en") == "x"
-    assert EnrichedAnalyzer._parse_localized("plain").get("en") == "plain"
-    assert EnrichedAnalyzer._parse_localized(123).texts == {}
+    assert CatalogAnalysisService._parse_localized({"en": "x"}).get("en") == "x"
+    assert CatalogAnalysisService._parse_localized("plain").get("en") == "plain"
+    assert CatalogAnalysisService._parse_localized(123).texts == {}
 
 
 # --- entry builders ---
@@ -396,11 +401,11 @@ async def test_analyze_partial_llm_failure_fallback(tmp_path: Path) -> None:
     settings = _settings(tmp_path, provider="ollama")
     analyzer = _analyzer(tmp_path, settings)
     # Two tables: first returns valid JSON, second is invalid -> fallback entry.
-    analyzer.adapter.get_tables = AsyncMock(return_value=["users", "orders"])
+    analyzer.gateway.get_tables = AsyncMock(return_value=["users", "orders"])
     good = json.dumps({"table_description": {"en": "x"}, "columns": {}, "relationships": []})
     llm = AsyncMock()
     llm.generate_json = AsyncMock(side_effect=[good, "not valid json"])
-    analyzer.llm_client = llm
+    analyzer.text_generator = llm
     catalog = await analyzer.analyze()
     # Both tables present; one enriched, one fallback - no error raised.
     assert catalog.table_count == 2

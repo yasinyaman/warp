@@ -19,7 +19,7 @@ import click
 from warp import __version__
 
 if TYPE_CHECKING:
-    from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
+    from warp.application.services.catalog_review import CatalogReviewService
     from warp.domain.catalog import TableCatalogEntry
 
 
@@ -72,11 +72,8 @@ async def _run_analyze(
     output: str | None,
     auto_approve: bool = False,
 ) -> None:
-    from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-    from warp.adapters.outbound.db.factory import DatabaseFactory
-    from warp.adapters.outbound.export.markdown import get_exporter
-    from warp.adapters.outbound.llm.providers import LLMClient
-    from warp.application.services.catalog_analysis import EnrichedAnalyzer
+    from warp.domain.errors import DatabaseNotConfiguredError
+    from warp.infrastructure.bootstrap import build_export_service, open_analysis
     from warp.infrastructure.config_loader import load_config
     from warp.infrastructure.logging import setup_logging
 
@@ -86,71 +83,23 @@ async def _run_analyze(
     lang = lang or config.settings.i18n.default_language
     table_names = tables.split(",") if tables else None
 
-    store = CatalogFileStore(
-        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
-    )
-
-    # Find database config
-    db_config = None
-    for db in config.databases:
-        if db.name == database:
-            db_config = db
-            break
-
-    if not db_config:
+    try:
+        async with open_analysis(config, database) as analysis:
+            catalog = await analysis.analyze(table_names=table_names, auto_approve=auto_approve)
+    except DatabaseNotConfiguredError:
         click.echo(f"Error: Database config '{database}' not found", err=True)
         sys.exit(1)
 
-    adapter_config = {
-        "type": db_config.type,
-        "host": db_config.host,
-        "port": db_config.port,
-        "database": db_config.database,
-        "username": db_config.username,
-        "password": db_config.password,
-        **db_config.options,
-    }
+    click.echo(f"Catalog generated: {catalog.table_count} tables, languages: {catalog.languages}")
 
-    adapter = DatabaseFactory.create(adapter_config)
-    await adapter.connect()
+    if auto_approve:
+        click.echo("Status: APPROVED (auto-approved)")
+    else:
+        click.echo(f"Status: DRAFT - Run 'warp review -d {database}' to review and approve.")
 
-    try:
-        llm_client = LLMClient.from_config(config)
-        try:
-            analyzer = EnrichedAnalyzer(
-                adapter=adapter,
-                config=config,
-                llm_client=llm_client,
-                store=store,
-                db_type=db_config.type,
-                schema="public" if db_config.type == "postgresql" else db_config.database,
-                database_name=database,
-            )
-
-            catalog = await analyzer.analyze(
-                table_names=table_names,
-                auto_approve=auto_approve,
-            )
-            click.echo(
-                f"Catalog generated: {catalog.table_count} tables, languages: {catalog.languages}"
-            )
-
-            if auto_approve:
-                click.echo("Status: APPROVED (auto-approved)")
-            else:
-                click.echo(
-                    f"Status: DRAFT - Run 'warp review -d {database}' to review and approve."
-                )
-
-            if output:
-                exporter = get_exporter(fmt)
-                path = exporter.export(catalog, output, lang=lang)
-                click.echo(f"Exported to: {path}")
-
-        finally:
-            await llm_client.close()
-    finally:
-        await adapter.disconnect()
+    if output:
+        path = build_export_service().export(catalog, fmt, output, lang=lang)
+        click.echo(f"Exported to: {path}")
 
 
 @main.command("export")
@@ -265,12 +214,16 @@ def review_catalog(ctx: click.Context, database: str, lang: str, auto_approve: b
     Review LLM-generated descriptions and edit any field before approving.
     """
     from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
-    from warp.domain.catalog import CatalogStatus, TableReviewStatus
+    from warp.application.services.catalog_review import CatalogReviewService
+    from warp.domain.catalog import CatalogStatus
     from warp.infrastructure.config_loader import load_config
 
     config = load_config(ctx.obj["config_path"])
-    store = CatalogFileStore(
-        config.settings.catalog.storage_path, default_format=config.settings.catalog.default_format
+    store = CatalogReviewService(
+        CatalogFileStore(
+            config.settings.catalog.storage_path,
+            default_format=config.settings.catalog.default_format,
+        )
     )
 
     catalog = store.load(database)
@@ -282,10 +235,7 @@ def review_catalog(ctx: click.Context, database: str, lang: str, auto_approve: b
         click.echo(f"Catalog '{database}' is already approved.")
         if not click.confirm("Re-open for review?"):
             return
-        catalog.status = CatalogStatus.draft
-        for table in catalog.tables.values():
-            table.review_status = TableReviewStatus.pending
-        store.save(catalog)
+        store.save_as_draft(catalog)
 
     click.echo(f"\n{'=' * 60}")
     click.echo(f" Review: {catalog.database_name} ({catalog.table_count} tables)")
@@ -379,7 +329,7 @@ def review_catalog(ctx: click.Context, database: str, lang: str, auto_approve: b
 
 
 def _interactive_edit_table(
-    store: "CatalogFileStore",
+    store: "CatalogReviewService",
     db_name: str,
     table_name: str,
     table: "TableCatalogEntry",
@@ -556,7 +506,7 @@ async def _run_pipeline(
     output: str | None,
     openapi: str | None,
 ) -> None:
-    from warp.application.services.pipeline import Pipeline
+    from warp.infrastructure.bootstrap import make_pipeline
     from warp.infrastructure.config_loader import load_config
     from warp.infrastructure.logging import setup_logging
 
@@ -565,7 +515,7 @@ async def _run_pipeline(
 
     table_names = tables.split(",") if tables else None
 
-    pipeline = Pipeline(config)
+    pipeline = make_pipeline(config)
     result = await pipeline.run(
         database_name=database,
         lang=lang,

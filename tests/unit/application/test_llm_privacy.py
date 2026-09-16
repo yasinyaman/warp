@@ -4,7 +4,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from warp.adapters.outbound.db.sample_reader import (
+from warp.application.config import Settings
+from warp.application.services.catalog_analysis import CatalogAnalysisService
+from warp.domain.samples import (
     ColumnStats,
     TableSamples,
     is_pii_column,
@@ -12,8 +14,6 @@ from warp.adapters.outbound.db.sample_reader import (
     mask_pii_samples,
     samples_for_storage,
 )
-from warp.application.config import Settings
-from warp.application.services.catalog_analysis import EnrichedAnalyzer
 
 
 def _samples():
@@ -62,10 +62,10 @@ def _analyzer(provider, *, share=False, mask=True):
     config.settings.llm.provider = provider
     config.settings.analysis.share_samples_with_cloud_llm = share
     config.settings.analysis.mask_pii_samples = mask
-    return EnrichedAnalyzer(
-        adapter=MagicMock(),
+    return CatalogAnalysisService(
+        gateway=MagicMock(),
         config=config,
-        llm_client=MagicMock(),
+        text_generator=MagicMock(),
         db_type="postgresql",
     )
 

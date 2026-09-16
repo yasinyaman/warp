@@ -13,6 +13,7 @@ from click.testing import CliRunner
 
 from warp.adapters.inbound.cli.main import main
 from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
+from warp.application.services.catalog_review import CatalogReviewService
 from warp.domain.catalog import (
     ColumnCatalogEntry,
     DatabaseCatalog,
@@ -52,7 +53,7 @@ def _seed_catalog(storage_path: Path) -> CatalogFileStore:
         llm_provider="openai",
         llm_model="gpt-4o-mini",
     )
-    store.save_as_draft(catalog)
+    CatalogReviewService(store).save_as_draft(catalog)
     return store
 
 
@@ -205,7 +206,7 @@ class TestReviewCommand:
     def test_review_already_approved_decline_reopen(self, tmp_path: Path) -> None:
         storage = tmp_path / "catalogs"
         store = _seed_catalog(storage)
-        store.approve_catalog("testdb")
+        CatalogReviewService(store).approve_catalog("testdb")
         cfg = _write_config(tmp_path, storage)
         result = CliRunner().invoke(main, ["-c", str(cfg), "review", "-d", "testdb"], input="n\n")
         assert result.exit_code == 0

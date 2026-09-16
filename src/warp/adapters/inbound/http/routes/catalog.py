@@ -17,9 +17,11 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from warp.adapters.inbound.http.auth import AuthManager, Permission
-from warp.adapters.outbound.catalog_store.file_store import CATALOG_NAME_PATTERN, CatalogFileStore
+from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
 from warp.adapters.outbound.export.markdown import get_exporter
+from warp.application.services.catalog_review import CatalogReviewService
 from warp.application.services.openapi_enrichment import OpenAPIEnricher
+from warp.domain.catalog_naming import CATALOG_NAME_PATTERN
 
 logger = logging.getLogger(__name__)
 
@@ -264,6 +266,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
         FastAPI APIRouter with catalog endpoints
     """
     router = APIRouter(prefix="/catalog", tags=["Catalog"])
+    review = CatalogReviewService(store)
 
     def get_auth_deps(permission: Permission) -> list[Any]:
         if auth_manager and auth_manager.enabled:
@@ -401,55 +404,31 @@ def create_catalog_router(  # noqa: C901, PLR0915
                 detail=f"Database not connected: {request.database}",
             )
 
-        # Run analysis
-        from warp.adapters.outbound.llm.providers import LLMClient
-        from warp.application.services.catalog_analysis import EnrichedAnalyzer
+        from warp.domain.errors import AnalysisError, DatabaseNotConfiguredError, LLMError
+        from warp.infrastructure.bootstrap import open_analysis
 
         adapter = adapters[request.database]
-        db_config = None
-        for db in config.databases:
-            if db.name == request.database:
-                db_config = db
-                break
-
-        if not db_config:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Database config not found: {request.database}",
-            )
-
-        from warp.domain.errors import AnalysisError, LLMError
-
         try:
-            llm_client = LLMClient.from_config(config)
-            try:
-                analyzer = EnrichedAnalyzer(
-                    adapter=adapter,
-                    config=config,
-                    llm_client=llm_client,
-                    store=store,
-                    db_type=db_config.type,
-                    schema="public" if db_config.type == "postgresql" else db_config.database,
-                    database_name=request.database,
-                )
-
-                catalog = await analyzer.analyze(
+            async with open_analysis(
+                config, request.database, repository=store, gateway=adapter
+            ) as analysis:
+                catalog = await analysis.analyze(
                     table_names=request.tables,
                     auto_approve=request.auto_approve,
                 )
 
-                # Refresh OpenAPI docs if catalog was auto-approved
-                if catalog.status.value == "approved" and app and adapters:
-                    _refresh_openapi_enrichment(app, store, config, adapters)
+            # Refresh OpenAPI docs if catalog was auto-approved
+            if catalog.status.value == "approved" and app and adapters:
+                _refresh_openapi_enrichment(app, store, config, adapters)
 
-                return AnalyzeResponse(
-                    database=catalog.database_name,
-                    table_count=catalog.table_count,
-                    languages=catalog.languages,
-                    status=catalog.status.value,
-                )
-            finally:
-                await llm_client.close()
+            return AnalyzeResponse(
+                database=catalog.database_name,
+                table_count=catalog.table_count,
+                languages=catalog.languages,
+                status=catalog.status.value,
+            )
+        except DatabaseNotConfiguredError as e:
+            raise HTTPException(status_code=404, detail=e.message) from e
         except (AnalysisError, LLMError) as e:
             logger.error(f"Analysis failed for {request.database}: {e}")
             raise HTTPException(
@@ -608,7 +587,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
             raise HTTPException(status_code=400, detail="No fields to update")
 
         try:
-            table = store.update_table_fields(
+            table = review.update_table_fields(
                 db_name=db_name,
                 table_name=table_name,
                 updates=updates,
@@ -650,7 +629,7 @@ def create_catalog_router(  # noqa: C901, PLR0915
             raise HTTPException(status_code=400, detail="No fields to update")
 
         try:
-            column = store.update_column_fields(
+            column = review.update_column_fields(
                 db_name=db_name,
                 table_name=table_name,
                 column_name=col_name,
@@ -686,15 +665,15 @@ def create_catalog_router(  # noqa: C901, PLR0915
         if request.tables:
             for tname in request.tables:
                 try:
-                    store.approve_table(db_name, tname)
+                    review.approve_table(db_name, tname)
                 except Exception as e:
                     raise HTTPException(status_code=400, detail=str(e)) from e
 
             catalog = store.load_or_raise(db_name)
             if catalog.all_tables_approved:
-                catalog = store.approve_catalog(db_name)
+                catalog = review.approve_catalog(db_name)
         else:
-            catalog = store.approve_catalog(db_name)
+            catalog = review.approve_catalog(db_name)
 
         # Refresh OpenAPI enrichment after approval
         if catalog.status.value == "approved" and app and adapters:
@@ -717,12 +696,12 @@ def create_catalog_router(  # noqa: C901, PLR0915
     ) -> dict[str, Any]:
         """Approve a single table in the draft catalog."""
         try:
-            catalog = store.approve_table(db_name, table_name)
+            catalog = review.approve_table(db_name, table_name)
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
         if catalog.all_tables_approved:
-            catalog = store.approve_catalog(db_name)
+            catalog = review.approve_catalog(db_name)
             if app and adapters:
                 _refresh_openapi_enrichment(app, store, config, adapters)
 

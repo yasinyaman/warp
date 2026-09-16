@@ -6,13 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore, validate_catalog_name
+from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
+from warp.application.services.catalog_review import CatalogReviewService
 from warp.domain.catalog import (
     ColumnCatalogEntry,
     DatabaseCatalog,
     LocalizedText,
     TableCatalogEntry,
 )
+from warp.domain.catalog_naming import validate_catalog_name
 from warp.domain.errors import InvalidCatalogNameError
 
 
@@ -191,101 +193,6 @@ class TestCatalogFileStore:
         assert user_id_col.references == "users.id"
 
 
-class TestCrossReference:
-    """Tests for cross-reference functionality."""
-
-    def test_find_similar_tables(self, store):
-        # Save two catalogs with similar table names
-        cat1 = DatabaseCatalog(
-            database_name="db1",
-            tables={
-                "users": TableCatalogEntry(
-                    table_name="users",
-                    description=LocalizedText(texts={"en": "User accounts"}),
-                ),
-            },
-        )
-        cat2 = DatabaseCatalog(
-            database_name="db2",
-            tables={
-                "app_users": TableCatalogEntry(
-                    table_name="app_users",
-                    description=LocalizedText(texts={"en": "Application users"}),
-                ),
-            },
-        )
-
-        store.save(cat1)
-        store.save(cat2)
-
-        # Find similar to "users" excluding db1
-        results = store.find_similar_tables("users", exclude_db="db1")
-        assert len(results) >= 1
-        db_names = [r[0] for r in results]
-        assert "db2" in db_names
-
-    def test_find_similar_columns(self, store, sample_catalog):
-        store.save(sample_catalog)
-
-        results = store.find_similar_columns("email", exclude_db=None)
-        assert len(results) >= 1
-        # Should find email column in testdb.users
-        found = any(col.semantic_type == "email" for _, _, col in results)
-        assert found
-
-    def test_build_cross_reference_context(self, store, sample_catalog):
-        store.save(sample_catalog)
-
-        context = store.build_cross_reference_context(
-            table_name="users",
-            column_names=["email", "status"],
-            exclude_db="other_db",
-        )
-
-        # Should contain some reference text
-        assert isinstance(context, str)
-        assert len(context) > 0
-
-    def test_no_cross_references(self, store):
-        context = store.build_cross_reference_context(
-            table_name="nonexistent",
-            column_names=["col1"],
-        )
-        assert "No previous catalog data" in context
-
-
-class TestNameNormalization:
-    """Tests for name normalization in cross-reference."""
-
-    @pytest.mark.parametrize(
-        "input_name,expected",
-        [
-            ("users", "user"),
-            ("tbl_users", "user"),
-            ("user_id", "user"),
-            ("categories", "category"),
-            ("addresses", "address"),
-            ("order_items", "order_item"),
-        ],
-    )
-    def test_normalize_name(self, input_name, expected):
-        result = CatalogFileStore._normalize_name(input_name)
-        assert result == expected
-
-    @pytest.mark.parametrize(
-        "name1,name2,expected",
-        [
-            ("user", "user", True),
-            ("user", "users", True),  # "user" is contained in "users"
-            ("abc", "abcdef", True),  # Contains
-            ("ab", "xy", False),  # Too short for contains
-        ],
-    )
-    def test_names_are_similar(self, name1, name2, expected):
-        result = CatalogFileStore._names_are_similar(name1, name2)
-        assert result == expected
-
-
 class TestPathSafety:
     """Catalog names are directory names: traversal and collisions must be refused."""
 
@@ -353,10 +260,11 @@ class TestDefaultFormat:
 
     def test_internal_resaves_keep_default_format(self, temp_dir, sample_catalog):
         store = CatalogFileStore(temp_dir, default_format="yaml")
-        store.save_as_draft(sample_catalog)
-        store.approve_table("testdb", "users")
-        store.update_table_fields("testdb", "orders", {"tags": ["x"]})
-        store.approve_catalog("testdb")
+        review = CatalogReviewService(store)
+        review.save_as_draft(sample_catalog)
+        review.approve_table("testdb", "users")
+        review.update_table_fields("testdb", "orders", {"tags": ["x"]})
+        review.approve_catalog("testdb")
 
         files = sorted(p.name for p in (temp_dir / "testdb").iterdir())
         assert files == ["catalog.yaml"]

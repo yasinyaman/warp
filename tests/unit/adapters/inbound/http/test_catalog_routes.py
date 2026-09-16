@@ -15,6 +15,7 @@ from warp.adapters.inbound.http.auth import AuthManager
 from warp.adapters.inbound.http.routes.catalog import create_catalog_router
 from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
 from warp.application.config import ApiKeyConfig, AuthConfig, DatabaseConfig, Settings
+from warp.application.services.catalog_review import CatalogReviewService
 from warp.domain.catalog import (
     ColumnCatalogEntry,
     DatabaseCatalog,
@@ -86,7 +87,7 @@ def _make_catalog() -> DatabaseCatalog:
 @pytest.fixture
 def store(tmp_path: Path) -> CatalogFileStore:
     s = CatalogFileStore(tmp_path)
-    s.save_as_draft(_make_catalog())
+    CatalogReviewService(s).save_as_draft(_make_catalog())
     return s
 
 
@@ -222,7 +223,7 @@ class TestEdit:
         assert r.status_code == 404
 
     def test_edit_table_not_draft(self, client: TestClient, store: CatalogFileStore) -> None:
-        store.approve_catalog("testdb")
+        CatalogReviewService(store).approve_catalog("testdb")
         r = client.patch("/catalog/testdb/draft/tables/users", json={"tags": ["x"]})
         assert r.status_code == 409
 
@@ -252,7 +253,7 @@ class TestEdit:
         assert r.status_code == 404
 
     def test_edit_column_not_draft(self, client: TestClient, store: CatalogFileStore) -> None:
-        store.approve_catalog("testdb")
+        CatalogReviewService(store).approve_catalog("testdb")
         r = client.patch(
             "/catalog/testdb/draft/tables/users/columns/email",
             json={"semantic_type": "x"},

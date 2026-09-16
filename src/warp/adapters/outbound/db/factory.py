@@ -5,6 +5,7 @@ from typing import Any
 from warp.adapters.outbound.db.base import DatabaseAdapter
 from warp.adapters.outbound.db.mysql import MySQLAdapter
 from warp.adapters.outbound.db.postgres import PostgreSQLAdapter
+from warp.application.config import DatabaseConfig
 
 # Registry of available database adapters
 ADAPTERS: dict[str, type[DatabaseAdapter]] = {
@@ -28,14 +29,14 @@ class DatabaseFactory:
     """
 
     @staticmethod
-    def create(config: dict[str, Any]) -> DatabaseAdapter:
+    def create(config: DatabaseConfig | dict[str, Any]) -> DatabaseAdapter:
         """Create a database adapter based on configuration.
 
         Args:
-            config: Database configuration dictionary containing:
-                   - type: Database type (postgresql, mysql, etc.)
-                   - host, port, database, username, password
-                   - options: Additional options
+            config: A `DatabaseConfig` (preferred; `options` stay nested so pool
+                   sizing/SSL reach the adapter) or the equivalent dictionary with
+                   `type`, `host`, `port`, `database`, `username`, `password`
+                   and an optional nested `options` mapping.
 
         Returns:
             DatabaseAdapter instance.
@@ -43,6 +44,8 @@ class DatabaseFactory:
         Raises:
             ValueError: If database type is not supported.
         """
+        if isinstance(config, DatabaseConfig):
+            config = config.model_dump()
         db_type = config.get("type", "").lower()
 
         if db_type not in ADAPTERS:

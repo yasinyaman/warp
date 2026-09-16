@@ -1,18 +1,30 @@
-"""Tests for enrichment modules: CommentReader and EnrichedAnalyzer."""
+"""Tests for enrichment modules: CommentReader and CatalogAnalysisService."""
 
 import json
 from unittest.mock import AsyncMock
 
 import pytest
 
-from warp.adapters.outbound.db.comment_reader import CommentReader, TableComments
+from warp.adapters.outbound.db.comment_reader import CommentReader
+from warp.adapters.outbound.db.sample_reader import SampleReader
 from warp.adapters.outbound.llm.providers import LLMClient, LLMProvider
 from warp.application.config import Settings
-from warp.application.services.catalog_analysis import EnrichedAnalyzer
+from warp.application.services.catalog_analysis import CatalogAnalysisService
+from warp.domain.comments import TableComments
 
 # ===========================================
 # Mock Classes
 # ===========================================
+
+
+def _service(**kwargs):
+    """Build the analysis service with real readers over the test adapter (as bootstrap does)."""
+    gateway = kwargs["gateway"]
+    kwargs.setdefault(
+        "comments", CommentReader(gateway, db_type="postgresql", schema="public", database="testdb")
+    )
+    kwargs.setdefault("samples", SampleReader(gateway, db_type="postgresql", schema="public"))
+    return CatalogAnalysisService(**kwargs)
 
 
 class MockLLMProvider(LLMProvider):
@@ -233,7 +245,7 @@ class TestCommentReaderUnsupportedDB:
 
 
 # ===========================================
-# EnrichedAnalyzer Fixtures
+# CatalogAnalysisService Fixtures
 # ===========================================
 
 
@@ -320,11 +332,11 @@ def analyzer_config():
 
 
 # ===========================================
-# EnrichedAnalyzer Tests
+# CatalogAnalysisService Tests
 # ===========================================
 
 
-class TestEnrichedAnalyzer:
+class TestCatalogAnalysisService:
     """Tests for the main analyzer orchestrator."""
 
     @pytest.mark.asyncio
@@ -332,10 +344,10 @@ class TestEnrichedAnalyzer:
         provider = MockLLMProvider(response=llm_response)
         client = LLMClient(provider=provider)
 
-        analyzer = EnrichedAnalyzer(
-            adapter=analyzer_adapter,
+        analyzer = _service(
+            gateway=analyzer_adapter,
             config=analyzer_config,
-            llm_client=client,
+            text_generator=client,
             db_type="postgresql",
             database_name="testdb",
         )
@@ -367,10 +379,10 @@ class TestEnrichedAnalyzer:
         provider = MockLLMProvider(response=llm_response)
         client = LLMClient(provider=provider)
 
-        analyzer = EnrichedAnalyzer(
-            adapter=analyzer_adapter,
+        analyzer = _service(
+            gateway=analyzer_adapter,
             config=analyzer_config,
-            llm_client=client,
+            text_generator=client,
             database_name="testdb",
         )
 
@@ -395,10 +407,10 @@ class TestEnrichedAnalyzer:
         provider = MockLLMProvider(response=llm_response)
         client = LLMClient(provider=provider)
 
-        analyzer = EnrichedAnalyzer(
-            adapter=analyzer_adapter,
+        analyzer = _service(
+            gateway=analyzer_adapter,
             config=config,
-            llm_client=client,
+            text_generator=client,
             database_name="testdb",
         )
 
@@ -413,10 +425,10 @@ class TestEnrichedAnalyzer:
         provider = MockLLMProvider(response="not valid json {{{")
         client = LLMClient(provider=provider)
 
-        analyzer = EnrichedAnalyzer(
-            adapter=analyzer_adapter,
+        analyzer = _service(
+            gateway=analyzer_adapter,
             config=analyzer_config,
-            llm_client=client,
+            text_generator=client,
             database_name="testdb",
         )
 
@@ -480,10 +492,10 @@ class TestEnrichedAnalyzer:
         provider = MockLLMProvider(response=llm_resp)
         client = LLMClient(provider=provider)
 
-        analyzer = EnrichedAnalyzer(
-            adapter=analyzer_adapter,
+        analyzer = _service(
+            gateway=analyzer_adapter,
             config=analyzer_config,
-            llm_client=client,
+            text_generator=client,
             database_name="testdb",
         )
 
@@ -507,18 +519,18 @@ class TestParseLocalized:
     """Tests for _parse_localized helper."""
 
     def test_dict_input(self):
-        result = EnrichedAnalyzer._parse_localized({"en": "Hello", "tr": "Merhaba"})
+        result = CatalogAnalysisService._parse_localized({"en": "Hello", "tr": "Merhaba"})
         assert result.get("en") == "Hello"
         assert result.get("tr") == "Merhaba"
 
     def test_string_input(self):
-        result = EnrichedAnalyzer._parse_localized("Hello")
+        result = CatalogAnalysisService._parse_localized("Hello")
         assert result.get("en") == "Hello"
 
     def test_none_input(self):
-        result = EnrichedAnalyzer._parse_localized(None)
+        result = CatalogAnalysisService._parse_localized(None)
         assert result.is_empty
 
     def test_empty_dict(self):
-        result = EnrichedAnalyzer._parse_localized({})
+        result = CatalogAnalysisService._parse_localized({})
         assert result.is_empty
