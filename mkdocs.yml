@@ -1,0 +1,54 @@
+site_name: Warp Engine
+site_description: Auto-discovery REST CRUD API generator with LLM catalog intelligence
+repo_url: https://github.com/yasinyaman/warp
+repo_name: yasinyaman/warp
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Production Deployment: deployment.md
+  - Architecture: architecture.md
+  - Architecture Decisions:
+      - Overview: adr/README.md
+      - 1. Layered architecture: adr/0001-layered-architecture.md
+      - 2. Fail-safe production config: adr/0002-fail-safe-production-config.md
+      - 3. Dependency management: adr/0003-dependency-management.md
+      - 4. LLM sample-data privacy: adr/0004-llm-sample-data-privacy.md
+      - 5. CI quality gates: adr/0005-ci-quality-gates.md
+      - 6. Distribution name: adr/0006-distribution-name.md
+      - 7. Hexagonal architecture: adr/0007-hexagonal-architecture.md
+  - API Reference: reference.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: false
+            heading_level: 2

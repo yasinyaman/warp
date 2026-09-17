@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least-privilege default token for every job.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up uv + Python (activated venv)
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          activate-environment: true
+          enable-cache: true
+          cache-dependency-glob: requirements.lock
+      - name: Install (hash-verified lock)
+        run: |
+          uv pip sync --require-hashes requirements.lock
+          uv pip install --no-deps -e .
+      - name: Run tests + coverage gate (fail under 80%)
+        run: pytest --cov=src/warp --cov-report=term-missing
+
+  integration:
+    name: integration (PostgreSQL + MySQL via testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up uv + Python (activated venv)
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.12"
+          activate-environment: true
+          enable-cache: true
+          cache-dependency-glob: requirements.lock
+      - name: Install (hash-verified lock)
+        run: |
+          uv pip sync --require-hashes requirements.lock
+          uv pip install --no-deps -e .
+      - name: Run integration tests against real databases
+        run: pytest tests/integration -m integration
+
+  quality:
+    name: lint, format & types
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up uv + Python (activated venv)
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.12"
+          activate-environment: true
+          enable-cache: true
+          cache-dependency-glob: requirements.lock
+      - name: Install (hash-verified lock)
+        run: |
+          uv pip sync --require-hashes requirements.lock
+          uv pip install --no-deps -e .
+      - name: Ruff (lint)
+        run: ruff check src/ tests/
+      - name: Ruff (format)
+        run: ruff format --check src/ tests/
+      - name: Import contracts (layered architecture)
+        run: lint-imports
+      - name: Mypy (strict)
+        run: mypy src/
+
+  security:
+    name: dependency audit (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up uv + Python (activated venv)
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.12"
+          activate-environment: true
+          enable-cache: true
+          cache-dependency-glob: requirements.lock
+      - name: pip-audit against the hashed lock
+        run: |
+          uv pip install pip-audit
+          pip-audit --strict --require-hashes -r requirements.lock
+        continue-on-error: true

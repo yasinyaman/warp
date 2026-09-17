@@ -1,0 +1,708 @@
+"""Catalog REST API endpoints.
+
+Provides REST endpoints for catalog operations:
+- Analyze database and generate catalog
+- List available catalogs
+- Get catalog info
+- Export catalog
+- Enrich OpenAPI spec
+"""
+
+import logging
+from typing import Annotated, Any
+
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import Path as PathParam
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
+
+from warp.adapters.inbound.http.auth import AuthManager, Permission
+from warp.application.container import Container
+from warp.application.ports.database import DatabaseGateway
+from warp.application.services.openapi_enrichment import OpenAPIEnricher
+from warp.domain.catalog import CatalogStatus
+from warp.domain.catalog_naming import CATALOG_NAME_PATTERN
+from warp.domain.errors import (
+    AnalysisError,
+    DatabaseNotConfiguredError,
+    LLMError,
+    UnsupportedExportFormatError,
+)
+
+logger = logging.getLogger(__name__)
+
+# Path parameter type for catalog names: rejects anything that is not a plain
+# identifier (e.g. "..", "a/b", "_index") with a 422 before it reaches the store.
+CatalogName = Annotated[
+    str,
+    PathParam(
+        pattern=CATALOG_NAME_PATTERN,
+        description="Catalog (database) name: letters, digits, '_' or '-'.",
+    ),
+]
+
+
+# --- Request/Response models ---
+
+
+class AnalyzeRequest(BaseModel):
+    """Request body for catalog analysis."""
+
+    database: str = Field(..., description="Database config name")
+    tables: list[str] | None = Field(default=None, description="Specific tables to analyze")
+    lang: str | None = Field(default=None, description="Language override")
+    auto_approve: bool = Field(
+        default=False, description="Auto-approve catalog after analysis (skip review)"
+    )
+
+
+class AnalyzeResponse(BaseModel):
+    """Response from catalog analysis."""
+
+    database: str
+    table_count: int
+    languages: list[str]
+    status: str = "draft"
+    failed_tables: list[str] = Field(
+        default_factory=list, description="Tables left out because their schema could not be read"
+    )
+    fallback_tables: list[str] = Field(
+        default_factory=list, description="Tables catalogued without LLM descriptions"
+    )
+
+
+class CatalogListEntry(BaseModel):
+    """Summary of a catalog in the list."""
+
+    database_name: str
+    database_type: str = "postgresql"
+    table_count: int = 0
+    languages: list[str] = Field(default_factory=list)
+    version: str = "1.0.0"
+    status: str = "draft"
+
+
+class CatalogListResponse(BaseModel):
+    """Response for catalog list."""
+
+    catalogs: list[CatalogListEntry]
+    total: int
+
+
+class CatalogInfoResponse(BaseModel):
+    """Detailed catalog info."""
+
+    database_name: str
+    database_type: str
+    table_count: int
+    languages: list[str]
+    tables: list[dict[str, Any]]
+    llm_provider: str | None = None
+    llm_model: str | None = None
+
+
+class ExportRequest(BaseModel):
+    """Request for catalog export."""
+
+    format: str = Field(default="json", description="Export format: json, yaml, markdown")
+    lang: str = Field(default="en", description="Language for export")
+
+
+class TableEditRequest(BaseModel):
+    """Partial update for a table's editable fields."""
+
+    description: dict[str, str] | None = Field(
+        default=None,
+        description="Localized description updates, e.g. {'en': 'New desc'}",
+    )
+    human_name: dict[str, str] | None = Field(
+        default=None,
+        description="Localized human name updates",
+    )
+    tags: list[str] | None = Field(
+        default=None,
+        description="Replace tags list",
+    )
+    relationships: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Replace relationships list",
+    )
+
+
+class ColumnEditRequest(BaseModel):
+    """Partial update for a column's editable fields."""
+
+    description: dict[str, str] | None = Field(
+        default=None,
+        description="Localized description updates",
+    )
+    semantic_type: str | None = Field(
+        default=None,
+        description="Semantic type override",
+    )
+    tags: list[str] | None = Field(
+        default=None,
+        description="Replace tags list",
+    )
+
+
+class ApproveRequest(BaseModel):
+    """Request to approve tables or entire catalog."""
+
+    tables: list[str] | None = Field(
+        default=None,
+        description="Specific table names to approve. If None, approve all.",
+    )
+
+
+class DraftInfoResponse(BaseModel):
+    """Draft catalog info with per-table review status."""
+
+    database_name: str
+    database_type: str
+    status: str
+    table_count: int
+    languages: list[str]
+    review_summary: dict[str, int]
+    tables: list[dict[str, Any]]
+
+
+class TableReviewDetail(BaseModel):
+    """Detailed table info for review."""
+
+    table_name: str
+    human_name: dict[str, str]
+    description: dict[str, str]
+    review_status: str
+    tags: list[str]
+    column_count: int
+    row_count: int | None = None
+    columns: list[dict[str, Any]]
+    relationships: list[dict[str, Any]]
+    user_overrides: dict[str, Any] = Field(default_factory=dict)
+
+
+def _refresh_openapi_enrichment(
+    app: FastAPI,
+    container: Container,
+    gateways: dict[str, DatabaseGateway],
+) -> None:
+    """Rebuild OpenAPI enrichment after catalog changes.
+
+    Clears the cached OpenAPI schema and sets up a new enriched_openapi
+    function using all available catalogs.
+    """
+    from fastapi.openapi.utils import get_openapi
+
+    store = container.repository
+    config = container.settings
+    if not config.settings.catalog.auto_enrich_openapi:
+        logger.debug("OpenAPI enrichment disabled in config")
+        return
+
+    enrichment_lang = config.settings.catalog.openapi_enrichment_lang
+    enrichers = []
+    for db_name in gateways:
+        catalog = store.load(db_name)
+        if catalog is None:
+            logger.debug(f"OpenAPI enrichment: no catalog found for '{db_name}'")
+            continue
+        if catalog.status != CatalogStatus.approved:
+            # Drafts are still under review; only approved descriptions are published.
+            logger.debug(f"OpenAPI enrichment: skipping draft catalog '{db_name}'")
+            continue
+        enrichers.append(
+            OpenAPIEnricher(
+                catalog,
+                lang=enrichment_lang,
+                include_examples=config.settings.catalog.openapi_include_examples,
+            )
+        )
+
+    def enriched_openapi() -> dict[str, Any]:
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(
+            title=app.title, version=app.version, description=app.description, routes=app.routes
+        )
+        for enricher in enrichers:  # each merges into one top-level x-llm-context
+            schema = enricher.enrich(schema)
+        app.openapi_schema = schema
+        return app.openapi_schema
+
+    # Always replace both the generator and the cache: a stale closure would
+    # keep serving descriptions of catalogs that were deleted or re-opened.
+    app.openapi = enriched_openapi  # type: ignore[method-assign]
+    app.openapi_schema = None
+    enriched_openapi()
+    logger.info(f"OpenAPI enrichment refreshed with {len(enrichers)} approved catalog(s)")
+
+
+def create_catalog_router(  # noqa: C901, PLR0915
+    *,
+    container: Container,
+    gateways: dict[str, DatabaseGateway] | None = None,
+    app: FastAPI | None = None,
+    auth_manager: AuthManager | None = None,
+) -> APIRouter:
+    """Create the catalog API router.
+
+    Permissions (enforced when `auth_manager` is enabled):
+        read   - list/info/export/draft views
+        create - POST /analyze (writes a new catalog, spends LLM budget)
+        update - draft edits and approvals
+        delete - DELETE /{db_name}
+
+    Args:
+        container: The wired application services (repository, review, export,
+            analysis).
+        gateways: Connected database gateways by name (for live analysis).
+        app: FastAPI app instance (for OpenAPI enrichment refresh)
+        auth_manager: Optional auth manager; when enabled every endpoint
+            requires an API key with the matching permission.
+
+    Returns:
+        FastAPI APIRouter with catalog endpoints
+    """
+    store = container.repository
+    review = container.review
+    adapters = gateways
+    router = APIRouter(prefix="/catalog", tags=["Catalog"])
+
+    def get_auth_deps(permission: Permission) -> list[Any]:
+        if auth_manager and auth_manager.enabled:
+            return [Depends(auth_manager.require(permission))]
+        return []
+
+    @router.get(
+        "",
+        dependencies=get_auth_deps(Permission.READ),
+        response_model=CatalogListResponse,
+        summary="List available catalogs",
+    )
+    async def list_catalogs() -> CatalogListResponse:
+        """List all available catalogs."""
+        catalog_names = store.list_catalogs()
+        index = store.get_index()
+
+        entries = []
+        for name in catalog_names:
+            idx_entry = index.catalogs.get(name)
+            if idx_entry:
+                entries.append(
+                    CatalogListEntry(
+                        database_name=idx_entry.database_name,
+                        database_type=idx_entry.database_type,
+                        table_count=idx_entry.table_count,
+                        languages=idx_entry.languages,
+                        version=idx_entry.version,
+                        status=getattr(idx_entry, "status", "draft"),
+                    )
+                )
+            else:
+                entries.append(CatalogListEntry(database_name=name))
+
+        return CatalogListResponse(catalogs=entries, total=len(entries))
+
+    @router.get(
+        "/{db_name}",
+        dependencies=get_auth_deps(Permission.READ),
+        response_model=CatalogInfoResponse,
+        summary="Get catalog info",
+    )
+    async def get_catalog_info(
+        db_name: CatalogName,
+        lang: str = Query(default="en", description="Language for descriptions"),
+    ) -> CatalogInfoResponse:
+        """Get detailed information about a specific catalog."""
+        catalog = store.load(db_name)
+        if not catalog:
+            raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
+
+        tables_info = []
+        for tname, table in catalog.tables.items():
+            human = table.human_name.get(lang) or tname
+            desc = table.description.get(lang) or ""
+            tables_info.append(
+                {
+                    "table_name": tname,
+                    "human_name": human,
+                    "description": desc,
+                    "column_count": len(table.columns),
+                    "row_count": table.row_count,
+                    "tags": table.tags,
+                }
+            )
+
+        return CatalogInfoResponse(
+            database_name=catalog.database_name,
+            database_type=catalog.database_type,
+            table_count=catalog.table_count,
+            languages=catalog.languages,
+            tables=tables_info,
+            llm_provider=catalog.llm_provider,
+            llm_model=catalog.llm_model,
+        )
+
+    @router.get(
+        "/{db_name}/export",
+        dependencies=get_auth_deps(Permission.READ),
+        summary="Export catalog",
+    )
+    async def export_catalog(
+        db_name: CatalogName,
+        format: str = Query(default="json", description="Export format"),
+        lang: str = Query(default="en", description="Language"),
+    ) -> Response:
+        """Export a catalog in the specified format."""
+        catalog = store.load(db_name)
+        if not catalog:
+            raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
+
+        try:
+            content = container.export.render(catalog, format, lang=lang)
+        except UnsupportedExportFormatError as e:
+            raise HTTPException(status_code=400, detail=e.message) from e
+
+        return Response(
+            content=content,
+            media_type=container.export.media_type(format),
+            headers={"Content-Disposition": f'attachment; filename="{db_name}_catalog.{format}"'},
+        )
+
+    @router.post(
+        "/analyze",
+        dependencies=get_auth_deps(Permission.CREATE),
+        response_model=AnalyzeResponse,
+        summary="Analyze database and generate catalog",
+    )
+    async def analyze_database(
+        request: AnalyzeRequest,
+    ) -> AnalyzeResponse:
+        """Run database analysis and catalog generation.
+
+        The analysis runs synchronously within the request (one LLM call per
+        table); the response is returned when the catalog has been written.
+        """
+        if not adapters:
+            raise HTTPException(
+                status_code=503,
+                detail="Analysis not available - no database gateways are connected",
+            )
+
+        if request.database not in adapters:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Database not connected: {request.database}",
+            )
+
+        adapter = adapters[request.database]
+        try:
+            async with container.open_analysis(request.database, gateway=adapter) as analysis:
+                catalog = await analysis.analyze(
+                    table_names=request.tables,
+                    auto_approve=request.auto_approve,
+                )
+                report = analysis.report
+
+            # A re-analysis re-opens the catalog as a draft (or auto-approves it):
+            # either way the published OpenAPI context must follow.
+            if app and adapters:
+                _refresh_openapi_enrichment(app, container, adapters)
+
+            return AnalyzeResponse(
+                database=catalog.database_name,
+                table_count=catalog.table_count,
+                languages=catalog.languages,
+                status=catalog.status.value,
+                failed_tables=report.failed_tables if report else [],
+                fallback_tables=report.fallback_tables if report else [],
+            )
+        except DatabaseNotConfiguredError as e:
+            raise HTTPException(status_code=404, detail=e.message) from e
+        except (AnalysisError, LLMError) as e:
+            logger.error(f"Analysis failed for {request.database}: {e}")
+            raise HTTPException(
+                status_code=422,
+                detail=str(e),
+            ) from e
+        except Exception as e:
+            # Never echo unexpected exception text (driver/SDK internals) to
+            # the client; the traceback is logged server-side.
+            logger.exception(f"Analysis failed for {request.database}: {e}")
+            raise HTTPException(status_code=500, detail="Analysis failed") from e
+
+    @router.delete(
+        "/{db_name}",
+        dependencies=get_auth_deps(Permission.DELETE),
+        summary="Delete a catalog",
+    )
+    async def delete_catalog(db_name: CatalogName) -> dict[str, Any]:
+        """Delete a stored catalog (its descriptions leave the OpenAPI spec too)."""
+        if store.delete(db_name):
+            if app and adapters:
+                _refresh_openapi_enrichment(app, container, adapters)
+            return {"deleted": True, "database": db_name}
+        raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
+
+    # --- Draft / Review endpoints ---
+
+    @router.get(
+        "/{db_name}/draft",
+        dependencies=get_auth_deps(Permission.READ),
+        response_model=DraftInfoResponse,
+        summary="Get draft catalog with review status",
+    )
+    async def get_draft_info(
+        db_name: CatalogName,
+        lang: str = Query(default="en", description="Language for descriptions"),
+    ) -> DraftInfoResponse:
+        """Get draft catalog overview with per-table review status."""
+        catalog = store.load(db_name)
+        if not catalog:
+            raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
+
+        tables_info = []
+        for tname, table in catalog.tables.items():
+            tables_info.append(
+                {
+                    "table_name": tname,
+                    "human_name": table.human_name.get(lang) or tname,
+                    "description": table.description.get(lang) or "",
+                    "review_status": table.review_status.value,
+                    "column_count": len(table.columns),
+                    "row_count": table.row_count,
+                    "tags": table.tags,
+                    "has_overrides": bool(table.user_overrides),
+                }
+            )
+
+        return DraftInfoResponse(
+            database_name=catalog.database_name,
+            database_type=catalog.database_type,
+            status=catalog.status.value,
+            table_count=catalog.table_count,
+            languages=catalog.languages,
+            review_summary=catalog.review_summary,
+            tables=tables_info,
+        )
+
+    @router.get(
+        "/{db_name}/draft/tables/{table_name}",
+        dependencies=get_auth_deps(Permission.READ),
+        response_model=TableReviewDetail,
+        summary="Get single table detail for review",
+    )
+    async def get_draft_table(
+        db_name: CatalogName,
+        table_name: str,
+        lang: str = Query(default="en", description="Language"),
+    ) -> TableReviewDetail:
+        """Get detailed table info for review including columns and relationships."""
+        catalog = store.load(db_name)
+        if not catalog:
+            raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
+
+        table = catalog.get_table(table_name)
+        if not table:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Table not found: {table_name} in {db_name}",
+            )
+
+        columns_info = []
+        for col in table.columns:
+            columns_info.append(
+                {
+                    "name": col.name,
+                    "data_type": col.data_type,
+                    "description": col.description.texts,
+                    "semantic_type": col.semantic_type,
+                    "nullable": col.nullable,
+                    "is_primary_key": col.is_primary_key,
+                    "is_foreign_key": col.is_foreign_key,
+                    "references": col.references,
+                    "tags": col.tags,
+                    "sample_values": col.sample_values,
+                    "has_overrides": bool(col.user_overrides),
+                }
+            )
+
+        relationships_info = []
+        for rel in table.relationships:
+            relationships_info.append(
+                {
+                    "source_column": rel.source_column,
+                    "target_table": rel.target_table,
+                    "target_column": rel.target_column,
+                    "relationship_type": rel.relationship_type,
+                    "description": rel.description.texts,
+                }
+            )
+
+        return TableReviewDetail(
+            table_name=table.table_name,
+            human_name=table.human_name.texts,
+            description=table.description.texts,
+            review_status=table.review_status.value,
+            tags=table.tags,
+            column_count=len(table.columns),
+            row_count=table.row_count,
+            columns=columns_info,
+            relationships=relationships_info,
+            user_overrides=table.user_overrides,
+        )
+
+    @router.patch(
+        "/{db_name}/draft/tables/{table_name}",
+        dependencies=get_auth_deps(Permission.UPDATE),
+        summary="Edit table fields in draft",
+    )
+    async def edit_draft_table(
+        db_name: CatalogName,
+        table_name: str,
+        request: TableEditRequest,
+        lang: str = Query(default="en", description="Default language for string values"),
+    ) -> dict[str, Any]:
+        """Edit table-level fields. The table review_status becomes 'modified'."""
+        catalog = store.load(db_name)
+        if not catalog:
+            raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
+
+        if catalog.status.value != "draft":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Catalog is not in draft status: {db_name}",
+            )
+
+        updates = request.model_dump(exclude_none=True)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        try:
+            table = review.update_table_fields(
+                db_name=db_name,
+                table_name=table_name,
+                updates=updates,
+                lang=lang,
+            )
+            return {
+                "table_name": table.table_name,
+                "review_status": table.review_status.value,
+                "updated_fields": list(updates.keys()),
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @router.patch(
+        "/{db_name}/draft/tables/{table_name}/columns/{col_name}",
+        dependencies=get_auth_deps(Permission.UPDATE),
+        summary="Edit column fields in draft",
+    )
+    async def edit_draft_column(
+        db_name: CatalogName,
+        table_name: str,
+        col_name: str,
+        request: ColumnEditRequest,
+        lang: str = Query(default="en", description="Default language"),
+    ) -> dict[str, Any]:
+        """Edit column-level fields. The parent table review_status becomes 'modified'."""
+        catalog = store.load(db_name)
+        if not catalog:
+            raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
+
+        if catalog.status.value != "draft":
+            raise HTTPException(
+                status_code=409,
+                detail=f"Catalog is not in draft status: {db_name}",
+            )
+
+        updates = request.model_dump(exclude_none=True)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        try:
+            column = review.update_column_fields(
+                db_name=db_name,
+                table_name=table_name,
+                column_name=col_name,
+                updates=updates,
+                lang=lang,
+            )
+            return {
+                "column_name": column.name,
+                "semantic_type": column.semantic_type,
+                "updated_fields": list(updates.keys()),
+            }
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    @router.post(
+        "/{db_name}/approve",
+        dependencies=get_auth_deps(Permission.UPDATE),
+        summary="Approve catalog (all or specific tables)",
+    )
+    async def approve_catalog_endpoint(
+        db_name: CatalogName,
+        request: ApproveRequest = ApproveRequest(),
+    ) -> dict[str, Any]:
+        """Approve all tables or specific tables in a draft catalog.
+
+        If request.tables is None, approves all pending tables and
+        transitions the catalog to 'approved' status.
+        """
+        catalog = store.load(db_name)
+        if not catalog:
+            raise HTTPException(status_code=404, detail=f"Catalog not found: {db_name}")
+
+        if request.tables:
+            for tname in request.tables:
+                try:
+                    review.approve_table(db_name, tname)
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=str(e)) from e
+
+            catalog = store.load_or_raise(db_name)
+            if catalog.all_tables_approved:
+                catalog = review.approve_catalog(db_name)
+        else:
+            catalog = review.approve_catalog(db_name)
+
+        # Refresh OpenAPI enrichment after approval
+        if catalog.status.value == "approved" and app and adapters:
+            _refresh_openapi_enrichment(app, container, adapters)
+
+        return {
+            "database": db_name,
+            "status": catalog.status.value,
+            "review_summary": catalog.review_summary,
+        }
+
+    @router.post(
+        "/{db_name}/approve/{table_name}",
+        dependencies=get_auth_deps(Permission.UPDATE),
+        summary="Approve a single table",
+    )
+    async def approve_single_table(
+        db_name: CatalogName,
+        table_name: str,
+    ) -> dict[str, Any]:
+        """Approve a single table in the draft catalog."""
+        try:
+            catalog = review.approve_table(db_name, table_name)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+        if catalog.all_tables_approved:
+            catalog = review.approve_catalog(db_name)
+            if app and adapters:
+                _refresh_openapi_enrichment(app, container, adapters)
+
+        return {
+            "database": db_name,
+            "table": table_name,
+            "catalog_status": catalog.status.value,
+            "review_summary": catalog.review_summary,
+        }
+
+    return router

@@ -1,0 +1,25 @@
+# Keep the build context small and never ship local secrets or caches.
+.git
+.github
+.venv
+.env
+.env.*
+!.env.example
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.import_linter_cache
+.coverage
+htmlcov
+site
+catalogs
+docs
+tests
+docker
+docker-compose.yml
+Makefile
+*.md
+!README.md
+.DS_Store

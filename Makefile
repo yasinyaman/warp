@@ -2,7 +2,11 @@
 # Warp Engine - Makefile
 # ===========================================
 
-.PHONY: help install dev test lint format clean docker-build docker-up docker-down docker-logs docker-shell
+.PHONY: help install lock dev test test-integration lint format clean docker-build docker-up docker-down docker-logs docker-shell docker-restart docker-clean db-reset db-shell-pg db-shell-mysql ssl-certs quickstart
+
+# Load local secrets/credentials from .env when present (copy .env.example -> .env).
+-include .env
+export
 
 # Default target
 help:
@@ -10,11 +14,13 @@ help:
 	@echo "============================="
 	@echo ""
 	@echo "Development:"
-	@echo "  make install      - Install dependencies (uses pyproject.toml)"
+	@echo "  make install      - Install dev + llm extras (editable)"
+	@echo "  make lock         - Regenerate the hashed lock files (requires uv)"
 	@echo "  make dev          - Run development server"
-	@echo "  make test         - Run tests"
-	@echo "  make lint         - Run linter (ruff + mypy)"
-	@echo "  make format       - Format code (black + isort)"
+	@echo "  make test         - Run the unit test suite"
+	@echo "  make test-integration - Run DB integration tests (needs Docker)"
+	@echo "  make lint         - Lint, format-check, type-check, import contracts"
+	@echo "  make format       - Auto-fix lint + format code (ruff)"
 	@echo ""
 	@echo "Docker (Development):"
 	@echo "  make docker-build - Build Docker images"
@@ -32,7 +38,13 @@ help:
 # ===========================================
 
 install:
-	pip install -e ".[dev]"
+	pip install -e ".[dev,llm]"
+
+# Hashed, universal lock files (ADR-0003). requirements.lock = all extras
+# (CI/dev); requirements-prod.lock = runtime + llm only (Docker image).
+lock:
+	uv pip compile pyproject.toml --all-extras --universal --generate-hashes -o requirements.lock
+	uv pip compile pyproject.toml --extra llm --universal --generate-hashes -o requirements-prod.lock
 
 dev:
 	PYTHONPATH=src uvicorn warp.main:app --reload --host 0.0.0.0 --port 8000
@@ -40,14 +52,19 @@ dev:
 test:
 	PYTHONPATH=src pytest tests/ -v --cov=src/warp --cov-report=html
 
+# Real PostgreSQL + MySQL via testcontainers (Docker must be running).
+test-integration:
+	PYTHONPATH=src pytest tests/integration -m integration -v
+
 lint:
 	ruff check src/ tests/
+	ruff format --check src/ tests/
 	mypy src/
+	lint-imports
 
 format:
-	black src/ tests/
-	isort src/ tests/
 	ruff check --fix src/ tests/
+	ruff format src/ tests/
 
 # ===========================================
 # Docker Development
@@ -95,7 +112,7 @@ db-shell-pg:
 	docker-compose exec postgres psql -U postgres -d testdb
 
 db-shell-mysql:
-	docker-compose exec mysql mysql -u root -p***REMOVED*** testdb
+	docker-compose exec mysql mysql -u root -p"$(MYSQL_PASS)" $(MYSQL_DB)
 
 # ===========================================
 # Utilities

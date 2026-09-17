@@ -1,1 +1,0 @@
-"""Query strategy and generation."""

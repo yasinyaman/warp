@@ -1,5 +1,7 @@
 # Warp Engine - Docker Compose for Development
-version: '3.8'
+#
+# Secrets are read from a local `.env` file (copy `.env.example` -> `.env`).
+# `.env` is gitignored and must never be committed.
 
 services:
   # ===================
@@ -18,20 +20,25 @@ services:
       - ./src:/app/src:ro
       - ./config:/app/config:ro
       - ./pyproject.toml:/app/pyproject.toml:ro
+    # Credentials and API/LLM keys come from .env (see .env.example).
+    # Optional so a missing .env surfaces the explicit ${DB_PASS:?...} guard
+    # below rather than a generic "env file not found" error.
+    env_file:
+      - path: .env
+        required: false
     environment:
+      # Non-secret runtime / network-topology overrides. These take precedence
+      # over env_file so the container always reaches the compose service names.
       - APP_ENV=development
       - LOG_LEVEL=DEBUG
       - CONFIG_PATH=/app/config/database.yaml
+      - PYTHONPATH=/app/src
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=testdb
-      - DB_USER=postgres
-      - DB_PASS=***REMOVED***
       - MYSQL_HOST=mysql
       - MYSQL_PORT=3306
-      - MYSQL_DB=testdb
-      - MYSQL_USER=root
-      - MYSQL_PASS=***REMOVED***
+    # Dev-only hot-reload against the mounted ./src (the prod image has no --reload).
+    command: ["uvicorn", "warp.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,14 +57,14 @@ services:
     ports:
       - "5432:5432"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ***REMOVED***
-      POSTGRES_DB: testdb
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:?DB_PASS is not set — copy .env.example to .env and set it}
+      POSTGRES_DB: ${DB_NAME:-testdb}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/init-scripts/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d testdb"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-testdb}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -75,13 +82,13 @@ services:
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: ***REMOVED***
-      MYSQL_DATABASE: testdb
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASS:?MYSQL_PASS is not set — copy .env.example to .env and set it}
+      MYSQL_DATABASE: ${MYSQL_DB:-testdb}
     volumes:
       - mysql_data:/var/lib/mysql
       - ./docker/init-scripts/mysql:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p***REMOVED***"]
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
       interval: 10s
       timeout: 5s
       retries: 5

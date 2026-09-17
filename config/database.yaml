@@ -9,6 +9,10 @@ databases:
     database: ${DB_NAME:myapp}
     username: ${DB_USER:postgres}
     password: ${DB_PASS:}
+    # Optional read-only credentials used only by the raw SQL endpoint.
+    # When set, raw queries run as this role so a whitelist bypass cannot write.
+    readonly_username: ${DB_READONLY_USER:}
+    readonly_password: ${DB_READONLY_PASS:}
     options:
       pool_size: 10
       pool_max_overflow: 5
@@ -22,6 +26,9 @@ databases:
     database: ${MYSQL_DB:testdb}
     username: ${MYSQL_USER:root}
     password: ${MYSQL_PASS:}
+    # Optional read-only credentials used only by the raw SQL endpoint.
+    readonly_username: ${MYSQL_READONLY_USER:}
+    readonly_password: ${MYSQL_READONLY_PASS:}
     options:
       pool_size: 10
 
@@ -42,7 +49,10 @@ settings:
     max_limit: 1000
 
   # Raw query settings
-  enable_raw_query: true
+  # Disabled by default. Enabling exposes a raw SQL endpoint — keep it off in
+  # production (startup is refused if true while APP_ENV=production), and only
+  # ever point it at a read-only database role.
+  enable_raw_query: false
   raw_query_whitelist:
     - SELECT
     # Add more allowed SQL commands if needed
@@ -58,24 +68,31 @@ settings:
   auth:
     enabled: false
     header_name: X-API-Key
-    # Public paths that don't require authentication
+    # Public paths that don't require authentication. Matching is on path
+    # segments ("/docs" also covers "/docs/oauth2-redirect", not "/docsx").
+    # NOTE: /openapi.json carries catalog descriptions and x-llm-context. In
+    # production, startup is refused while it is public unless
+    # allow_public_openapi is set to true.
     public_paths:
       - /health
       - /docs
       - /redoc
       - /openapi.json
+    allow_public_openapi: false
     # API keys with permissions
     # Permissions: read, create, update, delete, query (for raw SQL), all (full access)
+    # Keys are supplied via environment variables (see .env.example).
+    # No insecure defaults: an unset/empty key cannot authenticate.
     api_keys:
-      - key: ${API_KEY_ADMIN:***REMOVED***}
+      - key: ${API_KEY_ADMIN:}
         name: admin
         permissions:
           - all
-      - key: ${API_KEY_READONLY:***REMOVED***}
+      - key: ${API_KEY_READONLY:}
         name: readonly_user
         permissions:
           - read
-      - key: ${API_KEY_WRITER:***REMOVED***}
+      - key: ${API_KEY_WRITER:}
         name: writer_user
         permissions:
           - read
@@ -91,6 +108,10 @@ settings:
     auto_cross_reference: true    # Use existing catalogs as context
     auto_enrich_openapi: true     # Auto-enrich /docs with catalog descriptions
     openapi_enrichment_lang: "en" # Language for OpenAPI enrichment
+    # Write real sample values from the database into the OpenAPI spec
+    # (example/examples/x-llm-context.examples). Off by default: the spec may
+    # be reachable without a key and samples can contain sensitive data.
+    openapi_include_examples: false
 
   # Schema analysis configuration
   analysis:

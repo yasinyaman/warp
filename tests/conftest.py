@@ -1,16 +1,17 @@
 """
 Pytest configuration and shared fixtures.
 """
+
 import asyncio
 import os
 import sys
-from typing import AsyncGenerator, Dict, Any, List
-from unittest.mock import AsyncMock, MagicMock
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from httpx import AsyncClient, ASGITransport
+from httpx import ASGITransport, AsyncClient
 
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -19,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 # ===========================================
 # Event Loop Fixture
 # ===========================================
+
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -32,15 +34,16 @@ def event_loop():
 # Mock Database Adapter
 # ===========================================
 
+
 class MockDatabaseAdapter:
     """Mock database adapter for testing."""
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         self.config = config or {}
         self.name = config.get("name", "test_db") if config else "test_db"
         self._pool = True  # Simulate connected state
-        self._tables: Dict[str, List[Dict]] = {}
-        self._schemas: Dict[str, Dict] = {}
+        self._tables: dict[str, list[dict]] = {}
+        self._schemas: dict[str, dict] = {}
 
     async def connect(self) -> None:
         """Simulate connection."""
@@ -54,25 +57,28 @@ class MockDatabaseAdapter:
     def is_connected(self) -> bool:
         return self._pool is not None
 
-    async def get_tables(self) -> List[str]:
+    async def get_tables(self) -> list[str]:
         """Return mock tables."""
         return list(self._tables.keys())
 
-    async def get_table_schema(self, table: str) -> Dict[str, Any]:
+    async def get_table_schema(self, table: str) -> dict[str, Any]:
         """Return mock schema."""
-        return self._schemas.get(table, {
-            "table_name": table,
-            "columns": [],
-            "primary_key": "id",
-            "foreign_keys": [],
-            "indexes": []
-        })
+        return self._schemas.get(
+            table,
+            {
+                "table_name": table,
+                "columns": [],
+                "primary_key": "id",
+                "foreign_keys": [],
+                "indexes": [],
+            },
+        )
 
-    async def execute_query(self, query: str, params: Dict = None) -> List[Dict]:
+    async def execute_query(self, query: str, params: dict = None) -> list[dict]:
         """Execute mock query."""
         return []
 
-    async def insert(self, table: str, data: Dict) -> Dict:
+    async def insert(self, table: str, data: dict) -> dict:
         """Mock insert."""
         if table not in self._tables:
             self._tables[table] = []
@@ -86,10 +92,10 @@ class MockDatabaseAdapter:
     async def select(
         self,
         table: str,
-        columns: List[str] = None,
-        filters: List = None,
-        pagination: Dict = None,
-        sort: List = None
+        columns: list[str] = None,
+        filters: list = None,
+        pagination: dict = None,
+        sort: list = None,
     ) -> tuple:
         """Mock select."""
         records = self._tables.get(table, [])
@@ -99,16 +105,12 @@ class MockDatabaseAdapter:
         if pagination:
             limit = pagination.get("limit", 50)
             offset = pagination.get("offset", 0)
-            records = records[offset:offset + limit]
+            records = records[offset : offset + limit]
 
         return records, total
 
     async def select_by_id(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any,
-        columns: List[str] = None
+        self, table: str, id_column: str, id_value: Any, columns: list[str] = None
     ):
         """Mock select by ID."""
         records = self._tables.get(table, [])
@@ -117,13 +119,7 @@ class MockDatabaseAdapter:
                 return record
         return None
 
-    async def update(
-        self,
-        table: str,
-        id_column: str,
-        id_value: Any,
-        data: Dict
-    ):
+    async def update(self, table: str, id_column: str, id_value: Any, data: dict):
         """Mock update."""
         records = self._tables.get(table, [])
         for i, record in enumerate(records):
@@ -141,7 +137,7 @@ class MockDatabaseAdapter:
                 return True
         return False
 
-    def add_mock_table(self, name: str, schema: Dict, data: List[Dict] = None):
+    def add_mock_table(self, name: str, schema: dict, data: list[dict] = None):
         """Helper to add mock table with schema and data."""
         self._schemas[name] = schema
         self._tables[name] = data or []
@@ -169,7 +165,7 @@ def mock_db_with_data():
         ],
         "primary_key": "id",
         "foreign_keys": [],
-        "indexes": []
+        "indexes": [],
     }
     users_data = [
         {"id": 1, "username": "admin", "email": "admin@test.com", "status": "active"},
@@ -189,7 +185,7 @@ def mock_db_with_data():
         ],
         "primary_key": "id",
         "foreign_keys": [],
-        "indexes": []
+        "indexes": [],
     }
     products_data = [
         {"id": 1, "name": "Product A", "price": 100.00, "status": "active"},
@@ -205,30 +201,23 @@ def mock_db_with_data():
 # Sample Data Fixtures
 # ===========================================
 
+
 @pytest.fixture
 def sample_user_data():
     """Sample user data for testing."""
-    return {
-        "username": "testuser",
-        "email": "test@example.com",
-        "status": "active"
-    }
+    return {"username": "testuser", "email": "test@example.com", "status": "active"}
 
 
 @pytest.fixture
 def sample_product_data():
     """Sample product data for testing."""
-    return {
-        "name": "Test Product",
-        "price": 99.99,
-        "status": "active"
-    }
+    return {"name": "Test Product", "price": 99.99, "status": "active"}
 
 
 @pytest.fixture
 def sample_table_schema():
     """Sample table schema for testing."""
-    from warp.schema.models import TableSchema, ColumnSchema
+    from warp.domain.schema import ColumnSchema, TableSchema
 
     return TableSchema(
         table_name="test_table",
@@ -242,13 +231,14 @@ def sample_table_schema():
         ],
         primary_key="id",
         foreign_keys=[],
-        indexes=[]
+        indexes=[],
     )
 
 
 # ===========================================
 # Config Fixtures
 # ===========================================
+
 
 @pytest.fixture
 def sample_config_dict():
@@ -262,20 +252,17 @@ def sample_config_dict():
                 "port": 5432,
                 "database": "testdb",
                 "username": "test",
-                "password": "test123"
+                "password": "test123",
             }
         ],
         "settings": {
             "auto_discover_tables": True,
             "excluded_tables": ["migrations"],
-            "pagination": {
-                "default_limit": 50,
-                "max_limit": 1000
-            },
+            "pagination": {"default_limit": 50, "max_limit": 1000},
             "enable_raw_query": True,
             "raw_query_whitelist": ["SELECT"],
-            "api_prefix": "/api/v1"
-        }
+            "api_prefix": "/api/v1",
+        },
     }
 
 
@@ -295,10 +282,10 @@ def temp_config_file(tmp_path, sample_config_dict):
 # FastAPI Test Client Fixtures
 # ===========================================
 
+
 @pytest.fixture
 def app():
     """Create a test FastAPI application."""
-    from fastapi import FastAPI
 
     app = FastAPI(title="Test App")
 

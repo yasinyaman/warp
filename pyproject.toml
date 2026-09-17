@@ -1,12 +1,12 @@
 [project]
-name = "warp"
-version = "1.0.0"
+name = "warp-engine"
+version = "0.9.0"
 description = "Auto-discovery REST CRUD API generator from database schema"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 authors = [
-    { name = "Warp Team" }
+    { name = "Yasin Yaman", email = "yasnyaman@gmail.com" }
 ]
 keywords = [
     "fastapi",
@@ -23,7 +23,7 @@ classifiers = [
     "Environment :: Web Environment",
     "Framework :: FastAPI",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
@@ -52,18 +52,20 @@ dependencies = [
 llm = [
     "openai>=1.12.0",
     "anthropic>=0.18.0",
-    "google-generativeai>=0.4.0",
+    "google-genai>=1.0.0",
 ]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
+    "pytest-randomly>=3.15.0",
     "httpx>=0.26.0",
-    "black>=24.1.0",
-    "isort>=5.13.0",
     "ruff>=0.1.14",
     "mypy>=1.8.0",
     "pre-commit>=3.6.0",
+    "import-linter>=2.0",
+    "types-PyYAML>=6.0",
+    "testcontainers[postgres,mysql]>=4.0",
 ]
 docs = [
     "mkdocs>=1.5.0",
@@ -72,10 +74,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourorg/warp"
-Documentation = "https://github.com/yourorg/warp#readme"
-Repository = "https://github.com/yourorg/warp"
-Issues = "https://github.com/yourorg/warp/issues"
+Homepage = "https://github.com/yasinyaman/warp"
+Documentation = "https://github.com/yasinyaman/warp#readme"
+Repository = "https://github.com/yasinyaman/warp"
+Issues = "https://github.com/yasinyaman/warp/issues"
 
 [project.scripts]
 warp = "warp.main:main"
@@ -98,47 +100,9 @@ include = [
 # Tool Configurations
 # ===========================================
 
-[tool.black]
-line-length = 100
-target-version = ["py311", "py312"]
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-    | \.hatch
-    | \.mypy_cache
-    | \.pytest_cache
-    | \.venv
-    | __pycache__
-    | dist
-)/
-'''
-
-[tool.isort]
-profile = "black"
-line_length = 100
-known_first_party = ["warp"]
-skip = [".venv", "venv", ".git"]
-
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-select = [
-    "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings
-    "F",      # pyflakes
-    "I",      # isort
-    "B",      # flake8-bugbear
-    "C4",     # flake8-comprehensions
-    "UP",     # pyupgrade
-    "ARG",    # flake8-unused-arguments
-    "SIM",    # flake8-simplify
-]
-ignore = [
-    "E501",   # line too long (handled by black)
-    "B008",   # do not perform function calls in argument defaults
-    "B904",   # raise without from inside except
-]
 exclude = [
     ".git",
     ".hatch",
@@ -149,8 +113,52 @@ exclude = [
     "dist",
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.format]
+quote-style = "double"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+    "D",      # pydocstyle
+    "PL",     # pylint
+    "C901",   # mccabe complexity
+    # ARG (flake8-unused-arguments) intentionally omitted: this codebase is
+    # built on FastAPI handlers, an LLM provider interface, abstract DB adapters
+    # and test mocks whose signatures are contract-imposed, so it fires almost
+    # entirely on false positives.
+]
+ignore = [
+    "E501",     # line too long (handled by ruff format)
+    "B008",     # do not perform function calls in argument defaults
+    "PLC0415",  # import-outside-top-level: intentional here for lazy-importing
+                # optional LLM SDKs (openai/anthropic/google-genai) and uvicorn.
+    "PLR2004",  # magic-value-comparison: mostly HTTP status codes and length/
+                # truncation thresholds here; low value, high noise.
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-branches = 15
+max-statements = 60
+max-returns = 8
+
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports in __init__
+"tests/**" = ["D", "PL", "C901"]  # tests don't need docstrings/complexity rules
 
 [tool.mypy]
 python_version = "3.11"
@@ -172,9 +180,11 @@ pretty = true
 module = [
     "asyncpg.*",
     "aiomysql.*",
+    "pymysql.*",
     "openai.*",
     "anthropic.*",
-    "google.generativeai.*",
+    "google.genai.*",
+    "google.*",
 ]
 ignore_missing_imports = true
 
@@ -188,10 +198,13 @@ addopts = [
     "--strict-markers",
     "--tb=short",
     "-ra",
+    # The default run is the hermetic unit suite; `make test-integration`
+    # (or `pytest tests/integration -m integration`) needs Docker.
+    "-m",
+    "not integration",
 ]
 markers = [
-    "slow: marks tests as slow",
-    "integration: marks tests as integration tests",
+    "integration: needs Docker (testcontainers spin up PostgreSQL/MySQL)",
 ]
 
 [tool.coverage.run]
@@ -212,3 +225,59 @@ exclude_lines = [
 ]
 show_missing = true
 fail_under = 80
+
+# ===========================================
+# Import Linter - hexagonal architecture contracts (ADR-0007)
+#
+# Layers (top -> bottom): entrypoints/infrastructure > adapters > application
+# > domain. The full `layers` contract lands with the ports/composition-root
+# commit; until then the domain contracts below are enforced.
+# ===========================================
+
+[tool.importlinter]
+root_package = "warp"
+include_external_packages = true
+
+# Entry points and the composition root sit on top; adapters may only reach
+# down into the application and domain; the application knows nothing about
+# adapters; the domain knows nothing about anything.
+[[tool.importlinter.contracts]]
+name = "hexagonal layers"
+type = "layers"
+layers = [
+    "warp.main | warp.cli",
+    "warp.infrastructure",
+    "warp.adapters",
+    "warp.application",
+    "warp.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "inbound and outbound adapters are independent"
+type = "independence"
+modules = ["warp.adapters.inbound", "warp.adapters.outbound"]
+
+[[tool.importlinter.contracts]]
+name = "http and cli adapters are independent"
+type = "independence"
+modules = ["warp.adapters.inbound.http", "warp.adapters.inbound.cli"]
+
+[[tool.importlinter.contracts]]
+name = "domain is framework-free and imports nothing above it"
+type = "forbidden"
+source_modules = ["warp.domain"]
+forbidden_modules = [
+    "fastapi", "starlette", "click", "asyncpg", "aiomysql", "pymysql",
+    "openai", "anthropic", "google", "httpx", "yaml", "uvicorn", "dotenv",
+    "warp.application", "warp.adapters", "warp.infrastructure",
+]
+
+[[tool.importlinter.contracts]]
+name = "application depends only on domain and its own ports (no adapters, no frameworks)"
+type = "forbidden"
+source_modules = ["warp.application"]
+forbidden_modules = [
+    "fastapi", "starlette", "click", "asyncpg", "aiomysql", "pymysql",
+    "openai", "anthropic", "google", "httpx", "yaml", "uvicorn", "dotenv",
+    "warp.adapters", "warp.infrastructure",
+]
