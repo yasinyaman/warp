@@ -55,3 +55,10 @@ async def test_named_parameters(pg_gateway: DatabaseGateway) -> None:
     assert rows == [{"lit": "a:b", "s": ":zip"}]
     with pytest.raises(ValueError, match="Missing value"):
         await pg_gateway.execute_query("SELECT :missing", {})
+
+
+async def test_row_estimates_after_analyze(pg_gateway: DatabaseGateway) -> None:
+    await pg_gateway.execute_query("ANALYZE users")
+    estimates = await pg_gateway.row_estimates(["users", "does_not_exist"])
+    assert estimates["users"] == 3
+    assert estimates["does_not_exist"] is None

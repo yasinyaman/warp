@@ -171,6 +171,26 @@ class MySQLAdapter(DatabaseAdapter):
 
         return schema
 
+    async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
+        """Estimates from ``information_schema.TABLES.TABLE_ROWS`` (NULL = unknown)."""
+        if not tables:
+            return {}
+        placeholders = ", ".join("%s" for _ in tables)
+        query = f"""
+            SELECT TABLE_NAME, TABLE_ROWS
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = %s
+              AND TABLE_NAME IN ({placeholders})
+        """  # noqa: S608 - only placeholders are interpolated
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(query, (self.config["database"], *tables))
+            rows = await cur.fetchall()
+        found = {
+            row["TABLE_NAME"]: (None if row["TABLE_ROWS"] is None else int(row["TABLE_ROWS"]))
+            for row in rows
+        }
+        return {table: found.get(table) for table in tables}
+
     async def execute_query(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:

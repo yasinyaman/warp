@@ -76,3 +76,25 @@ def test_raw_query_with_named_params(client: TestClient) -> None:
 
 def test_catalog_name_traversal_is_rejected(client: TestClient) -> None:
     assert client.delete("/api/v1/catalog/%2e%2e").status_code == 422
+
+
+def test_schema_endpoint_over_postgres(client: TestClient) -> None:
+    table = client.get("/api/v1/users/schema").json()
+    assert table["primary_key"] == ["id"]
+    cols = {c["name"]: c for c in table["columns"]}
+    assert cols["id"]["kind"] == "int" and cols["id"]["nullable"] is False
+    assert cols["username"]["kind"] == "str" and cols["username"]["max_length"] == 50
+    assert cols["active"]["kind"] == "bool"
+    assert cols["created_at"]["kind"] == "datetime"
+    assert table["row_estimate"] is None or isinstance(table["row_estimate"], int)
+    whole = client.get("/api/v1/schema").json()
+    assert whole["database"] == "pg" and "users" in whole["tables"]
+    assert client.get("/api/v1/nope/schema").status_code == 404
+
+
+def test_db_prefixed_and_alias_routes(client: TestClient) -> None:
+    assert client.get("/api/v1/pg/users?sort=id:asc").json()["total"] == 3
+    assert client.get("/api/v1/pg/users/1").json()["username"] == "alice"
+    assert client.get("/api/v1/pg/users/schema").status_code == 200
+    caps = client.get("/info").json()["capabilities"]
+    assert caps["db_prefix"] == "always" and caps["schema"] is True

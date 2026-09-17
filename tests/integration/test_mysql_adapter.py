@@ -40,3 +40,9 @@ async def test_named_parameters_and_percent(mysql_gateway: DatabaseGateway) -> N
         "SELECT username FROM users WHERE username LIKE :pat", {"pat": "%o%"}
     )
     assert {r["username"] for r in rows} == {"bob", "carol"}
+
+
+async def test_row_estimates(mysql_gateway: DatabaseGateway) -> None:
+    estimates = await mysql_gateway.row_estimates(["users", "does_not_exist"])
+    assert estimates["users"] is None or isinstance(estimates["users"], int)
+    assert estimates["does_not_exist"] is None

@@ -41,6 +41,14 @@ class DatabaseGateway(Protocol):
         """Describe a table (columns, primary key, foreign keys, indexes)."""
         ...
 
+    async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
+        """Planner row-count statistics per table (never a ``COUNT(*)``).
+
+        Returns ``None`` for a table whose statistics are unknown (never
+        analyzed) or that does not exist.
+        """
+        ...
+
     async def execute_query(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:

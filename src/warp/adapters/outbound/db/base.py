@@ -66,6 +66,21 @@ class DatabaseAdapter(ABC):
         pass
 
     @abstractmethod
+    async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
+        """Get the planner's row-count estimate for each table.
+
+        Cheap (catalog statistics only, never ``COUNT(*)``) and therefore
+        approximate; ``None`` when the database has no statistics for a table.
+
+        Args:
+            tables: Table names to look up.
+
+        Returns:
+            Mapping of table name to estimated row count (or None).
+        """
+        pass
+
+    @abstractmethod
     async def execute_query(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:

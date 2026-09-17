@@ -60,6 +60,9 @@ def test_register_new_adapter() -> None:
         async def get_table_schema(self, table: str) -> dict[str, Any]:
             return {}
 
+        async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
+            return dict.fromkeys(tables)
+
         async def execute_query(
             self, query: str, params: dict[str, Any] | None = None
         ) -> list[dict[str, Any]]:

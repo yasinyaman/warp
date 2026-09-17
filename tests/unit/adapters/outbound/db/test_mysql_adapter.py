@@ -418,3 +418,27 @@ async def test_execute_query_repeated_param_and_percent() -> None:
     query, params = cur.executed[0]
     assert query == "SELECT * FROM t WHERE a = %s OR b = %s AND c LIKE 'x%%'"
     assert params == [5, 5]
+
+
+@pytest.mark.asyncio
+async def test_row_estimates_from_information_schema() -> None:
+    cur = FakeCursor(
+        fetchall=[
+            {"TABLE_NAME": "users", "TABLE_ROWS": 42},
+            {"TABLE_NAME": "empty", "TABLE_ROWS": None},
+        ]
+    )
+    adapter = make_adapter(cur)
+    estimates = await adapter.row_estimates(["users", "empty", "missing"])
+    assert estimates == {"users": 42, "empty": None, "missing": None}
+    query, params = cur.executed[0]
+    assert "information_schema.TABLES" in query and "COUNT(*)" not in query.upper()
+    assert params == ("testdb", "users", "empty", "missing")
+
+
+@pytest.mark.asyncio
+async def test_row_estimates_empty_input_skips_query() -> None:
+    cur = FakeCursor()
+    adapter = make_adapter(cur)
+    assert await adapter.row_estimates([]) == {}
+    assert cur.executed == []

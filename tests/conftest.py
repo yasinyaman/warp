@@ -74,6 +74,10 @@ class MockDatabaseAdapter:
             },
         )
 
+    async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
+        """Row counts of the in-memory tables (None for unknown tables)."""
+        return {t: (len(self._tables[t]) if t in self._tables else None) for t in tables}
+
     async def execute_query(self, query: str, params: dict = None) -> list[dict]:
         """Execute mock query."""
         return []

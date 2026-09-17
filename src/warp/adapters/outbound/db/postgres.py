@@ -168,6 +168,26 @@ class PostgreSQLAdapter(DatabaseAdapter):
 
         return schema
 
+    async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
+        """Planner estimates from ``pg_class.reltuples`` (``-1`` = never analyzed)."""
+        if not tables:
+            return {}
+        query = """
+            SELECT c.relname AS table_name, c.reltuples AS estimate
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind IN ('r', 'p')
+              AND c.relname = ANY($1::text[])
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, list(tables))
+        found = {
+            row["table_name"]: (None if row["estimate"] < 0 else int(row["estimate"]))
+            for row in rows
+        }
+        return {table: found.get(table) for table in tables}
+
     async def execute_query(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:

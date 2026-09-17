@@ -324,3 +324,24 @@ async def test_execute_query_missing_param_raises_value_error(conn: AsyncMock) -
     with pytest.raises(ValueError, match="Missing value"):
         await adapter.execute_query("SELECT :a", params={"b": 1})
     conn.fetch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_row_estimates_from_pg_class(conn: AsyncMock) -> None:
+    conn.fetch.return_value = [
+        {"table_name": "users", "estimate": 1234.0},
+        {"table_name": "never_analyzed", "estimate": -1.0},
+    ]
+    adapter = make_adapter(conn)
+    estimates = await adapter.row_estimates(["users", "never_analyzed", "missing"])
+    assert estimates == {"users": 1234, "never_analyzed": None, "missing": None}
+    sql, tables = conn.fetch.call_args.args
+    assert "pg_class" in sql and "COUNT(*)" not in sql.upper()
+    assert tables == ["users", "never_analyzed", "missing"]
+
+
+@pytest.mark.asyncio
+async def test_row_estimates_empty_input_skips_query(conn: AsyncMock) -> None:
+    adapter = make_adapter(conn)
+    assert await adapter.row_estimates([]) == {}
+    conn.fetch.assert_not_called()
