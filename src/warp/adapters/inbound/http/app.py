@@ -98,16 +98,19 @@ async def connect_with_retry(
 
 
 def _mount_prefixes(api_prefix: str, db_name: str, multi_db: bool) -> list[str]:
-    """Where one database's routers are mounted: the visible prefix first.
+    """Where one database's routers are mounted: the documented prefix first.
 
-    Every database answers at ``{api_prefix}/{db_name}`` so clients can address
-    it by name regardless of how many databases are configured. With a single
-    database the bare ``{api_prefix}`` stays the documented (OpenAPI-visible)
-    location, exactly as before; the db-scoped one is a hidden alias. With
-    several databases the scoped prefix is the only one.
+    Every database answers at ``{api_prefix}/{db_name}``, so a client can
+    address it by name however many databases are configured; that is the
+    documented (OpenAPI-visible) location. With a single database the bare
+    ``{api_prefix}`` is kept as a hidden alias for compatibility.
+
+    The scoped prefix must be registered **first**: routers carry
+    ``/{table}`` paths, so an alias route would otherwise swallow
+    ``{api_prefix}/{db_name}/…`` with ``table = db_name``.
     """
     scoped = f"{api_prefix}/{db_name}"
-    return [scoped] if multi_db else [api_prefix, scoped]
+    return [scoped] if multi_db else [scoped, api_prefix]
 
 
 def _include_at_prefixes(

@@ -129,6 +129,9 @@ def test_db_prefixed_and_alias_routes(client: TestClient) -> None:
     assert client.get("/api/v1/pg/users?sort=id:asc").json()["total"] == 3
     assert client.get("/api/v1/pg/users/1").json()["username"] == "alice"
     assert client.get("/api/v1/pg/users/schema").status_code == 200
+    # The database-level endpoints must resolve under the scoped prefix too.
+    assert client.get("/api/v1/pg/schema").json()["database"] == "pg"
+    assert client.get("/api/v1/pg/users/export?limit=1").status_code == 200
     caps = client.get("/info").json()["capabilities"]
     assert caps["db_prefix"] == "always" and caps["schema"] is True
 

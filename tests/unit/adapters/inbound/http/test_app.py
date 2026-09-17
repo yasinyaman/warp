@@ -152,23 +152,42 @@ class TestLifespan:
         assert {"json", "ndjson"} <= set(caps["export"]["formats"])
         assert "in" in caps["filter_ops"]
 
-    def test_single_db_serves_prefixed_and_alias_routes(self, tmp_path, mock_db_with_data):
+    def test_single_db_serves_scoped_and_alias_routes(self, tmp_path, mock_db_with_data):
         container = build_container(
             _settings(tmp_path), gateway_factory=FakeGatewayFactory(mock_db_with_data)
         )
         app = _app(container)
         with TestClient(app) as c:
-            # The bare prefix stays the documented location for a single database...
-            assert c.get("/api/v1/users").status_code == 200
-            assert c.post("/api/v1/query/execute", json={"query": "SELECT 1"}).status_code == 403
-            # ...and the db-scoped prefix always works too (hidden alias).
+            # The db-scoped prefix is the documented location, always...
             assert c.get("/api/v1/testdb/users").status_code == 200
             assert c.get("/api/v1/testdb/users/1").json()["username"] == "admin"
             r = c.post("/api/v1/testdb/query/execute", json={"query": "SELECT 1"})
             assert r.status_code == 403
+            # ...and the bare prefix stays as a hidden alias.
+            assert c.get("/api/v1/users").status_code == 200
+            assert c.post("/api/v1/query/execute", json={"query": "SELECT 1"}).status_code == 403
             paths = c.get("/openapi.json").json()["paths"]
-        assert "/api/v1/users" in paths
-        assert "/api/v1/testdb/users" not in paths  # alias is not documented twice
+        assert "/api/v1/testdb/users" in paths
+        assert "/api/v1/users" not in paths  # the alias is not documented twice
+
+    def test_the_alias_never_swallows_a_db_scoped_url(self, tmp_path, mock_db_with_data):
+        """``/api/v1/testdb/schema`` must not resolve as ``/{table}/schema``.
+
+        Every router carries ``/{table}`` paths, so registering the bare
+        alias first made each scoped URL match it with ``table = <db name>``
+        and answer 404 (or read the wrong table).
+        """
+        container = build_container(
+            _settings(tmp_path), gateway_factory=FakeGatewayFactory(mock_db_with_data)
+        )
+        with TestClient(_app(container)) as c:
+            scoped = c.get("/api/v1/testdb/schema")
+            assert scoped.status_code == 200
+            assert scoped.json()["database"] == "testdb"
+            assert "users" in scoped.json()["tables"]
+            assert c.get("/api/v1/testdb/users/schema").status_code == 200
+            assert c.get("/api/v1/testdb/users/export?limit=1").status_code == 200
+            assert c.get("/api/v1/schema").status_code == 200
 
     def test_multi_db_uses_scoped_prefix_only(self, tmp_path, mock_db_with_data):
         settings = Settings(
