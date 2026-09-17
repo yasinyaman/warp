@@ -12,7 +12,8 @@ and tools get rich context automatically.
 
 ## Highlights
 
-- **Auto-discovery** of tables → full CRUD endpoints (PostgreSQL & MySQL)
+- **Auto-discovery** of tables → full CRUD endpoints (PostgreSQL, MySQL & SQL Server;
+  other ODBC sources best effort)
 - **Filtering / sorting / pagination** with a safe, parameterized query layer
 - **API-key auth** with role-based permissions
 - **Catalog intelligence** — LLM-generated descriptions, semantic types, tags,

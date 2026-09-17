@@ -1,13 +1,14 @@
 """Sample data reader.
 
 Reads sample rows and column statistics from database tables
-using warp's DatabaseAdapter.
+using warp's DatabaseAdapter. Dialect differences (row limiting, schema
+qualification, the row-count catalog query) come from the :class:`Dialect`.
 """
 
 import logging
 from typing import Any
 
-from warp.adapters.outbound.db.identifiers import quote_identifier
+from warp.adapters.outbound.db.dialect import Dialect, dialect_or_generic
 from warp.application.ports.database import SqlReader
 from warp.domain.samples import ColumnStats, TableSamples
 
@@ -20,12 +21,13 @@ class SampleReader:
     def __init__(
         self,
         adapter: SqlReader,
-        db_type: str = "postgresql",
+        db_type: str | Dialect = "postgresql",
         schema: str = "public",
     ):
         """Store the adapter and the dialect/schema to read from."""
         self.adapter = adapter
-        self.db_type = db_type.lower()
+        self.dialect = dialect_or_generic(db_type)
+        self.db_type = self.dialect.name
         self.schema = schema
 
     def _quote_identifier(self, name: str) -> str:
@@ -35,12 +37,11 @@ class SampleReader:
         instead of being silently stripped, so a crafted table/column name can
         never escape the quotes.
         """
-        dialect = "mysql" if self.db_type in ("mysql", "mariadb") else "postgresql"
-        return quote_identifier(name, dialect)
+        return self.dialect.quote(name)
 
     def _qualified_table(self, table_name: str) -> str:
         """Get fully qualified table name."""
-        if self.db_type == "postgresql":
+        if self.dialect.schema_qualified and self.schema:
             return f"{self._quote_identifier(self.schema)}.{self._quote_identifier(table_name)}"
         return self._quote_identifier(table_name)
 
@@ -48,7 +49,7 @@ class SampleReader:
         """Read sample rows from a table."""
         try:
             qualified = self._qualified_table(table_name)
-            query = f"SELECT * FROM {qualified} LIMIT {int(limit)}"
+            query = self.dialect.sample_select(qualified, int(limit))
             rows = await self.adapter.execute_query(query)
 
             if not rows:
@@ -68,33 +69,18 @@ class SampleReader:
             return {}
 
     async def read_row_count(self, table_name: str) -> int | None:
-        """Get approximate row count for a table."""
+        """Get approximate row count for a table (None when unavailable)."""
+        query = self.dialect.row_count_sql
+        if query is None:
+            logger.debug(f"Row counts are not available for dialect {self.db_type}")
+            return None
         try:
-            if self.db_type == "postgresql":
-                query = """
-                SELECT reltuples::bigint as row_count
-                FROM pg_class c
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE c.relname = :table_name AND n.nspname = :schema
-                """
-                rows = await self.adapter.execute_query(
-                    query, {"table_name": table_name, "schema": self.schema}
-                )
-                if rows and rows[0].get("row_count") is not None:
-                    count = int(rows[0]["row_count"])
-                    return max(count, 0)
-            else:
-                query = """
-                SELECT TABLE_ROWS as row_count
-                FROM information_schema.TABLES
-                WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :table_name
-                """
-                rows = await self.adapter.execute_query(
-                    query, {"schema": self.schema, "table_name": table_name}
-                )
-                if rows and rows[0].get("row_count") is not None:
-                    return int(rows[0]["row_count"])
-
+            rows = await self.adapter.execute_query(
+                query, {"schema": self.schema, "table_name": table_name}
+            )
+            if rows and rows[0].get("row_count") is not None:
+                # PostgreSQL reports -1 for tables that were never analyzed.
+                return max(int(rows[0]["row_count"]), 0)
             return None
 
         except Exception as e:
@@ -114,7 +100,9 @@ class SampleReader:
 
         if not columns:
             try:
-                sample_rows = await self.adapter.execute_query(f"SELECT * FROM {qualified} LIMIT 1")
+                sample_rows = await self.adapter.execute_query(
+                    self.dialect.sample_select(qualified, 1)
+                )
                 if sample_rows:
                     columns = list(sample_rows[0].keys())
                 else:

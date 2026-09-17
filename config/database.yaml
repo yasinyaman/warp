@@ -32,6 +32,23 @@ databases:
     options:
       pool_size: 10
 
+  # SQL Server via ODBC (optional). Needs the `odbc` extra and Microsoft's
+  # ODBC driver (the Docker image ships it); start a local server with
+  # `docker compose --profile mssql up -d` after setting MSSQL_PASS in .env.
+  # - name: mssql_db
+  #   type: mssql
+  #   host: ${MSSQL_HOST:localhost}
+  #   port: ${MSSQL_PORT:1433}
+  #   database: ${MSSQL_DB:master}
+  #   username: ${MSSQL_USER:sa}
+  #   password: ${MSSQL_PASS:}
+  #   readonly_username: ${MSSQL_READONLY_USER:}
+  #   readonly_password: ${MSSQL_READONLY_PASS:}
+  #   options:
+  #     schema: dbo
+  #     trust_server_certificate: true   # the compose container is self-signed
+  #     pool_size: 10
+
 settings:
   # Automatically discover all tables in the database
   auto_discover_tables: true

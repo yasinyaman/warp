@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from warp.adapters.outbound.db.comment_reader import CommentReader
+from warp.adapters.outbound.db.dialect import MYSQL, ODBC
 from warp.adapters.outbound.db.sample_reader import SampleReader
 from warp.adapters.outbound.llm.providers import LLMClient, LLMProvider
 from warp.application.config import Settings
@@ -534,3 +535,74 @@ class TestParseLocalized:
     def test_empty_dict(self):
         result = CatalogAnalysisService._parse_localized({})
         assert result.is_empty
+
+
+class TestCommentReaderMSSQL:
+    """SQL Server comments come from MS_Description extended properties."""
+
+    @pytest.fixture
+    def mssql_reader(self, mock_adapter):
+        return CommentReader(adapter=mock_adapter, db_type="mssql", schema="dbo", database="shop")
+
+    @pytest.mark.asyncio
+    async def test_read_table_comment(self, mssql_reader, mock_adapter):
+        mock_adapter.execute_query.return_value = [{"comment": "Customer orders"}]
+        assert await mssql_reader.read_table_comment("orders") == "Customer orders"
+        sql, params = mock_adapter.execute_query.call_args.args
+        assert "sys.extended_properties" in sql and "MS_Description" in sql
+        assert "CAST(ep.value AS nvarchar(max))" in sql
+        assert params == {"table_name": "orders", "schema": "dbo"}
+
+    @pytest.mark.asyncio
+    async def test_read_column_comments(self, mssql_reader, mock_adapter):
+        mock_adapter.execute_query.return_value = [
+            {"column_name": "total", "comment": "Order total"},
+            {"column_name": "note", "comment": None},
+        ]
+        assert await mssql_reader.read_column_comments("orders") == {"total": "Order total"}
+        sql, params = mock_adapter.execute_query.call_args.args
+        assert "ep.minor_id = c.column_id" in sql
+        assert params == {"table_name": "orders", "schema": "dbo"}
+
+    @pytest.mark.asyncio
+    async def test_read_all_comments_is_schema_scoped(self, mssql_reader, mock_adapter):
+        mock_adapter.execute_query.side_effect = [
+            [{"table_name": "orders", "comment": "Customer orders"}],
+            [{"table_name": "orders", "column_name": "total", "comment": "Order total"}],
+        ]
+        result = await mssql_reader.read_all_comments()
+        assert result["orders"].table_comment == "Customer orders"
+        assert result["orders"].column_comments == {"total": "Order total"}
+        for call in mock_adapter.execute_query.call_args_list:
+            assert call.args[1] == {"schema": "dbo"}
+            assert "sys.extended_properties" in call.args[0]
+
+
+class TestCommentReaderDialects:
+    """The reader takes its catalog queries from the Dialect."""
+
+    @pytest.mark.asyncio
+    async def test_generic_dialect_reads_nothing_and_runs_no_sql(self, mock_adapter):
+        reader = CommentReader(adapter=mock_adapter, db_type="odbc")
+        assert reader.dialect is ODBC
+        assert await reader.read_all_comments(["t"]) == {}
+        tc = await reader.read_table_comments("t")
+        assert tc.table_comment is None and tc.column_comments == {}
+        mock_adapter.execute_query.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dialect_object_and_database_scope(self, mock_adapter):
+        reader = CommentReader(adapter=mock_adapter, db_type=MYSQL, schema="mydb", database="shop")
+        await reader.read_all_comments()
+        await reader.read_table_comment("orders")
+        calls = mock_adapter.execute_query.call_args_list
+        assert calls[0].args[1] == {"database": "shop"}
+        assert calls[1].args[1] == {"database": "shop"}
+        assert calls[2].args[1] == {"database": "shop", "table_name": "orders"}
+        assert "information_schema" in calls[2].args[0]
+
+    @pytest.mark.asyncio
+    async def test_postgres_scope_is_the_schema(self, mock_adapter):
+        reader = CommentReader(adapter=mock_adapter, db_type="postgres", schema="app")
+        await reader.read_all_comments()
+        assert mock_adapter.execute_query.call_args_list[0].args[1] == {"schema": "app"}

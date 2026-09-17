@@ -12,10 +12,20 @@ from warp.domain.samples import DEFAULT_PII_PATTERNS
 
 
 class DatabaseConfig(BaseModel):
-    """Database connection configuration."""
+    """Database connection configuration.
+
+    ``options`` reaches the adapter untouched. Common keys: ``pool_size``,
+    ``pool_min_size``, ``ssl`` (PostgreSQL) and ``schema`` (the schema to
+    introspect; defaults to ``public`` / the database name / ``dbo``). The ODBC
+    adapter (``mssql``, ``sqlserver``, ``odbc``) also reads ``driver`` (ODBC
+    driver name), ``connection_string`` (used verbatim instead of
+    host/port/database), ``encrypt`` and ``trust_server_certificate`` (SQL
+    Server TLS), ``extra`` (raw ``Key=Value;`` pairs appended to the
+    connection string) and ``pool_recycle`` (seconds).
+    """
 
     name: str
-    type: str  # postgresql, mysql
+    type: str  # postgresql | mysql | mssql | odbc (see DatabaseFactory.get_supported_types)
     host: str = "localhost"
     port: int = 5432
     database: str

@@ -1,83 +1,17 @@
 """Database comment reader.
 
-Reads TABLE and COLUMN comments from PostgreSQL and MySQL databases
-using warp's DatabaseAdapter.execute_query() method.
+Reads TABLE and COLUMN comments through the dialect's catalog queries
+(see :mod:`warp.adapters.outbound.db.dialect`) using the gateway's
+``execute_query()``. Dialects without a comment catalog yield no comments.
 """
 
 import logging
 
+from warp.adapters.outbound.db.dialect import Dialect, dialect_or_generic
 from warp.application.ports.database import SqlReader
 from warp.domain.comments import TableComments
 
 logger = logging.getLogger(__name__)
-
-
-# SQL queries for different database types
-
-PG_TABLE_COMMENT_SQL = """
-SELECT obj_description(c.oid) as comment
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relname = :table_name AND n.nspname = :schema
-"""
-
-PG_COLUMN_COMMENTS_SQL = """
-SELECT a.attname as column_name, col_description(a.attrelid, a.attnum) as comment
-FROM pg_attribute a
-JOIN pg_class c ON a.attrelid = c.oid
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE c.relname = :table_name
-  AND n.nspname = :schema
-  AND a.attnum > 0
-  AND NOT a.attisdropped
-  AND col_description(a.attrelid, a.attnum) IS NOT NULL
-"""
-
-PG_ALL_TABLE_COMMENTS_SQL = """
-SELECT c.relname as table_name, obj_description(c.oid) as comment
-FROM pg_class c
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = :schema
-  AND c.relkind = 'r'
-  AND obj_description(c.oid) IS NOT NULL
-"""
-
-PG_ALL_COLUMN_COMMENTS_SQL = """
-SELECT c.relname as table_name, a.attname as column_name,
-       col_description(a.attrelid, a.attnum) as comment
-FROM pg_attribute a
-JOIN pg_class c ON a.attrelid = c.oid
-JOIN pg_namespace n ON n.oid = c.relnamespace
-WHERE n.nspname = :schema
-  AND c.relkind = 'r'
-  AND a.attnum > 0
-  AND NOT a.attisdropped
-  AND col_description(a.attrelid, a.attnum) IS NOT NULL
-"""
-
-MYSQL_TABLE_COMMENT_SQL = """
-SELECT TABLE_COMMENT as comment
-FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = :database AND TABLE_NAME = :table_name AND TABLE_COMMENT != ''
-"""
-
-MYSQL_COLUMN_COMMENTS_SQL = """
-SELECT COLUMN_NAME as column_name, COLUMN_COMMENT as comment
-FROM information_schema.COLUMNS
-WHERE TABLE_SCHEMA = :database AND TABLE_NAME = :table_name AND COLUMN_COMMENT != ''
-"""
-
-MYSQL_ALL_TABLE_COMMENTS_SQL = """
-SELECT TABLE_NAME as table_name, TABLE_COMMENT as comment
-FROM information_schema.TABLES
-WHERE TABLE_SCHEMA = :database AND TABLE_COMMENT != ''
-"""
-
-MYSQL_ALL_COLUMN_COMMENTS_SQL = """
-SELECT TABLE_NAME as table_name, COLUMN_NAME as column_name, COLUMN_COMMENT as comment
-FROM information_schema.COLUMNS
-WHERE TABLE_SCHEMA = :database AND COLUMN_COMMENT != ''
-"""
 
 
 class CommentReader:
@@ -86,33 +20,34 @@ class CommentReader:
     def __init__(
         self,
         adapter: SqlReader,
-        db_type: str = "postgresql",
+        db_type: str | Dialect = "postgresql",
         schema: str = "public",
         database: str = "",
     ):
         """Store the adapter and dialect/schema/database context."""
         self.adapter = adapter
-        self.db_type = db_type.lower()
+        self.dialect = dialect_or_generic(db_type)
+        self.db_type = self.dialect.name
         self.schema = schema
         self.database = database or schema
+        self.queries = self.dialect.comment_queries
+
+    def _scope_params(self) -> dict[str, str]:
+        """The scope placeholder the dialect's queries expect."""
+        if self.queries is not None and self.queries.scope_param == "database":
+            return {"database": self.database}
+        return {"schema": self.schema}
 
     async def read_table_comment(self, table_name: str) -> str | None:
         """Read comment for a single table."""
+        if self.queries is None:
+            logger.warning(f"Unsupported DB type for comments: {self.db_type}")
+            return None
         try:
-            if self.db_type == "postgresql":
-                rows = await self.adapter.execute_query(
-                    PG_TABLE_COMMENT_SQL,
-                    {"table_name": table_name, "schema": self.schema},
-                )
-            elif self.db_type == "mysql":
-                rows = await self.adapter.execute_query(
-                    MYSQL_TABLE_COMMENT_SQL,
-                    {"database": self.database, "table_name": table_name},
-                )
-            else:
-                logger.warning(f"Unsupported DB type for comments: {self.db_type}")
-                return None
-
+            rows = await self.adapter.execute_query(
+                self.queries.table,
+                {"table_name": table_name, **self._scope_params()},
+            )
             if rows and rows[0].get("comment"):
                 comment: str = rows[0]["comment"]
                 return comment
@@ -124,20 +59,13 @@ class CommentReader:
 
     async def read_column_comments(self, table_name: str) -> dict[str, str]:
         """Read comments for all columns in a table."""
+        if self.queries is None:
+            return {}
         try:
-            if self.db_type == "postgresql":
-                rows = await self.adapter.execute_query(
-                    PG_COLUMN_COMMENTS_SQL,
-                    {"table_name": table_name, "schema": self.schema},
-                )
-            elif self.db_type == "mysql":
-                rows = await self.adapter.execute_query(
-                    MYSQL_COLUMN_COMMENTS_SQL,
-                    {"database": self.database, "table_name": table_name},
-                )
-            else:
-                return {}
-
+            rows = await self.adapter.execute_query(
+                self.queries.columns,
+                {"table_name": table_name, **self._scope_params()},
+            )
             return {row["column_name"]: row["comment"] for row in rows if row.get("comment")}
 
         except Exception as e:
@@ -160,29 +88,17 @@ class CommentReader:
     ) -> dict[str, TableComments]:
         """Read all comments for multiple tables efficiently."""
         result: dict[str, TableComments] = {}
+        if self.queries is None:
+            logger.warning(f"Unsupported DB type for comments: {self.db_type}")
+            return result
 
         try:
-            if self.db_type == "postgresql":
-                table_rows = await self.adapter.execute_query(
-                    PG_ALL_TABLE_COMMENTS_SQL,
-                    {"schema": self.schema},
-                )
-                column_rows = await self.adapter.execute_query(
-                    PG_ALL_COLUMN_COMMENTS_SQL,
-                    {"schema": self.schema},
-                )
-            elif self.db_type == "mysql":
-                table_rows = await self.adapter.execute_query(
-                    MYSQL_ALL_TABLE_COMMENTS_SQL,
-                    {"database": self.database},
-                )
-                column_rows = await self.adapter.execute_query(
-                    MYSQL_ALL_COLUMN_COMMENTS_SQL,
-                    {"database": self.database},
-                )
-            else:
-                logger.warning(f"Unsupported DB type for comments: {self.db_type}")
-                return result
+            table_rows = await self.adapter.execute_query(
+                self.queries.all_tables, self._scope_params()
+            )
+            column_rows = await self.adapter.execute_query(
+                self.queries.all_columns, self._scope_params()
+            )
 
             table_comment_map: dict[str, str] = {}
             for row in table_rows:

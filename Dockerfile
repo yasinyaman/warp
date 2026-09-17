@@ -38,9 +38,24 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
+# Microsoft ODBC Driver 18 for SQL Server, used by `type: mssql` connections
+# (the Python side, aioodbc/pyodbc, comes from the lock). Installed by default;
+# build with `--build-arg WITH_MSSQL_ODBC=0` for a slimmer image without it.
+ARG WITH_MSSQL_ODBC=1
+
 # Runtime-only system dependencies + a dedicated non-root user.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    && if [ "$WITH_MSSQL_ODBC" = "1" ]; then \
+         . /etc/os-release \
+         && curl -fsSL -o /tmp/packages-microsoft-prod.deb \
+              "https://packages.microsoft.com/config/debian/${VERSION_ID}/packages-microsoft-prod.deb" \
+         && dpkg -i /tmp/packages-microsoft-prod.deb \
+         && rm -f /tmp/packages-microsoft-prod.deb \
+         && apt-get update \
+         && ACCEPT_EULA=Y apt-get install -y --no-install-recommends \
+              msodbcsql18 unixodbc libgssapi-krb5-2 ; \
+       fi \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1000 appuser \
     && mkdir -p /app/catalogs \

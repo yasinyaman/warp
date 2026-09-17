@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from warp.adapters.outbound.db.dialect import MSSQL
 from warp.adapters.outbound.db.sample_reader import SampleReader
 from warp.application import prompts
 from warp.domain.samples import ColumnStats, TableSamples, is_pii_column, mask_pii_samples
@@ -373,3 +374,73 @@ async def test_read_row_count_binds_named_params_mysql() -> None:
     sql, params = adapter.execute_query.call_args.args
     assert ":table_name" in sql and ":schema" in sql and "%s" not in sql
     assert params == {"schema": "db", "table_name": "users"}
+
+
+# --- dialect-driven SQL (SQL Server / generic ODBC) ---
+
+
+@pytest.mark.asyncio
+async def test_read_samples_mssql_uses_top_and_brackets() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{"id": 1}]
+    reader = SampleReader(adapter, db_type="mssql", schema="dbo")
+    await reader.read_samples("users", limit=3)
+    assert adapter.execute_query.call_args.args[0] == "SELECT TOP (3) * FROM [dbo].[users]"
+
+
+@pytest.mark.asyncio
+async def test_read_column_stats_autodiscover_mssql_uses_top_1() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.side_effect = [
+        [{"id": 1}],
+        [{"distinct_count": 1, "null_count": 0}],
+    ]
+    reader = SampleReader(adapter, db_type="mssql", schema="dbo")
+    stats = await reader.read_column_stats("users")
+    assert set(stats) == {"id"}
+    first_sql = adapter.execute_query.call_args_list[0].args[0]
+    assert first_sql == "SELECT TOP (1) * FROM [dbo].[users]"
+    stats_sql = adapter.execute_query.call_args_list[1].args[0]
+    assert "COUNT(DISTINCT [id])" in stats_sql and "FROM [dbo].[users]" in stats_sql
+
+
+@pytest.mark.asyncio
+async def test_read_row_count_unavailable_for_generic_odbc() -> None:
+    adapter = FakeAdapter()
+    reader = SampleReader(adapter, db_type="odbc", schema="")
+    assert await reader.read_row_count("users") is None
+    adapter.execute_query.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_generic_odbc_without_schema_is_unqualified() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{"id": 1}]
+    reader = SampleReader(adapter, db_type="odbc", schema="")
+    await reader.read_samples("users", limit=2)
+    assert adapter.execute_query.call_args.args[0] == 'SELECT * FROM "users" LIMIT 2'
+
+
+def test_reader_accepts_dialect_object() -> None:
+    reader = SampleReader(FakeAdapter(), db_type=MSSQL, schema="dbo")
+    assert reader.dialect is MSSQL
+    assert reader.db_type == "mssql"
+
+
+@pytest.mark.asyncio
+async def test_read_row_count_mssql_uses_sys_partitions() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{"row_count": 1234}]
+    reader = SampleReader(adapter, db_type="mssql", schema="dbo")
+    assert await reader.read_row_count("orders") == 1234
+    sql, params = adapter.execute_query.call_args.args
+    assert "sys.partitions" in sql and "?" not in sql
+    assert params == {"schema": "dbo", "table_name": "orders"}
+
+
+@pytest.mark.asyncio
+async def test_read_row_count_mssql_empty_table_is_zero_not_none() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{"row_count": 0}]
+    reader = SampleReader(adapter, db_type="sqlserver", schema="dbo")
+    assert await reader.read_row_count("orders") == 0
