@@ -5,6 +5,7 @@ from typing import Any
 import asyncpg
 
 from warp.adapters.outbound.db.base import DatabaseAdapter
+from warp.adapters.outbound.db.dialect import POSTGRESQL
 from warp.adapters.outbound.db.identifiers import sanitize_identifier
 from warp.adapters.outbound.db.params import bind_named_params
 from warp.adapters.outbound.db.query_builder import SafeQueryBuilder
@@ -13,7 +14,7 @@ from warp.adapters.outbound.db.query_builder import SafeQueryBuilder
 class PostgreSQLAdapter(DatabaseAdapter):
     """PostgreSQL database adapter using asyncpg."""
 
-    _qb = SafeQueryBuilder("postgresql")
+    _qb = SafeQueryBuilder(POSTGRESQL)
 
     async def connect(self) -> None:
         """Create connection pool to PostgreSQL."""
@@ -172,7 +173,7 @@ class PostgreSQLAdapter(DatabaseAdapter):
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a raw SQL query."""
-        sql, args = bind_named_params(query, params, "postgresql")
+        sql, args = bind_named_params(query, params, self._qb.dialect)
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(sql, *args)
             return [dict(row) for row in rows]

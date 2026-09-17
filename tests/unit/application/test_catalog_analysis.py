@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from warp.adapters.outbound.db.comment_reader import CommentReader
+from warp.adapters.outbound.db.dialect import MYSQL, ODBC
 from warp.adapters.outbound.db.sample_reader import SampleReader
 from warp.adapters.outbound.llm.providers import LLMClient, LLMProvider
 from warp.application.config import Settings
@@ -534,3 +535,33 @@ class TestParseLocalized:
     def test_empty_dict(self):
         result = CatalogAnalysisService._parse_localized({})
         assert result.is_empty
+
+
+class TestCommentReaderDialects:
+    """The reader takes its catalog queries from the Dialect."""
+
+    @pytest.mark.asyncio
+    async def test_generic_dialect_reads_nothing_and_runs_no_sql(self, mock_adapter):
+        reader = CommentReader(adapter=mock_adapter, db_type="odbc")
+        assert reader.dialect is ODBC
+        assert await reader.read_all_comments(["t"]) == {}
+        tc = await reader.read_table_comments("t")
+        assert tc.table_comment is None and tc.column_comments == {}
+        mock_adapter.execute_query.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_dialect_object_and_database_scope(self, mock_adapter):
+        reader = CommentReader(adapter=mock_adapter, db_type=MYSQL, schema="mydb", database="shop")
+        await reader.read_all_comments()
+        await reader.read_table_comment("orders")
+        calls = mock_adapter.execute_query.call_args_list
+        assert calls[0].args[1] == {"database": "shop"}
+        assert calls[1].args[1] == {"database": "shop"}
+        assert calls[2].args[1] == {"database": "shop", "table_name": "orders"}
+        assert "information_schema" in calls[2].args[0]
+
+    @pytest.mark.asyncio
+    async def test_postgres_scope_is_the_schema(self, mock_adapter):
+        reader = CommentReader(adapter=mock_adapter, db_type="postgres", schema="app")
+        await reader.read_all_comments()
+        assert mock_adapter.execute_query.call_args_list[0].args[1] == {"schema": "app"}

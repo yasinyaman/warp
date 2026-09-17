@@ -2,6 +2,7 @@
 
 import pytest
 
+from warp.adapters.outbound.db.dialect import MSSQL
 from warp.adapters.outbound.db.query_builder import SafeQueryBuilder
 
 PG = SafeQueryBuilder("postgresql")
@@ -133,3 +134,90 @@ class TestStatements:
     def test_injection_in_identifier_rejected(self):
         with pytest.raises(ValueError):
             PG.build_insert("users", {'name"; DROP TABLE x; --': 1})
+
+
+MS = SafeQueryBuilder("mssql")
+
+
+class TestSQLServer:
+    def test_primitives(self):
+        assert MS.quote("users") == "[users]"
+        assert MS.supports_returning is True
+        assert MS.returning_style == "output"
+        assert PG.returning_style == "returning"
+        assert MY.returning_style == "refetch"
+
+    def test_builder_accepts_dialect_object_and_aliases(self):
+        assert SafeQueryBuilder(MSSQL).dialect is MSSQL
+        assert SafeQueryBuilder("sqlserver").dialect is MSSQL
+
+    def test_unknown_dialect_rejected(self):
+        with pytest.raises(ValueError, match="dialect"):
+            SafeQueryBuilder("sqlite")
+
+    def test_where_uses_qmark_and_like(self):
+        where, idx, params = MS.build_where(
+            [("a", "eq", 1), ("b", "like", "x%"), ("c", "in", [1, 2])]
+        )
+        assert where == "WHERE [a] = ? AND [b] LIKE ? AND [c] IN (?, ?)"
+        assert params == [1, "x%", 1, 2]
+        assert idx == 5
+
+    def test_insert_output_before_values(self):
+        sql, params = MS.build_insert("users", {"name": "a", "email": "b"})
+        assert sql == "INSERT INTO [users] ([name], [email]) OUTPUT INSERTED.* VALUES (?, ?)"
+        assert params == ["a", "b"]
+
+    def test_insert_without_returning(self):
+        sql, _ = MS.build_insert("users", {"name": "a"}, returning=False)
+        assert sql == "INSERT INTO [users] ([name]) VALUES (?)"
+        pg_sql, _ = PG.build_insert("users", {"name": "a"}, returning=False)
+        assert pg_sql == 'INSERT INTO "users" ("name") VALUES ($1)'
+
+    def test_update_output(self):
+        sql, params = MS.build_update("users", "id", 5, {"name": "x", "age": 3})
+        assert sql == "UPDATE [users] SET [name] = ?, [age] = ? OUTPUT INSERTED.* WHERE [id] = ?"
+        assert params == ["x", 3, 5]
+        plain, _ = MS.build_update("users", "id", 5, {"name": "x"}, returning=False)
+        assert plain == "UPDATE [users] SET [name] = ? WHERE [id] = ?"
+
+    def test_delete_output(self):
+        sql, params = MS.build_delete("users", "id", 9)
+        assert sql == "DELETE FROM [users] OUTPUT DELETED.[id] WHERE [id] = ?"
+        assert params == [9]
+        plain, _ = MS.build_delete("users", "id", 9, returning=False)
+        assert plain == "DELETE FROM [users] WHERE [id] = ?"
+
+    def test_select_offset_fetch_with_sort(self):
+        count, select, params = MS.build_select(
+            "users",
+            ["id"],
+            [("status", "eq", "x")],
+            {"limit": 10, "offset": 5},
+            [("id", "desc")],
+        )
+        assert count == "SELECT COUNT(*) AS cnt FROM [users] WHERE [status] = ?"
+        assert select == (
+            "SELECT [id] FROM [users] WHERE [status] = ? "
+            "ORDER BY [id] DESC OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY"
+        )
+        assert params == ["x"]
+
+    def test_select_offset_fetch_injects_dummy_order(self):
+        _, select, _ = MS.build_select("users", None, None, {"limit": 10, "offset": 0}, None)
+        assert select == (
+            "SELECT * FROM [users] ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+        )
+
+    def test_select_without_pagination(self):
+        _, select, _ = MS.build_select("users", None, None, None, [("id", "asc")])
+        assert select == "SELECT * FROM [users] ORDER BY [id] ASC"
+
+    def test_select_no_double_spaces_without_order(self):
+        _, select, _ = PG.build_select("t", None, [("a", "eq", 1)], {"limit": 5, "offset": 0}, None)
+        assert select == 'SELECT * FROM "t" WHERE "a" = $1 LIMIT 5 OFFSET 0'
+
+    def test_select_by_id(self):
+        sql, params = MS.build_select_by_id("users", "id", 7, None)
+        assert sql == "SELECT * FROM [users] WHERE [id] = ?"
+        assert params == [7]

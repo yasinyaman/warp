@@ -128,3 +128,47 @@ def test_pipeline_is_bound_to_the_container(tmp_path):
     pipeline = container.pipeline()
     assert pipeline.export is container.export
     assert pipeline.settings is container.settings
+
+
+def _db(**overrides) -> DatabaseConfig:
+    base = {"name": "cfg", "type": "postgresql", "database": "appdb", "username": "u"}
+    return DatabaseConfig(**{**base, **overrides})
+
+
+def _settings_for(tmp_path, db_config: DatabaseConfig) -> Settings:
+    return Settings(
+        databases=[db_config],
+        settings={
+            "catalog": {"storage_path": str(tmp_path / "catalogs")},
+            "llm": {"provider": "ollama", "model": "m"},
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("db", "schema"),
+    [
+        (_db(type="postgresql"), "public"),
+        (_db(type="postgres", options={"schema": "app"}), "app"),
+        (_db(type="mysql"), "appdb"),
+        (_db(type="mariadb", options={"pool_size": 3}), "appdb"),
+        (_db(type="mssql"), "dbo"),
+        (_db(type="sqlserver", options={"schema": "sales"}), "sales"),
+        (_db(type="odbc"), ""),
+    ],
+)
+def test_readers_get_the_dialect_schema(tmp_path, db, schema):
+    container = bootstrap.build_container(_settings_for(tmp_path, db))
+    service = container.analysis_factory(MagicMock(), db, MagicMock())
+    assert service.samples.schema == schema
+    assert service.comments.schema == schema
+    assert service.samples.dialect is service.comments.dialect
+
+
+def test_comment_reader_scope_is_the_database_not_the_config_name(tmp_path):
+    db = _db(name="mysql_main", type="mysql", database="shop")
+    container = bootstrap.build_container(_settings_for(tmp_path, db))
+    service = container.analysis_factory(MagicMock(), db, MagicMock())
+    assert service.comments.database == "shop"
+    assert service.comments.schema == "shop"
+    assert service.database_name == "mysql_main"

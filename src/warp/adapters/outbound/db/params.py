@@ -2,22 +2,25 @@
 
 Callers write ``:name`` placeholders and pass a dict of values; this module
 rewrites the statement into the driver's positional form (``$1`` for asyncpg,
-``%s`` for aiomysql) and returns the values in the matching order.
+``%s`` for aiomysql, ``?`` for pyodbc) and returns the values in the matching
+order.
 
 Rules:
 - A name is ``:`` followed by an identifier and must not be preceded by a word
   character or another ``:``, so ``x::int`` casts and ``a:b`` are untouched.
 - Single-quoted string literals are skipped entirely.
-- A name may be used several times (PostgreSQL reuses the same ``$N``; MySQL
-  repeats ``%s`` and the value).
+- A name may be used several times (numbered dialects reuse the same ``$N``;
+  the others repeat the placeholder and the value).
 - Every referenced name must be provided and every provided name must be
   referenced, otherwise ``ValueError`` (a typo would otherwise bind silently).
-- For MySQL, a literal ``%`` outside a placeholder is escaped to ``%%`` because
-  the driver applies printf-style formatting whenever parameters are given.
+- For dialects whose driver applies printf-style formatting whenever parameters
+  are given (MySQL), a literal ``%`` outside a placeholder is escaped to ``%%``.
 """
 
 import re
 from typing import Any
+
+from warp.adapters.outbound.db.dialect import Dialect, get_dialect
 
 _TOKEN = re.compile(
     r"""
@@ -42,14 +45,15 @@ def _require_no_placeholders(query: str) -> None:
 
 
 def bind_named_params(
-    query: str, params: dict[str, Any] | None, dialect: str
+    query: str, params: dict[str, Any] | None, dialect: str | Dialect
 ) -> tuple[str, list[Any]]:
     """Rewrite ``:name`` placeholders into the dialect's positional form.
 
     Args:
         query: SQL text with ``:name`` placeholders.
         params: Values by name. ``None``/empty leaves the query untouched.
-        dialect: ``"postgresql"`` (``$N``) or ``"mysql"`` (``%s``).
+        dialect: Dialect name or :class:`Dialect`: ``postgresql`` (``$N``),
+            ``mysql`` (``%s``), ``mssql``/``odbc`` (``?``).
 
     Returns:
         The rewritten SQL and the positional values.
@@ -58,35 +62,36 @@ def bind_named_params(
         ValueError: On an unknown dialect, a placeholder without a value, or a
             value without a placeholder.
     """
-    if dialect not in ("postgresql", "mysql"):
-        raise ValueError(f"Unsupported SQL dialect: {dialect!r}")
+    resolved = get_dialect(dialect)
     if not params:
         _require_no_placeholders(query)
         return query, []
 
     positional: list[Any] = []
-    pg_index: dict[str, int] = {}
+    numbered: dict[str, int] = {}
     used: set[str] = set()
+    escape_percent = resolved.escape_percent
+    reuse_placeholder = resolved.placeholder_style == "numbered"
 
     def replace(m: re.Match[str]) -> str:
         literal, cast, name, percent = m.groups()
         if literal is not None:
-            return literal.replace("%", "%%") if dialect == "mysql" else literal
+            return literal.replace("%", "%%") if escape_percent else literal
         if cast is not None:
             return cast
         if percent is not None:
-            return "%%" if dialect == "mysql" else "%"
+            return "%%" if escape_percent else "%"
         assert name is not None
         if name not in params:
             raise ValueError(f"Missing value for query parameter :{name}")
         used.add(name)
-        if dialect == "mysql":
+        if not reuse_placeholder:
             positional.append(params[name])
-            return "%s"
-        if name not in pg_index:
-            pg_index[name] = len(positional) + 1
+            return resolved.placeholder(len(positional))
+        if name not in numbered:
+            numbered[name] = len(positional) + 1
             positional.append(params[name])
-        return f"${pg_index[name]}"
+        return resolved.placeholder(numbered[name])
 
     rewritten = _TOKEN.sub(replace, query)
 
