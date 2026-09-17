@@ -71,7 +71,8 @@ class PostgreSQLAdapter(DatabaseAdapter):
                     c.column_default,
                     c.character_maximum_length,
                     c.numeric_precision,
-                    c.numeric_scale
+                    c.numeric_scale,
+                    c.is_identity
                 FROM information_schema.columns c
                 WHERE c.table_schema = 'public'
                   AND c.table_name = $1
@@ -90,6 +91,10 @@ class PostgreSQLAdapter(DatabaseAdapter):
                         "max_length": col["character_maximum_length"],
                         "precision": col["numeric_precision"],
                         "scale": col["numeric_scale"],
+                        # GENERATED ... AS IDENTITY columns have no column_default;
+                        # mark them so create models and required-column checks
+                        # treat them like serials.
+                        "extra": "identity" if col.get("is_identity") == "YES" else None,
                     }
                 )
 

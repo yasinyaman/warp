@@ -9,10 +9,12 @@ These exercise the identifier sanitizer and WHERE-clause builder directly
 import pytest
 
 from warp.adapters.outbound.db.mysql import MySQLAdapter
+from warp.adapters.outbound.db.odbc import ODBCAdapter
 from warp.adapters.outbound.db.postgres import PostgreSQLAdapter
 
 PG = PostgreSQLAdapter({"name": "t"})
 MY = MySQLAdapter({"name": "t"})
+MS = ODBCAdapter({"name": "t", "type": "mssql"})
 
 INJECTION = [
     'x"; DROP TABLE users; --',
@@ -26,11 +28,11 @@ INJECTION = [
 
 
 class TestSanitizeIdentifier:
-    @pytest.mark.parametrize("adapter", [PG, MY])
+    @pytest.mark.parametrize("adapter", [PG, MY, MS])
     def test_accepts_valid(self, adapter):
         assert adapter._sanitize_identifier("user_id") == "user_id"
 
-    @pytest.mark.parametrize("adapter", [PG, MY])
+    @pytest.mark.parametrize("adapter", [PG, MY, MS])
     @pytest.mark.parametrize("bad", INJECTION)
     def test_rejects_injection(self, adapter, bad):
         with pytest.raises(ValueError):
@@ -118,3 +120,36 @@ class TestMySQLWhereClause:
     def test_malicious_column_rejected(self):
         with pytest.raises(ValueError):
             MY._build_where_clause("status`; DROP", "eq", 1)
+
+
+class TestMSSQLWhereClause:
+    @pytest.mark.parametrize(
+        "op,expected",
+        [
+            ("eq", "[age] = ?"),
+            ("ne", "[age] != ?"),
+            ("gt", "[age] > ?"),
+            ("like", "[age] LIKE ?"),
+        ],
+    )
+    def test_operators_parameterized(self, op, expected):
+        clause, idx, params = MS._build_where_clause("age", op, 5, 1)
+        assert clause == expected
+        assert params == [5]
+        assert idx == 2
+
+    def test_in_uses_multiple_placeholders(self):
+        clause, idx, params = MS._build_where_clause("id", "in", [1, 2], 1)
+        assert clause == "[id] IN (?, ?)"
+        assert params == [1, 2]
+        assert idx == 3
+
+    def test_malicious_value_is_parameterized(self):
+        payload = "1; DROP TABLE users; --"
+        clause, _, params = MS._build_where_clause("status", "eq", payload, 1)
+        assert clause == "[status] = ?"
+        assert params == [payload]
+
+    def test_malicious_column_rejected(self):
+        with pytest.raises(ValueError):
+            MS._build_where_clause("status]; DROP", "eq", 1, 1)

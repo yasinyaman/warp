@@ -290,6 +290,19 @@ class TestSchemaAnalyzerPydanticModels:
         assert "id" not in fields
         assert "name" in fields
 
+    def test_generate_create_model_skips_identity_and_computed(self, analyzer, sample_table_schema):
+        """SQL Server identity/computed columns are never client-supplied."""
+        sample_table_schema.columns[0].extra = "identity"
+        sample_table_schema.columns.append(
+            ColumnSchema(name="total", type="money", nullable=True, extra="computed")
+        )
+
+        Model = analyzer.generate_pydantic_model(sample_table_schema, for_create=True)
+
+        fields = Model.model_fields
+        assert "id" not in fields and "total" not in fields
+        assert "name" in fields
+
     def test_generate_update_model(self, analyzer, sample_table_schema):
         """Test generating update model (all optional)."""
         Model = analyzer.generate_pydantic_model(sample_table_schema, for_update=True)
@@ -423,3 +436,22 @@ class TestTypeKind:
         assert type_kind("tinyint", full_type="tinyint(4)") == "int"
         assert type_kind("interval") == "str"  # unknown -> text passthrough
         assert python_type_for("point") is str
+
+
+class TestSQLServerTypes:
+    def test_sql_server_and_odbc_types_are_classified(self):
+        from warp.domain.sql_types import python_type_for, type_kind
+
+        assert python_type_for("nvarchar") is str
+        assert python_type_for("uniqueidentifier") is UUID
+        assert python_type_for("datetime2") is datetime
+        assert python_type_for("datetimeoffset") is datetime
+        assert type_kind("bit") == "bool"
+        assert type_kind("money") == "float"
+        assert type_kind("smallmoney") == "float"
+        assert type_kind("rowversion") == "bytes"
+        assert type_kind("varbinary") == "bytes"
+        assert type_kind("xml") == "str"
+        assert type_kind("number") == "float"
+        assert type_kind("varchar2") == "str"
+        assert type_kind("raw") == "bytes"

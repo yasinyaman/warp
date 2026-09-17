@@ -14,7 +14,7 @@ help:
 	@echo "============================="
 	@echo ""
 	@echo "Development:"
-	@echo "  make install      - Install dev + llm extras (editable)"
+	@echo "  make install      - Install dev + llm + odbc extras (editable)"
 	@echo "  make lock         - Regenerate the hashed lock files (requires uv)"
 	@echo "  make dev          - Run development server"
 	@echo "  make test         - Run the unit test suite"
@@ -38,13 +38,13 @@ help:
 # ===========================================
 
 install:
-	pip install -e ".[dev,llm]"
+	pip install -e ".[dev,llm,odbc]"
 
 # Hashed, universal lock files (ADR-0003). requirements.lock = all extras
-# (CI/dev); requirements-prod.lock = runtime + llm only (Docker image).
+# (CI/dev); requirements-prod.lock = runtime + llm + odbc (Docker image).
 lock:
 	uv pip compile pyproject.toml --all-extras --universal --generate-hashes -o requirements.lock
-	uv pip compile pyproject.toml --extra llm --universal --generate-hashes -o requirements-prod.lock
+	uv pip compile pyproject.toml --extra llm --extra odbc --universal --generate-hashes -o requirements-prod.lock
 
 dev:
 	PYTHONPATH=src uvicorn warp.main:app --reload --host 0.0.0.0 --port 8000

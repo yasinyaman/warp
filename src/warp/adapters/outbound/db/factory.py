@@ -4,6 +4,7 @@ from typing import Any
 
 from warp.adapters.outbound.db.base import DatabaseAdapter
 from warp.adapters.outbound.db.mysql import MySQLAdapter
+from warp.adapters.outbound.db.odbc import ODBCAdapter
 from warp.adapters.outbound.db.postgres import PostgreSQLAdapter
 from warp.application.config import DatabaseConfig
 
@@ -13,6 +14,10 @@ ADAPTERS: dict[str, type[DatabaseAdapter]] = {
     "postgres": PostgreSQLAdapter,
     "mysql": MySQLAdapter,
     "mariadb": MySQLAdapter,
+    # ODBC (aioodbc/pyodbc): SQL Server profile and a generic best-effort profile.
+    "mssql": ODBCAdapter,
+    "sqlserver": ODBCAdapter,
+    "odbc": ODBCAdapter,
 }
 
 
