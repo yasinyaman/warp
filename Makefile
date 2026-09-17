@@ -2,7 +2,7 @@
 # Warp Engine - Makefile
 # ===========================================
 
-.PHONY: help install lock dev test test-integration lint format clean docker-build docker-up docker-down docker-logs docker-shell docker-restart docker-clean db-reset db-shell-pg db-shell-mysql ssl-certs quickstart
+.PHONY: help install lock dev test test-integration lint format clean docker-build docker-up docker-up-mssql docker-down docker-logs docker-shell docker-restart docker-clean db-reset db-shell-pg db-shell-mysql db-shell-mssql ssl-certs quickstart
 
 # Load local secrets/credentials from .env when present (copy .env.example -> .env).
 -include .env
@@ -25,6 +25,7 @@ help:
 	@echo "Docker (Development):"
 	@echo "  make docker-build - Build Docker images"
 	@echo "  make docker-up    - Start all services"
+	@echo "  make docker-up-mssql - Also start SQL Server (profile mssql, needs MSSQL_PASS)"
 	@echo "  make docker-down  - Stop all services"
 	@echo "  make docker-logs  - View logs"
 	@echo "  make docker-shell - Shell into API container"
@@ -52,7 +53,9 @@ dev:
 test:
 	PYTHONPATH=src pytest tests/ -v --cov=src/warp --cov-report=html
 
-# Real PostgreSQL + MySQL via testcontainers (Docker must be running).
+# Real PostgreSQL + MySQL via testcontainers (Docker must be running). SQL
+# Server runs too when the Microsoft ODBC driver is installed and the Docker
+# engine is x86-64 (CI); otherwise it is skipped with a reason.
 test-integration:
 	PYTHONPATH=src pytest tests/integration -m integration -v
 
@@ -82,8 +85,11 @@ docker-up:
 	@echo "  Adminer: http://localhost:8080"
 	@echo ""
 
+docker-up-mssql:
+	docker-compose --profile mssql up -d
+
 docker-down:
-	docker-compose down
+	docker-compose --profile mssql down
 
 docker-logs:
 	docker-compose logs -f
@@ -113,6 +119,9 @@ db-shell-pg:
 
 db-shell-mysql:
 	docker-compose exec mysql mysql -u root -p"$(MYSQL_PASS)" $(MYSQL_DB)
+
+db-shell-mssql:
+	docker-compose exec mssql /opt/mssql-tools18/bin/sqlcmd -C -U sa -P "$(MSSQL_PASS)"
 
 # ===========================================
 # Utilities
