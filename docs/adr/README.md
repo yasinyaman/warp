@@ -12,3 +12,4 @@ the lightweight format popularized by Michael Nygard.
 | [0005](0005-ci-quality-gates.md) | CI quality gates: pragmatic, then strict | Accepted |
 | [0006](0006-distribution-name.md) | Distribution name vs. the import package | Accepted |
 | [0007](0007-hexagonal-architecture.md) | Hexagonal architecture (ports & adapters) | Accepted |
+| [0008](0008-dialect-abstraction-and-odbc-adapter.md) | Dialect abstraction and the ODBC (SQL Server) adapter | Accepted |

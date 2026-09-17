@@ -12,7 +12,7 @@ Warp connects to your database, discovers tables and columns, and generates a fu
 - **Sorting** - Sort results by any column with ascending/descending support
 - **Pagination** - Built-in pagination with configurable limits
 - **Raw Queries** - Secure raw SQL execution with command whitelist
-- **Multi-DB Support** - PostgreSQL and MySQL
+- **Multi-DB Support** - PostgreSQL, MySQL and SQL Server (plus any ODBC data source, best effort)
 - **Authentication** - API key authentication with role-based access control
 - **Catalog Intelligence** - LLM-powered schema analysis with semantic types and descriptions
 - **Multi-Language** - Catalog descriptions in multiple languages with auto-translation
@@ -33,6 +33,9 @@ cd warp
 # Start all services (API + PostgreSQL + MySQL + Adminer)
 docker-compose up -d
 
+# Also start SQL Server (profile `mssql`; set MSSQL_PASS in .env first)
+docker compose --profile mssql up -d
+
 # API: http://localhost:8000
 # Docs: http://localhost:8000/docs
 # Adminer: http://localhost:8080
@@ -41,7 +44,7 @@ docker-compose up -d
 ### Using pip
 
 ```bash
-pip install -e ".[dev,llm]"
+pip install -e ".[dev,llm,odbc]"   # drop `odbc` if you do not need SQL Server / ODBC
 ```
 
 #### Reproducible installs (pinned + hashed)
@@ -49,7 +52,7 @@ pip install -e ".[dev,llm]"
 `pyproject.toml` keeps flexible `>=` ranges for library consumers. For
 reproducible environments, two hash-pinned lock files are committed:
 `requirements.lock` (all extras; CI and local dev) and `requirements-prod.lock`
-(runtime + `llm` only; the Docker image). Install from them with
+(runtime + `llm` + `odbc`; the Docker image). Install from them with
 [uv](https://docs.astral.sh/uv/) and regenerate with `make lock`:
 
 ```bash
@@ -134,6 +137,46 @@ settings:
       - /redoc
       - /openapi.json
 ```
+
+### SQL Server and other ODBC sources
+
+`type: mssql` (or `sqlserver`) connects through ODBC with the SQL Server
+profile: full schema discovery (identity/computed columns, keys, indexes),
+`OUTPUT`-based writes, `TOP` / `OFFSET … FETCH` pagination, comments from
+`MS_Description` extended properties and row counts for the catalog.
+
+```yaml
+databases:
+  - name: mssql_db
+    type: mssql
+    host: ${MSSQL_HOST:localhost}
+    port: ${MSSQL_PORT:1433}          # SQL Server's default; set it explicitly
+    database: ${MSSQL_DB:master}
+    username: ${MSSQL_USER:sa}
+    password: ${MSSQL_PASS:}
+    options:
+      schema: dbo                     # schema to introspect (default: dbo)
+      driver: ODBC Driver 18 for SQL Server   # default
+      encrypt: true                   # Driver 18 default; `strict`/`optional` also accepted
+      trust_server_certificate: false # true only for self-signed dev servers
+      # extra: "ApplicationIntent=ReadOnly"   # raw Key=Value pairs appended verbatim
+      # connection_string: "DSN=warp"         # use an ODBC DSN instead of host/port/...
+```
+
+Requirements: the `odbc` extra (`pip install "warp-engine[odbc]"`, included in
+both lock files) and Microsoft's ODBC driver on the machine — the Docker image
+ships it (opt out with `docker build --build-arg WITH_MSSQL_ODBC=0 .`), CI
+installs it, locally use `brew install unixodbc && brew tap microsoft/mssql-release && brew install msodbcsql18`
+on macOS or the `msodbcsql18` package from
+[packages.microsoft.com](https://learn.microsoft.com/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server)
+on Linux.
+
+`type: odbc` is a best-effort generic profile for other ODBC data sources:
+`options.driver` (or `options.connection_string`) is required, quoting is ANSI,
+placeholders are `?`, schema discovery goes through the ODBC catalog functions
+(identity columns are only detected when the driver reports them), written
+rows are re-selected by their key, and there is no comment/row-count catalog
+intelligence.
 
 ### LLM Provider Configuration
 
@@ -439,8 +482,8 @@ src/warp/
 │   ├── inbound/http/           # FastAPI app + lifespan, auth, routes/{crud,catalog,query}
 │   ├── inbound/cli/            # warp-catalog commands
 │   └── outbound/
-│       ├── db/                 # PostgreSQL/MySQL gateways, SafeQueryBuilder, identifiers,
-│       │                       #   named params, comment/sample readers
+│       ├── db/                 # PostgreSQL/MySQL/ODBC (SQL Server) gateways, Dialect table,
+│       │                       #   SafeQueryBuilder, identifiers, named params, comment/sample readers
 │       ├── llm/                # OpenAI/Anthropic/Gemini/Ollama providers + LLMClient
 │       ├── catalog_store/      # file-based CatalogRepository
 │       └── export/             # JSON/YAML/Markdown exporters
@@ -468,8 +511,8 @@ cd warp
 python -m venv .venv
 source .venv/bin/activate
 
-# Install with dev and LLM dependencies
-pip install -e ".[dev,llm]"
+# Install with dev, LLM and ODBC dependencies
+pip install -e ".[dev,llm,odbc]"
 
 # Run tests
 pytest
@@ -503,6 +546,11 @@ docker-compose up -d --build
 | `MYSQL_DB` | - | MySQL database name |
 | `MYSQL_USER` | - | MySQL user |
 | `MYSQL_PASS` | - | MySQL password |
+| `MSSQL_HOST` | `localhost` | SQL Server host (optional `mssql` entry / compose profile) |
+| `MSSQL_PORT` | `1433` | SQL Server port |
+| `MSSQL_DB` | `master` | SQL Server database name |
+| `MSSQL_USER` | `sa` | SQL Server user |
+| `MSSQL_PASS` | - | SQL Server password (required by the `mssql` compose profile) |
 | `LLM_PROVIDER` | `ollama` | LLM provider (openai, anthropic, gemini, ollama) |
 | `LLM_MODEL` | `gemma3:1b` | LLM model name |
 | `LLM_API_KEY` | - | LLM API key (not needed for Ollama) |
