@@ -442,3 +442,76 @@ async def test_row_estimates_empty_input_skips_query() -> None:
     adapter = make_adapter(cur)
     assert await adapter.row_estimates([]) == {}
     assert cur.executed == []
+
+
+class FakeStreamCursor(FakeCursor):
+    """Adds ``fetchmany`` so ``stream_select`` can be driven batch by batch."""
+
+    def __init__(self, batches: list[list[dict[str, Any]]]) -> None:
+        super().__init__()
+        self._batches = list(batches)
+        self.fetchmany_sizes: list[int] = []
+        self.closed = False
+
+    async def fetchmany(self, size: int) -> list[dict[str, Any]]:
+        self.fetchmany_sizes.append(size)
+        return self._batches.pop(0) if self._batches else []
+
+    async def __aexit__(self, *args: Any) -> None:
+        self.closed = True
+
+
+class _RecordingConn(FakeConn):
+    def __init__(self, cursor: FakeCursor) -> None:
+        super().__init__(cursor)
+        self.cursor_args: list[tuple[Any, ...]] = []
+
+    def cursor(self, *args: Any, **kwargs: Any) -> FakeCursor:
+        self.cursor_args.append(args)
+        return self._cursor
+
+
+def _stream_adapter(
+    batches: list[list[dict[str, Any]]],
+) -> tuple[MySQLAdapter, FakeStreamCursor, _RecordingConn]:
+    cursor = FakeStreamCursor(batches)
+    conn = _RecordingConn(cursor)
+    adapter = MySQLAdapter(CONFIG)
+    adapter._pool = FakePool(conn)
+    return adapter, cursor, conn
+
+
+@pytest.mark.asyncio
+async def test_stream_select_uses_unbuffered_dict_cursor() -> None:
+    adapter, cursor, conn = _stream_adapter([[{"id": 1}, {"id": 2}], [{"id": 3}]])
+    batches = [
+        b
+        async for b in adapter.stream_select(
+            "users", ["id"], [("id", "gt", 0)], [("id", "asc")], batch_size=2, limit=3
+        )
+    ]
+    assert batches == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
+    assert conn.cursor_args == [(aiomysql.SSDictCursor,)]
+    assert cursor.executed == [
+        ("SELECT `id` FROM `users` WHERE `id` > %s ORDER BY `id` ASC LIMIT 3", [0])
+    ]
+    assert cursor.fetchmany_sizes == [2, 2, 2]
+    assert cursor.closed
+
+
+@pytest.mark.asyncio
+async def test_stream_select_adds_max_execution_time_hint() -> None:
+    adapter, cursor, _ = _stream_adapter([])
+    assert [b async for b in adapter.stream_select("users", statement_timeout_ms=2000)] == []
+    sql, params = cursor.executed[0]
+    assert sql == "SELECT /*+ MAX_EXECUTION_TIME(2000) */ * FROM `users`"
+    assert params is None
+
+
+@pytest.mark.asyncio
+async def test_stream_select_early_close_releases_cursor() -> None:
+    adapter, cursor, _ = _stream_adapter([[{"id": 1}], [{"id": 2}]])
+    stream = adapter.stream_select("users", batch_size=1)
+    assert await stream.__anext__() == [{"id": 1}]
+    await stream.aclose()
+    assert cursor.closed and cursor.fetchmany_sizes == [1]

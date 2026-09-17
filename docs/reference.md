@@ -29,3 +29,19 @@ The single source of truth for validating/quoting dynamic SQL identifiers.
 ## Configuration
 
 ::: warp.application.config.validate_production_config
+
+## Data access for external engines
+
+Typed schema, planner row estimates, streaming export and the `/info`
+capabilities block let an OLAP engine (e.g. Fusion) pull exactly the rows it
+needs instead of paging through a whole table.
+
+::: warp.adapters.inbound.http.capabilities.capabilities_of
+
+::: warp.adapters.inbound.http.routes.schema
+
+::: warp.adapters.inbound.http.routes.export
+
+::: warp.adapters.inbound.http.arrow_export
+
+::: warp.application.config.ExportConfig

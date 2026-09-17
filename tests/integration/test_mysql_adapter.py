@@ -46,3 +46,28 @@ async def test_row_estimates(mysql_gateway: DatabaseGateway) -> None:
     estimates = await mysql_gateway.row_estimates(["users", "does_not_exist"])
     assert estimates["users"] is None or isinstance(estimates["users"], int)
     assert estimates["does_not_exist"] is None
+
+
+async def test_stream_select_batches_and_limit(mysql_gateway: DatabaseGateway) -> None:
+    batches = [
+        b
+        async for b in mysql_gateway.stream_select(
+            "users", ["id", "username"], sort=[("id", "asc")], batch_size=2
+        )
+    ]
+    assert [len(b) for b in batches] == [2, 1]
+    assert [r["username"] for b in batches for r in b] == ["alice", "bob", "carol"]
+    limited = [
+        b
+        async for b in mysql_gateway.stream_select(
+            "users",
+            filters=[("active", "eq", True)],
+            sort=[("id", "desc")],
+            batch_size=10,
+            limit=1,
+            statement_timeout_ms=5_000,
+        )
+    ]
+    assert [r["username"] for b in limited for r in b] == ["carol"]
+    # The unbuffered cursor was drained/closed; the connection is reusable.
+    assert (await mysql_gateway.execute_query("SELECT COUNT(*) AS n FROM users"))[0]["n"] == 3

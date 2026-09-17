@@ -14,6 +14,7 @@ and tools get rich context automatically.
 
 - **Auto-discovery** of tables → full CRUD endpoints (PostgreSQL & MySQL)
 - **Filtering / sorting / pagination** with a safe, parameterized query layer
+- **Typed schema and streaming export** (JSON, NDJSON, Arrow IPC) for external analytics engines
 - **API-key auth** with role-based permissions
 - **Catalog intelligence** — LLM-generated descriptions, semantic types, tags,
   relationships, multi-language docs, and a human-in-the-loop review workflow

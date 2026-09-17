@@ -133,3 +133,35 @@ class TestStatements:
     def test_injection_in_identifier_rejected(self):
         with pytest.raises(ValueError):
             PG.build_insert("users", {'name"; DROP TABLE x; --': 1})
+
+
+class TestStreamSelect:
+    def test_pg_no_count_no_offset(self):
+        sql, params = PG.build_stream_select(
+            "users", ["id", "name"], [("status", "eq", "x")], [("id", "desc")], limit=10
+        )
+        assert (
+            sql
+            == 'SELECT "id", "name" FROM "users" WHERE "status" = $1 ORDER BY "id" DESC LIMIT 10'
+        )
+        assert params == ["x"]
+
+    def test_mysql_star_without_clauses(self):
+        sql, params = MY.build_stream_select("t", None, None, None)
+        assert sql == "SELECT * FROM `t`"
+        assert params == []
+
+    def test_no_limit_when_none(self):
+        sql, _ = PG.build_stream_select("t", None, [("a", "in", [1, 2])], None, limit=None)
+        assert sql == 'SELECT * FROM "t" WHERE "a" IN ($1, $2)'
+        assert "OFFSET" not in sql and "COUNT" not in sql
+
+    def test_limit_is_coerced_to_int(self):
+        sql, _ = MY.build_stream_select("t", None, None, None, limit=7)
+        assert sql.endswith("LIMIT 7")
+        with pytest.raises((TypeError, ValueError)):
+            MY.build_stream_select("t", None, None, None, limit="7; DROP TABLE t")  # type: ignore[arg-type]
+
+    def test_identifiers_validated(self):
+        with pytest.raises(ValueError):
+            PG.build_stream_select('t"; DROP', None, None, None)

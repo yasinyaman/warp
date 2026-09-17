@@ -1,5 +1,10 @@
 """The whole hexagon over a real PostgreSQL: lifespan, CRUD routes, validation, raw SQL."""
 
+import json
+from datetime import UTC, datetime
+from decimal import Decimal
+
+import pyarrow as pa
 import pytest
 from fastapi.testclient import TestClient
 
@@ -10,8 +15,7 @@ from warp.infrastructure.bootstrap import build_container
 pytestmark = pytest.mark.integration
 
 
-@pytest.fixture
-def client(pg_gateway, postgres_config: DatabaseConfig, tmp_path):
+def _make_app(postgres_config: DatabaseConfig, tmp_path):
     settings = Settings(
         databases=[postgres_config],
         settings={
@@ -20,10 +24,39 @@ def client(pg_gateway, postgres_config: DatabaseConfig, tmp_path):
             "raw_query_whitelist": ["SELECT"],
         },
     )
-    app = create_app(container_factory=lambda: build_container(settings), env=RuntimeEnv())
+    return create_app(container_factory=lambda: build_container(settings), env=RuntimeEnv())
+
+
+@pytest.fixture
+def client(pg_gateway, postgres_config: DatabaseConfig, tmp_path):
+    app = _make_app(postgres_config, tmp_path)
     with TestClient(app) as c:
         yield c
     assert runtime_of(app).is_ready is False
+
+
+@pytest.fixture
+async def ledger(pg_gateway):
+    """A table with the types JSON cannot carry faithfully (decimal, timestamptz, bytea)."""
+    await pg_gateway.execute_query("DROP TABLE IF EXISTS ledger")
+    await pg_gateway.execute_query(
+        "CREATE TABLE ledger (id BIGSERIAL PRIMARY KEY, amount NUMERIC(12,2) NOT NULL, "
+        "booked_at TIMESTAMPTZ NOT NULL, note TEXT, raw BYTEA)"
+    )
+    await pg_gateway.execute_query(
+        "INSERT INTO ledger (amount, booked_at, note, raw) VALUES "
+        "(10.25, '2024-01-01T10:00:00+02:00', 'a', '\\x0102'), "
+        "(-3.00, '2024-02-01T00:00:00Z', NULL, NULL)"
+    )
+    yield
+    await pg_gateway.execute_query("DROP TABLE IF EXISTS ledger")
+
+
+@pytest.fixture
+def ledger_client(ledger, postgres_config: DatabaseConfig, tmp_path):
+    app = _make_app(postgres_config, tmp_path)
+    with TestClient(app) as c:
+        yield c
 
 
 def test_startup_discovers_schema(client: TestClient) -> None:
@@ -98,3 +131,49 @@ def test_db_prefixed_and_alias_routes(client: TestClient) -> None:
     assert client.get("/api/v1/pg/users/schema").status_code == 200
     caps = client.get("/info").json()["capabilities"]
     assert caps["db_prefix"] == "always" and caps["schema"] is True
+
+
+def test_export_ndjson_over_postgres(client: TestClient) -> None:
+    r = client.get("/api/v1/users/export?format=ndjson&fields=id,username&sort=id:asc")
+    assert r.status_code == 200 and r.headers["x-export-format"] == "ndjson"
+    rows = [json.loads(line) for line in r.text.splitlines()]
+    assert rows == [
+        {"id": 1, "username": "alice"},
+        {"id": 2, "username": "bob"},
+        {"id": 3, "username": "carol"},
+    ]
+    body = client.post(
+        "/api/v1/users/export",
+        json={
+            "filters": [{"column": "id", "op": "in", "value": [1, 3]}],
+            "sort": [{"column": "id", "direction": "desc"}],
+        },
+    ).json()
+    assert [i["username"] for i in body["items"]] == ["carol", "alice"]
+    assert body["row_count"] == 2
+    assert client.get("/api/v1/users/export?filter[active][eq]=false").json()["row_count"] == 1
+    assert "export" in client.get("/info").json()["capabilities"]
+
+
+def test_export_arrow_over_postgres(ledger_client: TestClient) -> None:
+    r = ledger_client.get("/api/v1/ledger/export?format=arrow&sort=id:asc")
+    assert r.status_code == 200
+    table = pa.ipc.open_stream(r.content).read_all()
+    assert table.num_rows == 2
+    assert table.schema.field("id").type == pa.int64()
+    assert table.schema.field("amount").type == pa.decimal128(12, 2)
+    assert table.schema.field("booked_at").type == pa.timestamp("us", tz="UTC")
+    assert table.schema.field("note").type == pa.string()
+    assert table.schema.field("raw").type == pa.binary()
+    assert table.column("amount").to_pylist() == [Decimal("10.25"), Decimal("-3.00")]
+    assert table.column("booked_at").to_pylist() == [
+        datetime(2024, 1, 1, 8, tzinfo=UTC),
+        datetime(2024, 2, 1, tzinfo=UTC),
+    ]
+    assert table.column("note").to_pylist() == ["a", None]
+    assert table.column("raw").to_pylist() == [b"\x01\x02", None]
+    cols = {c["name"]: c for c in ledger_client.get("/api/v1/ledger/schema").json()["columns"]}
+    assert (cols["amount"]["precision"], cols["amount"]["scale"]) == (12, 2)
+    # JSON export of the same rows keeps decimals as text and bytes as base64.
+    items = ledger_client.get("/api/v1/ledger/export?sort=id:asc").json()["items"]
+    assert items[0]["amount"] == "10.25" and items[0]["raw"] == "AQI="

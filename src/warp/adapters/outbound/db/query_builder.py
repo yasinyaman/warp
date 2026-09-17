@@ -146,6 +146,29 @@ class SafeQueryBuilder:
         select_sql = f"SELECT {cols} FROM {tbl} {where_sql} {order_sql} {limit_sql}".rstrip()
         return count_sql, select_sql, params
 
+    def build_stream_select(
+        self,
+        table: str,
+        columns: list[str] | None,
+        filters: list[tuple[str, str, Any]] | None,
+        sort: list[tuple[str, str]] | None,
+        limit: int | None = None,
+    ) -> tuple[str, list[Any]]:
+        """Return ``(select_sql, params)`` for a streamed read: no COUNT, no OFFSET.
+
+        ``limit`` is interpolated only after ``int()`` (it is range-validated
+        upstream); everything else goes through the same validated/quoted
+        identifier and bound-parameter paths as ``build_select``.
+        """
+        where_sql, _, params = self.build_where(filters or [])
+        parts = [
+            f"SELECT {self._select_columns(columns)} FROM {self.quote(table)}",
+            where_sql,
+            self._order_by(sort),
+            f"LIMIT {int(limit)}" if limit is not None else "",
+        ]
+        return " ".join(part for part in parts if part), params
+
     def build_insert(self, table: str, data: dict[str, Any]) -> tuple[str, list[Any]]:
         """Build an INSERT statement (with ``RETURNING *`` on PostgreSQL)."""
         tbl = self.quote(table)

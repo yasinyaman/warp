@@ -35,6 +35,34 @@ def event_loop():
 # ===========================================
 
 
+def _mock_filter_match(actual: Any, operator: str, value: Any) -> bool:
+    """Evaluate one (operator, value) filter against a row value."""
+    import re
+
+    if operator == "is_null":
+        return (actual is None) == bool(value)
+    if actual is None:
+        return False
+    if operator == "eq":
+        return actual == value
+    if operator == "ne":
+        return actual != value
+    if operator == "gt":
+        return actual > value
+    if operator == "gte":
+        return actual >= value
+    if operator == "lt":
+        return actual < value
+    if operator == "lte":
+        return actual <= value
+    if operator == "like":
+        pattern = "^" + re.escape(str(value)).replace("%", ".*").replace("_", ".") + "$"
+        return re.match(pattern, str(actual), re.IGNORECASE) is not None
+    if operator == "in":
+        return actual in value
+    raise ValueError(operator)
+
+
 class MockDatabaseAdapter:
     """Mock database adapter for testing."""
 
@@ -44,6 +72,7 @@ class MockDatabaseAdapter:
         self._pool = True  # Simulate connected state
         self._tables: dict[str, list[dict]] = {}
         self._schemas: dict[str, dict] = {}
+        self.stream_calls: list[dict[str, Any]] = []
 
     async def connect(self) -> None:
         """Simulate connection."""
@@ -112,6 +141,43 @@ class MockDatabaseAdapter:
             records = records[offset : offset + limit]
 
         return records, total
+
+    async def stream_select(
+        self,
+        table: str,
+        columns: list[str] = None,
+        filters: list = None,
+        sort: list = None,
+        batch_size: int = 5000,
+        limit: int = None,
+        statement_timeout_ms: int = 0,
+    ):
+        """Mock streaming select: filter, sort, project, limit, then yield batches."""
+        rows = [dict(r) for r in self._tables.get(table, [])]
+        for column, operator, value in filters or []:
+            rows = [r for r in rows if _mock_filter_match(r.get(column), operator, value)]
+        for column, direction in reversed(sort or []):
+            rows.sort(
+                key=lambda r, c=column: (r.get(c) is None, r.get(c)),
+                reverse=(direction == "desc"),
+            )
+        if columns:
+            rows = [{c: r.get(c) for c in columns} for r in rows]
+        if limit is not None:
+            rows = rows[:limit]
+        self.stream_calls.append(
+            {
+                "table": table,
+                "columns": columns,
+                "filters": filters,
+                "sort": sort,
+                "batch_size": batch_size,
+                "limit": limit,
+                "statement_timeout_ms": statement_timeout_ms,
+            }
+        )
+        for start in range(0, len(rows), batch_size):
+            yield rows[start : start + batch_size]
 
     async def select_by_id(
         self, table: str, id_column: str, id_value: Any, columns: list[str] = None

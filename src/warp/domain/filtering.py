@@ -1,7 +1,7 @@
 """Filtering utilities for parsing query parameters into filter conditions."""
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import Any
@@ -122,6 +122,47 @@ class FilterParser:
 
         return filters
 
+    def parse_conditions(self, conditions: Iterable[tuple[str, str, Any]]) -> list[FilterCondition]:
+        """Validate already-structured ``(column, operator, value)`` triples.
+
+        This is the JSON-body counterpart of ``parse``: values may arrive as
+        typed JSON (``int``/``float``/``bool``/``list``) and are passed through,
+        while string values are coerced to the column's kind exactly like
+        query-string values. ``in`` requires a list.
+
+        Raises:
+            ValueError: On an unknown column/operator or an unconvertible value.
+        """
+        filters = []
+        for column, operator, value in conditions:
+            if self.allowed_columns and column not in self.allowed_columns:
+                raise ValueError(f"Filter on column '{column}' is not allowed")
+            if operator not in self.OPERATORS:
+                raise ValueError(
+                    f"Invalid operator '{operator}'. Allowed: {', '.join(sorted(self.OPERATORS))}"
+                )
+            parsed = self._coerce_structured(value, operator, column)
+            filters.append(FilterCondition(column=column, operator=operator, value=parsed))
+        return filters
+
+    def _coerce_structured(self, value: Any, operator: str, column: str) -> Any:
+        """Coerce a JSON value for ``operator`` on ``column``."""
+        if operator == "is_null":
+            return value.lower() in self._TRUE if isinstance(value, str) else bool(value)
+        if operator == "like":
+            return str(value)
+        if operator == "in":
+            if not isinstance(value, list | tuple):
+                raise ValueError(f"Filter 'in' on column '{column}' needs a list of values")
+            return [self._coerce_scalar(v, column) for v in value]
+        return self._coerce_scalar(value, column)
+
+    def _coerce_scalar(self, value: Any, column: str) -> Any:
+        """Strings follow the column's kind; typed JSON values pass through."""
+        if isinstance(value, str):
+            return self._convert_value(value, self.column_kinds.get(column), column)
+        return value
+
     def _parse_value(self, value: str, operator: str, column: str = "") -> Any:
         """Parse and convert filter value based on operator and column kind."""
         if operator == "is_null":
@@ -238,3 +279,25 @@ def parse_filters_from_request(
     parser = FilterParser(allowed_columns, column_kinds)
     conditions = parser.parse(query_params)
     return [c.to_tuple() for c in conditions]
+
+
+def parse_filter_conditions(
+    conditions: Iterable[tuple[str, str, Any]],
+    allowed_columns: list[str] | None = None,
+    column_kinds: Mapping[str, str] | None = None,
+) -> list[tuple[str, str, Any]]:
+    """Validate structured filter triples (e.g. from a JSON body).
+
+    Args:
+        conditions: ``(column, operator, value)`` triples.
+        allowed_columns: Optional list of allowed column names.
+        column_kinds: Optional column name -> kind mapping for typed coercion.
+
+    Returns:
+        List of ``(column, operator, value)`` tuples with coerced values.
+
+    Raises:
+        ValueError: On an unknown column/operator or an unconvertible value.
+    """
+    parser = FilterParser(allowed_columns, column_kinds)
+    return [c.to_tuple() for c in parser.parse_conditions(conditions)]

@@ -4,6 +4,7 @@ All database implementations must inherit from this class.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from typing import Any
 
 
@@ -129,6 +130,37 @@ class DatabaseAdapter(ABC):
 
         Returns:
             Tuple of (list of records, total count without pagination).
+        """
+        pass
+
+    @abstractmethod
+    def stream_select(  # noqa: PLR0913
+        self,
+        table: str,
+        columns: list[str] | None = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        sort: list[tuple[str, str]] | None = None,
+        batch_size: int = 5000,
+        limit: int | None = None,
+        statement_timeout_ms: int = 0,
+    ) -> AsyncIterator[list[dict[str, Any]]]:
+        """Stream matching rows in batches through a server-side cursor.
+
+        Unlike ``select`` there is no ``COUNT(*)`` and no ``OFFSET``: the
+        statement runs once and rows are pulled ``batch_size`` at a time, so
+        memory stays flat however large the result is.
+
+        Args:
+            table: Table name.
+            columns: Columns to select (None = all).
+            filters: ``(column, operator, value)`` triples (see ``select``).
+            sort: ``(column, direction)`` pairs.
+            batch_size: Rows per yielded batch.
+            limit: Optional hard cap on the number of rows.
+            statement_timeout_ms: Per-statement timeout (0 = driver default).
+
+        Yields:
+            Lists of row dicts, in order.
         """
         pass
 

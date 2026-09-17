@@ -1,5 +1,6 @@
 """Database ports: what the application needs from a SQL database."""
 
+from collections.abc import AsyncIterator
 from typing import Any, Protocol
 
 from warp.application.config import DatabaseConfig
@@ -68,6 +69,19 @@ class DatabaseGateway(Protocol):
         sort: list[tuple[str, str]] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Select records and the total count."""
+        ...
+
+    def stream_select(  # noqa: PLR0913
+        self,
+        table: str,
+        columns: list[str] | None = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        sort: list[tuple[str, str]] | None = None,
+        batch_size: int = 5000,
+        limit: int | None = None,
+        statement_timeout_ms: int = 0,
+    ) -> AsyncIterator[list[dict[str, Any]]]:
+        """Stream matching rows in batches (no COUNT, no OFFSET; flat memory)."""
         ...
 
     async def select_by_id(

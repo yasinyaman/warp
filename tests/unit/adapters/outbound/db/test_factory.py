@@ -63,6 +63,9 @@ def test_register_new_adapter() -> None:
         async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
             return dict.fromkeys(tables)
 
+        async def stream_select(self, *a: Any, **k: Any) -> Any:
+            yield []
+
         async def execute_query(
             self, query: str, params: dict[str, Any] | None = None
         ) -> list[dict[str, Any]]:

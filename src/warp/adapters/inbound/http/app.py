@@ -28,6 +28,7 @@ from warp.adapters.inbound.http.routes.catalog import (
     create_catalog_router,
 )
 from warp.adapters.inbound.http.routes.crud import RouterFactory
+from warp.adapters.inbound.http.routes.export import create_export_router
 from warp.adapters.inbound.http.routes.query import create_query_router
 from warp.adapters.inbound.http.routes.schema import create_schema_router
 from warp.application.config import RuntimeEnv, Settings, validate_production_config
@@ -152,10 +153,18 @@ async def _mount_database(  # noqa: PLR0913
     )
 
     prefixes = _mount_prefixes(settings.api_prefix, db_name, multi_db)
-    # Schema routes first: GET /{table}/schema must win over CRUD's GET /{table}/{id}.
+    # Schema and export routes first: GET /{table}/schema and /{table}/export
+    # must win over CRUD's GET /{table}/{id}.
     _include_at_prefixes(
         app, [create_schema_router(db_name, schema, gateway, auth_manager)], prefixes
     )
+    export_routers = [
+        create_export_router(
+            table, gateway, settings.export, auth_manager, db_name if multi_db else None
+        )
+        for table in schema.tables.values()
+    ]
+    _include_at_prefixes(app, export_routers, prefixes)
     router_factory = RouterFactory(
         db=gateway,
         schema_analyzer=analyzer,
