@@ -7,7 +7,11 @@ filter values and path ids without guessing from the shape of the text).
 
 from __future__ import annotations
 
-DB_TYPE_MAPPING: dict[str, type] = {
+from datetime import date, datetime, time
+from typing import Any
+from uuid import UUID
+
+DB_TYPE_MAPPING: dict[str, Any] = {
     # PostgreSQL types
     "integer": int,
     "bigint": int,
@@ -24,16 +28,16 @@ DB_TYPE_MAPPING: dict[str, type] = {
     "character": str,
     "char": str,
     "text": str,
-    "uuid": str,
-    "json": dict,
-    "jsonb": dict,
-    "date": str,
-    "timestamp": str,
-    "timestamp with time zone": str,
-    "timestamp without time zone": str,
-    "time": str,
-    "time with time zone": str,
-    "time without time zone": str,
+    "uuid": UUID,
+    "json": Any,
+    "jsonb": Any,
+    "date": date,
+    "timestamp": datetime,
+    "timestamp with time zone": datetime,
+    "timestamp without time zone": datetime,
+    "time": time,
+    "time with time zone": time,
+    "time without time zone": time,
     "bytea": bytes,
     "array": list,
     # MySQL types
@@ -43,7 +47,7 @@ DB_TYPE_MAPPING: dict[str, type] = {
     "float": float,
     "double": float,
     "bit": bool,
-    "datetime": str,
+    "datetime": datetime,
     "year": int,
     "enum": str,
     "set": str,
@@ -57,21 +61,27 @@ DB_TYPE_MAPPING: dict[str, type] = {
 }
 
 # Coarse classification used for value coercion at the API boundary.
-KIND_BY_PYTHON_TYPE: dict[type, str] = {
+KIND_BY_PYTHON_TYPE: dict[Any, str] = {
     int: "int",
     float: "float",
     bool: "bool",
     str: "str",
-    dict: "json",
+    Any: "json",
     bytes: "bytes",
     list: "list",
+    datetime: "datetime",
+    date: "date",
+    time: "time",
+    UUID: "uuid",
 }
 
 
-def python_type_for(
-    db_type: str, udt_name: str | None = None, full_type: str | None = None
-) -> type:
+def python_type_for(db_type: str, udt_name: str | None = None, full_type: str | None = None) -> Any:
     """Map a database column type to the Python type used for API models.
+
+    Temporal columns map to `datetime`/`date`/`time`, `uuid` to `UUID` and JSON
+    to `Any`, because that is what the drivers hand back for real rows (a
+    `str` field would reject a `datetime` value at response validation).
 
     Args:
         db_type: Data type as reported by the database (``integer``, ``varchar``...).
@@ -100,7 +110,7 @@ def python_type_for(
 
 
 def type_kind(db_type: str, udt_name: str | None = None, full_type: str | None = None) -> str:
-    """Classify a column type as ``int``/``float``/``bool``/``str``/``json``/``bytes``/``list``.
+    """Classify a column type: int/float/bool/str/json/bytes/list/datetime/date/time/uuid.
 
     Unknown types classify as ``str`` so their values are passed through as
     text and the database performs any conversion.

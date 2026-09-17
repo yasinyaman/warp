@@ -3,7 +3,9 @@
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date, datetime, time
 from typing import Any
+from uuid import UUID
 
 
 @dataclass
@@ -53,6 +55,13 @@ class FilterParser:
 
     _TRUE = frozenset({"true", "1", "yes", "t", "y"})
     _FALSE = frozenset({"false", "0", "no", "f", "n"})
+    # ISO-8601 text -> the objects the drivers expect for typed parameters.
+    _PARSERS: dict[str, Any] = {
+        "datetime": datetime.fromisoformat,
+        "date": date.fromisoformat,
+        "time": time.fromisoformat,
+        "uuid": UUID,
+    }
 
     def __init__(
         self,
@@ -164,6 +173,15 @@ class FilterParser:
             if lowered in cls._FALSE:
                 return False
             raise ValueError(f"Filter value for column '{column}' must be a boolean, got {value!r}")
+
+        parser = cls._PARSERS.get(kind)
+        if parser is not None:
+            try:
+                return parser(value)
+            except ValueError:
+                raise ValueError(
+                    f"Filter value for column '{column}' must be a valid {kind}, got {value!r}"
+                ) from None
 
         # str/json/bytes/list/date...: pass the text through untouched; the
         # database (with a bound parameter) performs any further conversion.

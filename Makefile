@@ -2,7 +2,7 @@
 # Warp Engine - Makefile
 # ===========================================
 
-.PHONY: help install lock dev test lint format clean docker-build docker-up docker-down docker-logs docker-shell docker-restart docker-clean db-reset db-shell-pg db-shell-mysql ssl-certs quickstart
+.PHONY: help install lock dev test test-integration lint format clean docker-build docker-up docker-down docker-logs docker-shell docker-restart docker-clean db-reset db-shell-pg db-shell-mysql ssl-certs quickstart
 
 # Load local secrets/credentials from .env when present (copy .env.example -> .env).
 -include .env
@@ -17,7 +17,8 @@ help:
 	@echo "  make install      - Install dev + llm extras (editable)"
 	@echo "  make lock         - Regenerate the hashed lock files (requires uv)"
 	@echo "  make dev          - Run development server"
-	@echo "  make test         - Run tests"
+	@echo "  make test         - Run the unit test suite"
+	@echo "  make test-integration - Run DB integration tests (needs Docker)"
 	@echo "  make lint         - Lint, format-check, type-check, import contracts"
 	@echo "  make format       - Auto-fix lint + format code (ruff)"
 	@echo ""
@@ -50,6 +51,10 @@ dev:
 
 test:
 	PYTHONPATH=src pytest tests/ -v --cov=src/warp --cov-report=html
+
+# Real PostgreSQL + MySQL via testcontainers (Docker must be running).
+test-integration:
+	PYTHONPATH=src pytest tests/integration -m integration -v
 
 lint:
 	ruff check src/ tests/

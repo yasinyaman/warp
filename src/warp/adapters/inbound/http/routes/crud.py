@@ -2,6 +2,7 @@
 
 import logging
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -39,8 +40,10 @@ def parse_id(value: str, kind: str, column: str = "id") -> Any:
             return int(value)
         if kind == "float":
             return float(value)
+        if kind == "uuid":
+            return UUID(value)
     except ValueError:
-        expected = "an integer" if kind == "int" else "a number"
+        expected = {"int": "an integer", "float": "a number", "uuid": "a UUID"}[kind]
         raise HTTPException(
             status_code=422, detail=f"Invalid {column}: expected {expected}, got {value!r}"
         ) from None

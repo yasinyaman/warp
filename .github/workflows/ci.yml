@@ -38,6 +38,26 @@ jobs:
       - name: Run tests + coverage gate (fail under 80%)
         run: pytest --cov=src/warp --cov-report=term-missing
 
+  integration:
+    name: integration (PostgreSQL + MySQL via testcontainers)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up uv + Python (activated venv)
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.12"
+          activate-environment: true
+          enable-cache: true
+          cache-dependency-glob: requirements.lock
+      - name: Install (hash-verified lock)
+        run: |
+          uv pip sync --require-hashes requirements.lock
+          uv pip install --no-deps -e .
+      - name: Run integration tests against real databases
+        run: pytest tests/integration -m integration
+
   quality:
     name: lint, format & types
     runs-on: ubuntu-latest

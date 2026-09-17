@@ -65,6 +65,7 @@ dev = [
     "pre-commit>=3.6.0",
     "import-linter>=2.0",
     "types-PyYAML>=6.0",
+    "testcontainers[postgres,mysql]>=4.0",
 ]
 docs = [
     "mkdocs>=1.5.0",
@@ -197,6 +198,13 @@ addopts = [
     "--strict-markers",
     "--tb=short",
     "-ra",
+    # The default run is the hermetic unit suite; `make test-integration`
+    # (or `pytest tests/integration -m integration`) needs Docker.
+    "-m",
+    "not integration",
+]
+markers = [
+    "integration: needs Docker (testcontainers spin up PostgreSQL/MySQL)",
 ]
 
 [tool.coverage.run]

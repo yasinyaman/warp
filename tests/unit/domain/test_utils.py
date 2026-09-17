@@ -477,6 +477,22 @@ class TestTypedFilterParsing:
         assert self._parse({"filter[id][in]": "1,2,3"})[0].value == [1, 2, 3]
         assert self._parse({"filter[zip][in]": "01,02"})[0].value == ["01", "02"]
 
+    def test_temporal_and_uuid_columns_are_parsed(self):
+        from datetime import date, datetime
+        from uuid import UUID
+
+        parser = FilterParser(column_kinds={"at": "datetime", "d": "date", "u": "uuid"})
+        assert parser.parse({"filter[at][gte]": "2024-01-02T03:04:05"})[0].value == datetime(
+            2024, 1, 2, 3, 4, 5
+        )
+        assert parser.parse({"filter[d]": "2024-01-02"})[0].value == date(2024, 1, 2)
+        uid = "12345678-1234-5678-1234-567812345678"
+        assert parser.parse({"filter[u]": uid})[0].value == UUID(uid)
+        with pytest.raises(ValueError, match="must be a valid datetime"):
+            parser.parse({"filter[at]": "yesterday"})
+        with pytest.raises(ValueError, match="must be a valid uuid"):
+            parser.parse({"filter[u]": "nope"})
+
     def test_like_pattern_is_always_text(self):
         assert self._parse({"filter[id][like]": "%1%"})[0].value == "%1%"
 

@@ -2,6 +2,10 @@
 Tests for schema models and analyzer.
 """
 
+from datetime import date, datetime
+from typing import Any
+from uuid import UUID
+
 import pytest
 
 from warp.application.services.schema_discovery import DB_TYPE_MAPPING, SchemaAnalyzer
@@ -298,6 +302,20 @@ class TestSchemaAnalyzerPydanticModels:
             # In Pydantic v2, check if default is None
             assert field_info.default is None
 
+    def test_request_models_forbid_unknown_fields(self, analyzer, sample_table_schema):
+        import pydantic
+
+        models = analyzer.generate_crud_models(sample_table_schema)
+        with pytest.raises(pydantic.ValidationError):
+            models["create"](bogus=1)
+        with pytest.raises(pydantic.ValidationError):
+            models["update"](bogus=1)
+        # Response/base models keep pydantic's default and tolerate extra keys.
+        assert models["create"].model_config.get("extra") == "forbid"
+        assert models["update"].model_config.get("extra") == "forbid"
+        assert models["response"].model_config.get("extra") != "forbid"
+        assert models["base"].model_config.get("extra") != "forbid"
+
     def test_generate_crud_models(self, analyzer, sample_table_schema):
         """Test generating all CRUD models at once."""
         models = analyzer.generate_crud_models(sample_table_schema)
@@ -344,7 +362,7 @@ class TestDBTypeMapping:
         assert DB_TYPE_MAPPING["character varying"] is str
         assert DB_TYPE_MAPPING["varchar"] is str
         assert DB_TYPE_MAPPING["text"] is str
-        assert DB_TYPE_MAPPING["uuid"] is str
+        assert DB_TYPE_MAPPING["uuid"] is UUID  # drivers return uuid.UUID objects
 
     def test_boolean_types(self):
         """Test boolean type mappings."""
@@ -353,14 +371,14 @@ class TestDBTypeMapping:
 
     def test_json_types(self):
         """Test JSON type mappings."""
-        assert DB_TYPE_MAPPING["json"] is dict
-        assert DB_TYPE_MAPPING["jsonb"] is dict
+        assert DB_TYPE_MAPPING["json"] is Any  # any JSON value (drivers may return text)
+        assert DB_TYPE_MAPPING["jsonb"] is Any
 
     def test_datetime_types(self):
         """Test datetime type mappings (stored as strings)."""
-        assert DB_TYPE_MAPPING["timestamp"] is str
-        assert DB_TYPE_MAPPING["date"] is str
-        assert DB_TYPE_MAPPING["datetime"] is str
+        assert DB_TYPE_MAPPING["timestamp"] is datetime  # what asyncpg/aiomysql return
+        assert DB_TYPE_MAPPING["date"] is date
+        assert DB_TYPE_MAPPING["datetime"] is datetime
 
 
 class TestPascalCaseConversion:
@@ -392,7 +410,10 @@ class TestTypeKind:
         assert type_kind("numeric") == "float"
         assert type_kind("boolean") == "bool"
         assert type_kind("character varying") == "str"
-        assert type_kind("uuid") == "str"
+        assert type_kind("uuid") == "uuid"
+        assert type_kind("timestamp with time zone") == "datetime"
+        assert type_kind("date") == "date"
+        assert type_kind("time") == "time"
         assert type_kind("jsonb") == "json"
         assert type_kind("bytea") == "bytes"
         assert type_kind("USER-DEFINED", udt_name="_int4") == "list"

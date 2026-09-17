@@ -30,6 +30,17 @@ _TOKEN = re.compile(
 )
 
 
+def _require_no_placeholders(query: str) -> None:
+    """Without values, any placeholder outside literals/casts is a missing value.
+
+    Raising here turns a typo into a 400 from the raw endpoint instead of a
+    driver syntax error (500).
+    """
+    for m in _TOKEN.finditer(query):
+        if m.group(3) is not None:
+            raise ValueError(f"Missing value for query parameter :{m.group(3)}")
+
+
 def bind_named_params(
     query: str, params: dict[str, Any] | None, dialect: str
 ) -> tuple[str, list[Any]]:
@@ -50,6 +61,7 @@ def bind_named_params(
     if dialect not in ("postgresql", "mysql"):
         raise ValueError(f"Unsupported SQL dialect: {dialect!r}")
     if not params:
+        _require_no_placeholders(query)
         return query, []
 
     positional: list[Any] = []

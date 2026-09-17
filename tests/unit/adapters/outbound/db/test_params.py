@@ -59,8 +59,19 @@ class TestMySQL:
 
 class TestErrors:
     def test_no_params_returns_query_unchanged(self):
-        assert bind_named_params("SELECT :x", None, "postgresql") == ("SELECT :x", [])
+        assert bind_named_params("SELECT 1", None, "postgresql") == ("SELECT 1", [])
         assert bind_named_params("SELECT 1", {}, "mysql") == ("SELECT 1", [])
+        # Literals and casts are still not placeholders.
+        assert bind_named_params("SELECT ':x', y::int", None, "postgresql") == (
+            "SELECT ':x', y::int",
+            [],
+        )
+
+    def test_placeholder_without_any_params_is_missing(self):
+        with pytest.raises(ValueError, match="Missing value for query parameter :x"):
+            bind_named_params("SELECT :x", None, "postgresql")
+        with pytest.raises(ValueError, match="Missing value for query parameter :x"):
+            bind_named_params("SELECT :x", {}, "mysql")
 
     def test_missing_value_raises(self):
         with pytest.raises(ValueError, match="Missing value for query parameter :b"):

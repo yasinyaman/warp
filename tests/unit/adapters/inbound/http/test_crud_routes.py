@@ -99,6 +99,15 @@ class TestWrite:
         )
         assert r.status_code == 400
 
+    def test_create_rejects_auto_generated_and_unknown_fields(self, client):
+        # Not silently dropped: the request model forbids fields it does not declare.
+        r = client.post("/api/v1/users", json={"id": 5, "username": "x", "email": "e@x"})
+        assert r.status_code == 422
+        r = client.post("/api/v1/users", json={"username": "x", "email": "e@x", "bogus": 1})
+        assert r.status_code == 422
+        r = client.put("/api/v1/users/1", json={"nope": 1})
+        assert r.status_code == 422
+
     def test_update(self, client):
         r = client.put("/api/v1/users/1", json={"status": "archived"})
         assert r.status_code == 200

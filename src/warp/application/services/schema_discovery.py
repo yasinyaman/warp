@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from warp.application.ports.database import DatabaseGateway
 from warp.domain.schema import (
@@ -205,8 +205,11 @@ class SchemaAnalyzer:
 
             fields[col.name] = (python_type, field_info)
 
-        # Create the model
-        model: type[BaseModel] = create_model(model_name, **fields)
+        # Request models reject unknown fields (an auto-generated primary key
+        # sent by a client is an error, not something to drop silently);
+        # response/base models keep pydantic's default of ignoring extras.
+        config = ConfigDict(extra="forbid") if (for_create or for_update) else None
+        model: type[BaseModel] = create_model(model_name, __config__=config, **fields)
         self._pydantic_models[cache_key] = model
 
         return model
@@ -233,7 +236,7 @@ class SchemaAnalyzer:
             "response": self.generate_pydantic_model(table_schema, f"{base_name}Response"),
         }
 
-    def _get_python_type(self, col: ColumnSchema) -> type:
+    def _get_python_type(self, col: ColumnSchema) -> Any:
         """Map database column type to Python type."""
         return python_type_for(col.type, udt_name=col.udt_name, full_type=col.full_type)
 
