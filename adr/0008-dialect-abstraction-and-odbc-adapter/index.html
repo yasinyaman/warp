@@ -11,28 +11,28 @@
       
       
       
-        <link rel="prev" href="..">
+        <link rel="prev" href="../0007-hexagonal-architecture/">
       
       
-        <link rel="next" href="../architecture/">
+        <link rel="next" href="../../reference/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>Production Deployment - Warp Engine</title>
+        <title>8. Dialect abstraction & ODBC adapter - Warp Engine</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,9 +51,9 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#production-deployment-secure-defaults" class="md-skip">
+        <a href="#8-dialect-abstraction-and-the-odbc-sql-server-adapter" class="md-skip">
           Skip to content
         </a>
       
@@ -94,7 +94,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="Warp Engine" class="md-header__button md-logo" aria-label="Warp Engine" data-md-component="logo">
+    <a href="../.." title="Warp Engine" class="md-header__button md-logo" aria-label="Warp Engine" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Production Deployment
+              8. Dialect abstraction & ODBC adapter
             
           </span>
         </div>
@@ -230,7 +230,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="Warp Engine" class="md-nav__button md-logo" aria-label="Warp Engine" data-md-component="logo">
+    <a href="../.." title="Warp Engine" class="md-nav__button md-logo" aria-label="Warp Engine" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -260,7 +260,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -284,37 +284,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Production Deployment
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../deployment/" class="md-nav__link">
         
   
   
@@ -330,59 +303,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#checklist" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Checklist
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#startup-safety-checks" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Startup safety checks
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#always-on-protections" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Always-on protections
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -394,7 +314,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -418,8 +338,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -430,11 +352,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -455,7 +377,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -473,7 +395,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/" class="md-nav__link">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -501,7 +423,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0001-layered-architecture/" class="md-nav__link">
+      <a href="../0001-layered-architecture/" class="md-nav__link">
         
   
   
@@ -529,7 +451,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0002-fail-safe-production-config/" class="md-nav__link">
+      <a href="../0002-fail-safe-production-config/" class="md-nav__link">
         
   
   
@@ -557,7 +479,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0003-dependency-management/" class="md-nav__link">
+      <a href="../0003-dependency-management/" class="md-nav__link">
         
   
   
@@ -585,7 +507,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0004-llm-sample-data-privacy/" class="md-nav__link">
+      <a href="../0004-llm-sample-data-privacy/" class="md-nav__link">
         
   
   
@@ -613,7 +535,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0005-ci-quality-gates/" class="md-nav__link">
+      <a href="../0005-ci-quality-gates/" class="md-nav__link">
         
   
   
@@ -641,7 +563,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0006-distribution-name/" class="md-nav__link">
+      <a href="../0006-distribution-name/" class="md-nav__link">
         
   
   
@@ -669,7 +591,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adr/0007-hexagonal-architecture/" class="md-nav__link">
+      <a href="../0007-hexagonal-architecture/" class="md-nav__link">
         
   
   
@@ -694,10 +616,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../adr/0008-dialect-abstraction-and-odbc-adapter/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Dialect abstraction & ODBC adapter
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -713,6 +662,59 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -732,7 +734,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/" class="md-nav__link">
+      <a href="../../reference/" class="md-nav__link">
         
   
   
@@ -779,10 +781,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#checklist" class="md-nav__link">
+  <a href="#context" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Checklist
+        Context
       
     </span>
   </a>
@@ -790,10 +792,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#startup-safety-checks" class="md-nav__link">
+  <a href="#decision" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Startup safety checks
+        Decision
       
     </span>
   </a>
@@ -801,10 +803,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#always-on-protections" class="md-nav__link">
+  <a href="#consequences" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Always-on protections
+        Consequences
       
     </span>
   </a>
@@ -831,54 +833,72 @@
   
 
 
-<h1 id="production-deployment-secure-defaults">Production Deployment (secure defaults)<a class="headerlink" href="#production-deployment-secure-defaults" title="Permanent link">&para;</a></h1>
-<p>Warp fails safe: when <code>APP_ENV=production</code> the app <strong>refuses to start</strong> with
-unsafe configuration.</p>
-<h2 id="checklist">Checklist<a class="headerlink" href="#checklist" title="Permanent link">&para;</a></h2>
-<ol>
-<li><strong>Secrets via environment, never in the repo.</strong> Copy <code>.env.example</code> → <code>.env</code>
-   (gitignored) and set strong values. Never commit real credentials or keys.</li>
-<li><strong><code>APP_ENV=production</code></strong> — disables <code>/docs</code> &amp; <code>/redoc</code>, switches logs to JSON,
-   and enables the startup safety checks below.</li>
-<li><strong>Authentication on</strong> — <code>settings.auth.enabled: true</code> with real API keys via
-   <code>API_KEY_*</code> env vars. Startup is refused if auth is off in production.</li>
-<li><strong>Explicit CORS allowlist</strong> — <code>CORS_ORIGINS=https://app.example.com,...</code>.
-   <code>*</code> is rejected in production; credentials are only sent with an explicit
-   allowlist.</li>
-<li><strong>Raw SQL endpoint off</strong> — <code>enable_raw_query: false</code> (default). Startup is
-   refused if it is enabled in production. If you must enable it, configure a
-   <strong>read-only</strong> database role via <code>databases[].readonly_username</code> /
-   <code>readonly_password</code> (env <code>DB_READONLY_USER</code> / <code>DB_READONLY_PASS</code>); raw queries
-   then run as that role, so a whitelist bypass still cannot write.</li>
-<li><strong>Run the production image</strong> — the <code>Dockerfile</code> is multi-stage, runs as a
-   non-root user, ships no dev dependencies, and has no <code>--reload</code>. Mount a
-   hardened <code>config/database.yaml</code> and pass secrets via the environment.</li>
-<li><strong>Reproducible installs</strong> — <code>uv pip sync --require-hashes requirements.lock</code> for deterministic,
-   hash-verified dependencies.</li>
-<li><strong>Least-privilege DB account</strong> — grant only what the API needs; restrict
-   write access to the tables that should be writable.</li>
-<li><strong>Catalog endpoints are authenticated</strong> — <code>/api/v1/catalog/*</code> needs a key
-   with <code>read</code> (views), <code>create</code> (analysis), <code>update</code> (edits/approvals) or
-   <code>delete</code>. Keep <code>catalog.openapi_include_examples: false</code> unless the spec
-   audience may see real row values.</li>
-</ol>
-<h2 id="startup-safety-checks">Startup safety checks<a class="headerlink" href="#startup-safety-checks" title="Permanent link">&para;</a></h2>
-<p><code>validate_production_config()</code> (in <code>warp.application.config</code>) runs during app
-startup. With <code>APP_ENV=production</code> it raises <code>ConfigurationError</code> (refusing to
-start) when any of these hold:</p>
+<h1 id="8-dialect-abstraction-and-the-odbc-sql-server-adapter">8. Dialect abstraction and the ODBC (SQL Server) adapter<a class="headerlink" href="#8-dialect-abstraction-and-the-odbc-sql-server-adapter" title="Permanent link">&para;</a></h1>
 <ul>
-<li><code>auth.enabled</code> is <code>false</code></li>
-<li><code>settings.enable_raw_query</code> is <code>true</code></li>
-<li><code>CORS_ORIGINS</code> contains <code>*</code></li>
-<li><code>/openapi.json</code> is in <code>auth.public_paths</code> (the enriched spec exposes catalog
-  descriptions and <code>x-llm-context</code>) unless <code>auth.allow_public_openapi: true</code></li>
+<li>Status: Accepted</li>
+<li>Date: 2026-09-17</li>
 </ul>
-<p>This guarantees a misconfigured production deployment fails loudly at boot rather
-than silently exposing the API.</p>
-<h2 id="always-on-protections">Always-on protections<a class="headerlink" href="#always-on-protections" title="Permanent link">&para;</a></h2>
-<p>Parameterized queries, mass-assignment protection, timing-safe API-key checks,
-and PII masking before any cloud LLM call are enabled by default regardless of
-environment. See the <a href="https://github.com/yasinyaman/warp/blob/main/SECURITY.md">Security Policy</a>.</p>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p>Warp supported PostgreSQL (asyncpg) and MySQL (aiomysql). Everything that
+differs between the two — placeholder style (<code>$1</code> vs <code>%s</code>), identifier quoting,
+<code>ILIKE</code> vs <code>LIKE</code>, <code>RETURNING</code>, <code>LIMIT/OFFSET</code>, the default schema and the
+catalog queries for comments and row counts — was expressed as
+<code>if dialect == "postgresql"</code> branches spread over six modules. Adding a third
+engine meant touching all of them.</p>
+<p>SQL Server was the requested third engine. There is no maintained native
+asyncio driver for it; the standard route is ODBC (<code>pyodbc</code>, wrapped for
+asyncio by <code>aioodbc</code>) with Microsoft's <code>msodbcsql18</code> driver. ODBC also opens the
+door to other data sources (Oracle, DB2, …) through the same code path.</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>One <code>Dialect</code> object per engine</strong> (<code>adapters/outbound/db/dialect.py</code>), a
+   frozen dataclass holding the placeholder style, quote characters, <code>LIKE</code>
+   operator, how written rows are returned (<code>returning</code> / <code>output</code> / <code>refetch</code>),
+   pagination style (<code>LIMIT/OFFSET</code> or <code>OFFSET … FETCH</code>), percent escaping,
+   default schema and the comment / row-count catalog queries. The query
+   builder, the named-parameter binder, identifier quoting, the metadata
+   readers and the composition root consume the <code>Dialect</code>; none of them branch
+   on a database-type string any more. PostgreSQL and MySQL SQL is unchanged
+   byte for byte.</li>
+<li><strong>A single <code>ODBCAdapter</code></strong> with two profiles selected by the config <code>type</code>:</li>
+<li><code>mssql</code> / <code>sqlserver</code> — first-class: introspection through
+     <code>INFORMATION_SCHEMA</code> and <code>sys.*</code> (identity/computed markers, keys,
+     indexes), writes that return the row with <code>OUTPUT</code> (falling back per table
+     to <code>SCOPE_IDENTITY()</code> + re-select when triggers make <code>OUTPUT</code> illegal,
+     error 334), <code>TOP</code>/<code>OFFSET … FETCH</code>, a <code>datetimeoffset</code> output converter,
+     comments from <code>MS_Description</code> extended properties and row counts from
+     <code>sys.partitions</code>. Covered by real-database integration tests in CI.</li>
+<li><code>odbc</code> — best effort: ANSI quoting, <code>?</code> placeholders, introspection via
+     the ODBC catalog functions, re-select after writes, no catalog
+     intelligence. Unit-tested only; documented as such.</li>
+<li><strong>Packaging</strong>: <code>aioodbc</code> lives in an <code>odbc</code> extra and is imported lazily in
+   <code>connect()</code>, so the factory and the unit tests run without it. The ODBC
+   driver is a system package: the Docker image installs <code>msodbcsql18</code> by
+   default (<code>--build-arg WITH_MSSQL_ODBC=0</code> opts out), CI installs it on the
+   Ubuntu runner, developers install it locally (<code>brew install msodbcsql18</code> /
+   apt). Both hashed lock files include <code>aioodbc</code>/<code>pyodbc</code>.</li>
+<li><strong>Tests</strong>: SQL Server integration tests run in CI (<code>WARP_REQUIRE_MSSQL=1</code>
+   turns "unavailable" into a failure) and auto-skip on machines without the
+   driver or without an x86-64 Docker engine (the SQL Server image has no
+   arm64 build). <code>WARP_MSSQL_HOST</code> points them at an existing server instead.</li>
+</ol>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Adding an engine is now one <code>Dialect</code> entry plus, when the driver's
+  execution model differs, one adapter; the SQL helpers need no changes.</li>
+<li><code>ColumnSchema.is_auto_generated</code> gives create models and required-column
+  checks one definition of "the database fills this in" (auto-increment,
+  serial, identity, computed). PostgreSQL identity columns are now recognised
+  too.</li>
+<li>SQL Server identifiers are bracket-quoted through the same strict
+  sanitizer, so the identifier-injection guarantees are unchanged.</li>
+<li>The generic profile cannot detect identity columns unless the driver reports
+  them in <code>TYPE_NAME</code>, and <code>DELETE</code> costs an extra <code>SELECT</code> because rowcounts
+  may be unreported; both are acceptable for a best-effort path.</li>
+<li><code>aioodbc</code> 0.5's <code>statistics()</code> wrapper drops pyodbc's mandatory table
+  argument; the adapter works around it and degrades to "no index metadata"
+  rather than failing.</li>
+</ul>
 
 
 
@@ -934,10 +954,10 @@ environment. See the <a href="https://github.com/yasinyaman/warp/blob/main/SECUR
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

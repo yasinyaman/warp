@@ -692,6 +692,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-dialect-abstraction-and-odbc-adapter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Dialect abstraction & ODBC adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -821,7 +849,7 @@ dependencies.</p>
   consumers.</li>
 <li>Generate two universal, hashed lock files with <code>make lock</code>:
   <code>requirements.lock</code> (all extras; CI and local development) and
-  <code>requirements-prod.lock</code> (runtime + <code>llm</code> only; the Docker image).</li>
+  <code>requirements-prod.lock</code> (runtime + <code>llm</code> + <code>odbc</code>; the Docker image).</li>
 <li>Install from the locks with <code>--require-hashes</code> (<code>uv pip sync</code>) in CI and in
   the Dockerfile builder stage; never resolve from ranges in a deployment.</li>
 <li>Migrated the Gemini provider off the EOL <code>google-generativeai</code> SDK to

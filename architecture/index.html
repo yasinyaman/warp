@@ -712,6 +712,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0008-dialect-abstraction-and-odbc-adapter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Dialect abstraction & ODBC adapter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -879,7 +907,7 @@ contracts in <code>pyproject.toml</code>; run them locally with <code>lint-impor
 <tr>
 <td>Outbound adapters</td>
 <td><code>warp.adapters.outbound.db</code>, <code>.llm</code>, <code>.catalog_store</code>, <code>.export</code></td>
-<td>PostgreSQL/MySQL gateways + SQL helpers + metadata readers, LLM providers, file-based catalog repository, exporters</td>
+<td>PostgreSQL/MySQL/ODBC (SQL Server) gateways, the <code>Dialect</code> table + SQL helpers, metadata readers, LLM providers, file-based catalog repository, exporters</td>
 </tr>
 <tr>
 <td>Application</td>
@@ -909,7 +937,7 @@ contracts keeping frameworks and drivers out of <code>domain</code> and <code>ap
 <tr>
 <td><code>DatabaseGateway</code>, <code>SqlReader</code>, <code>DatabaseGatewayFactory</code></td>
 <td>CRUD, schema discovery, analysis, raw query, HTTP lifespan</td>
-<td><code>adapters.outbound.db.{postgres,mysql,factory}</code></td>
+<td><code>adapters.outbound.db.{postgres,mysql,odbc,factory}</code></td>
 </tr>
 <tr>
 <td><code>CommentSource</code>, <code>SampleSource</code></td>
@@ -950,7 +978,7 @@ patching modules.</p>
   → adapters.inbound.http.routes.crud   (auth dependency; parse id/fields/filters by column kind)
     → application.services.crud        (mass-assignment whitelist)
       → DatabaseGateway port
-        → adapters.outbound.db.postgres | mysql   (SafeQueryBuilder, identifier whitelist, bound params)
+        → adapters.outbound.db.postgres | mysql | odbc   (SafeQueryBuilder over a Dialect, identifier whitelist, bound params)
 </code></pre></div>
 <h2 id="catalog-intelligence-flow">Catalog intelligence flow<a class="headerlink" href="#catalog-intelligence-flow" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code>adapters.inbound.http.routes.catalog / adapters.inbound.cli
@@ -962,6 +990,10 @@ patching modules.</p>
         CatalogReviewService → domain.catalog_review → CatalogRepository
   → application.services.openapi_enrichment (x-llm-context into the OpenAPI spec, approved catalogs only)
 </code></pre></div>
+<p>Engine differences (placeholders, quoting, <code>RETURNING</code>/<code>OUTPUT</code>, pagination,
+catalog queries) live in one frozen <code>Dialect</code> per engine
+(<code>adapters.outbound.db.dialect</code>), consumed by the builder, the parameter
+binder and the metadata readers — see <a href="../adr/0008-dialect-abstraction-and-odbc-adapter/">ADR-0008</a>.</p>
 <p>See the <a href="../adr/">Architecture Decisions</a>, in particular
 <a href="../adr/0007-hexagonal-architecture/">ADR-0007</a>, for the rationale.</p>
 

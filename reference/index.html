@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="../adr/0007-hexagonal-architecture/">
+        <link rel="prev" href="../adr/0008-dialect-abstraction-and-odbc-adapter/">
       
       
       
@@ -595,6 +595,34 @@
     
   
     7. Hexagonal architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0008-dialect-abstraction-and-odbc-adapter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    8. Dialect abstraction & ODBC adapter
   
 
     
@@ -1915,12 +1943,13 @@ helpers. Keeping this logic in one place avoids divergent, weaker copies
                 <code>dialect</code>
             </td>
             <td>
-                  <code><span title="str">str</span></code>
+                  <code><span title="str">str</span> | <span title="warp.adapters.outbound.db.dialect.Dialect">Dialect</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Target SQL dialect (<code>"mysql"</code>/<code>"mariadb"</code> use backticks,
-everything else uses ANSI double quotes).</p>
+                <p>Target dialect name or :class:<code>Dialect</code> (<code>mysql</code>/<code>mariadb</code>
+use backticks, <code>mssql</code>/<code>sqlserver</code> square brackets, everything
+else ANSI double quotes).</p>
               </div>
             </td>
             <td>
@@ -2146,11 +2175,12 @@ table and column names.</p>
                 <code>dialect</code>
             </td>
             <td>
-                  <code><span title="str">str</span></code>
+                  <code><span title="str">str</span> | <span title="warp.adapters.outbound.db.dialect.Dialect">Dialect</span></code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p><code>"postgresql"</code> (<code>$N</code>) or <code>"mysql"</code> (<code>%s</code>).</p>
+                <p>Dialect name or :class:<code>Dialect</code>: <code>postgresql</code> (<code>$N</code>),
+<code>mysql</code> (<code>%s</code>), <code>mssql</code>/<code>odbc</code> (<code>?</code>).</p>
               </div>
             </td>
             <td>
