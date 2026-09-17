@@ -123,6 +123,33 @@ class TestCatalogQueries:
         assert MYSQL.row_count_sql is not None
         assert ":table_name" in MYSQL.row_count_sql
 
+    def test_sqlserver_catalog_queries(self):
+        assert MSSQL.comment_queries is not None
+        assert MSSQL.comment_queries.scope_param == "schema"
+        for sql in (
+            MSSQL.comment_queries.table,
+            MSSQL.comment_queries.columns,
+            MSSQL.comment_queries.all_tables,
+            MSSQL.comment_queries.all_columns,
+        ):
+            assert "sys.extended_properties" in sql and "MS_Description" in sql
+            assert "CAST(ep.value AS nvarchar(max))" in sql
+        assert MSSQL.row_count_sql is not None
+        assert "sys.partitions" in MSSQL.row_count_sql
+        # Every statement binds cleanly to qmark placeholders.
+        from warp.adapters.outbound.db.params import bind_named_params
+
+        for sql in (
+            MSSQL.comment_queries.table,
+            MSSQL.comment_queries.columns,
+            MSSQL.row_count_sql,
+        ):
+            bound, args = bind_named_params(sql, {"schema": "dbo", "table_name": "t"}, MSSQL)
+            assert bound.count("?") == 2 and args == ["dbo", "t"]
+        for sql in (MSSQL.comment_queries.all_tables, MSSQL.comment_queries.all_columns):
+            bound, args = bind_named_params(sql, {"schema": "dbo"}, MSSQL)
+            assert bound.count("?") == 1 and args == ["dbo"]
+
     def test_generic_has_no_catalog_intelligence(self):
         assert ODBC.comment_queries is None
         assert ODBC.row_count_sql is None

@@ -425,3 +425,22 @@ def test_reader_accepts_dialect_object() -> None:
     reader = SampleReader(FakeAdapter(), db_type=MSSQL, schema="dbo")
     assert reader.dialect is MSSQL
     assert reader.db_type == "mssql"
+
+
+@pytest.mark.asyncio
+async def test_read_row_count_mssql_uses_sys_partitions() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{"row_count": 1234}]
+    reader = SampleReader(adapter, db_type="mssql", schema="dbo")
+    assert await reader.read_row_count("orders") == 1234
+    sql, params = adapter.execute_query.call_args.args
+    assert "sys.partitions" in sql and "?" not in sql
+    assert params == {"schema": "dbo", "table_name": "orders"}
+
+
+@pytest.mark.asyncio
+async def test_read_row_count_mssql_empty_table_is_zero_not_none() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{"row_count": 0}]
+    reader = SampleReader(adapter, db_type="sqlserver", schema="dbo")
+    assert await reader.read_row_count("orders") == 0

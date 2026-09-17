@@ -537,6 +537,47 @@ class TestParseLocalized:
         assert result.is_empty
 
 
+class TestCommentReaderMSSQL:
+    """SQL Server comments come from MS_Description extended properties."""
+
+    @pytest.fixture
+    def mssql_reader(self, mock_adapter):
+        return CommentReader(adapter=mock_adapter, db_type="mssql", schema="dbo", database="shop")
+
+    @pytest.mark.asyncio
+    async def test_read_table_comment(self, mssql_reader, mock_adapter):
+        mock_adapter.execute_query.return_value = [{"comment": "Customer orders"}]
+        assert await mssql_reader.read_table_comment("orders") == "Customer orders"
+        sql, params = mock_adapter.execute_query.call_args.args
+        assert "sys.extended_properties" in sql and "MS_Description" in sql
+        assert "CAST(ep.value AS nvarchar(max))" in sql
+        assert params == {"table_name": "orders", "schema": "dbo"}
+
+    @pytest.mark.asyncio
+    async def test_read_column_comments(self, mssql_reader, mock_adapter):
+        mock_adapter.execute_query.return_value = [
+            {"column_name": "total", "comment": "Order total"},
+            {"column_name": "note", "comment": None},
+        ]
+        assert await mssql_reader.read_column_comments("orders") == {"total": "Order total"}
+        sql, params = mock_adapter.execute_query.call_args.args
+        assert "ep.minor_id = c.column_id" in sql
+        assert params == {"table_name": "orders", "schema": "dbo"}
+
+    @pytest.mark.asyncio
+    async def test_read_all_comments_is_schema_scoped(self, mssql_reader, mock_adapter):
+        mock_adapter.execute_query.side_effect = [
+            [{"table_name": "orders", "comment": "Customer orders"}],
+            [{"table_name": "orders", "column_name": "total", "comment": "Order total"}],
+        ]
+        result = await mssql_reader.read_all_comments()
+        assert result["orders"].table_comment == "Customer orders"
+        assert result["orders"].column_comments == {"total": "Order total"}
+        for call in mock_adapter.execute_query.call_args_list:
+            assert call.args[1] == {"schema": "dbo"}
+            assert "sys.extended_properties" in call.args[0]
+
+
 class TestCommentReaderDialects:
     """The reader takes its catalog queries from the Dialect."""
 

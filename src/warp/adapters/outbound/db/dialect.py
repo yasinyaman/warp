@@ -236,6 +236,59 @@ MYSQL = Dialect(
 
 # --- Microsoft SQL Server (via ODBC) ----------------------------------------------
 
+_MSSQL_ROW_COUNT_SQL = """
+                SELECT SUM(p.rows) AS row_count
+                FROM sys.partitions p
+                JOIN sys.tables t ON t.object_id = p.object_id
+                JOIN sys.schemas s ON s.schema_id = t.schema_id
+                WHERE s.name = :schema AND t.name = :table_name AND p.index_id IN (0, 1)
+                """
+
+# Comments live in extended properties named MS_Description (class 1 = object
+# or column; minor_id 0 = the table itself). `value` is sql_variant, which
+# pyodbc cannot read, hence the CAST.
+_MSSQL_COMMENTS = CommentQueries(
+    table="""
+SELECT CAST(ep.value AS nvarchar(max)) AS comment
+FROM sys.tables t
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+JOIN sys.extended_properties ep
+  ON ep.class = 1 AND ep.major_id = t.object_id AND ep.minor_id = 0
+ AND ep.name = 'MS_Description'
+WHERE s.name = :schema AND t.name = :table_name
+""",
+    columns="""
+SELECT c.name AS column_name, CAST(ep.value AS nvarchar(max)) AS comment
+FROM sys.columns c
+JOIN sys.tables t ON t.object_id = c.object_id
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+JOIN sys.extended_properties ep
+  ON ep.class = 1 AND ep.major_id = c.object_id AND ep.minor_id = c.column_id
+ AND ep.name = 'MS_Description'
+WHERE s.name = :schema AND t.name = :table_name
+""",
+    all_tables="""
+SELECT t.name AS table_name, CAST(ep.value AS nvarchar(max)) AS comment
+FROM sys.tables t
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+JOIN sys.extended_properties ep
+  ON ep.class = 1 AND ep.major_id = t.object_id AND ep.minor_id = 0
+ AND ep.name = 'MS_Description'
+WHERE s.name = :schema
+""",
+    all_columns="""
+SELECT t.name AS table_name, c.name AS column_name, CAST(ep.value AS nvarchar(max)) AS comment
+FROM sys.columns c
+JOIN sys.tables t ON t.object_id = c.object_id
+JOIN sys.schemas s ON s.schema_id = t.schema_id
+JOIN sys.extended_properties ep
+  ON ep.class = 1 AND ep.major_id = c.object_id AND ep.minor_id = c.column_id
+ AND ep.name = 'MS_Description'
+WHERE s.name = :schema
+""",
+    scope_param="schema",
+)
+
 MSSQL = Dialect(
     name="mssql",
     placeholder_style="qmark",
@@ -244,6 +297,8 @@ MSSQL = Dialect(
     returning_style="output",
     limit_style="offset_fetch",
     default_schema_name="dbo",
+    row_count_sql=_MSSQL_ROW_COUNT_SQL,
+    comment_queries=_MSSQL_COMMENTS,
 )
 
 # --- Generic ODBC (best effort: ANSI quoting, no catalog intelligence) -------------
