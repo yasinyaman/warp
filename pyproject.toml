@@ -37,24 +37,24 @@ classifiers = [
 ]
 
 dependencies = [
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
-    "pydantic>=2.5.0",
-    "pydantic-settings>=2.1.0",
-    "pyyaml>=6.0.1",
-    "asyncpg>=0.29.0",
-    "aiomysql>=0.2.0",
-    "cryptography>=42.0.0",
-    "python-dotenv>=1.0.0",
-    "httpx>=0.26.0",
-    "click>=8.1.0",
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.53.0",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "pyyaml>=6.0.3",
+    "asyncpg>=0.31.0",
+    "aiomysql>=0.3.2",
+    "cryptography>=50.0.1",
+    "python-dotenv>=1.2.3",
+    "httpx>=0.28.1",
+    "click>=8.5.0",
 ]
 
 [project.optional-dependencies]
 llm = [
-    "openai>=1.12.0",
-    "anthropic>=0.18.0",
-    "google-genai>=1.0.0",
+    "openai>=3.13.0",
+    "anthropic>=1.5.0",
+    "google-genai>=2.23.0",
 ]
 # SQL Server (and any other ODBC data source) via aioodbc/pyodbc. The ODBC
 # driver itself (e.g. msodbcsql18) is a system package, see README.
@@ -62,22 +62,22 @@ odbc = [
     "aioodbc>=0.5.0",
 ]
 dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=4.1.0",
-    "pytest-randomly>=3.15.0",
-    "httpx>=0.26.0",
-    "ruff>=0.1.14",
-    "mypy>=1.8.0",
-    "pre-commit>=3.6.0",
-    "import-linter>=2.0",
-    "types-PyYAML>=6.0",
-    "testcontainers[postgres,mysql]>=4.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "pytest-randomly>=5.0.0",
+    "httpx>=0.28.1",
+    "ruff>=0.16.7",
+    "mypy>=2.3.1",
+    "pre-commit>=4.6.2",
+    "import-linter>=2.15",
+    "types-PyYAML>=6.0.12.20260906",
+    "testcontainers[postgres,mysql]>=4.15.0",
 ]
 docs = [
-    "mkdocs>=1.5.0",
-    "mkdocs-material>=9.5.0",
-    "mkdocstrings[python]>=0.24.0",
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings[python]>=1.0.6",
 ]
 
 [project.urls]
