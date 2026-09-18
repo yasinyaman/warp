@@ -60,6 +60,21 @@ class PaginationConfig(BaseModel):
     max_limit: int = 1000
 
 
+class ExportConfig(BaseModel):
+    """Streaming export (``GET|POST /{table}/export``) settings.
+
+    Export is read-only (it needs the ``read`` permission) and streams rows in
+    batches straight from a server-side cursor, so it is safe to leave enabled
+    in production. ``max_rows`` caps a single export (0 = unlimited) and
+    ``statement_timeout_ms`` bounds the database statement (0 = driver default).
+    """
+
+    enabled: bool = True
+    max_rows: int = 0
+    batch_size: int = 5000
+    statement_timeout_ms: int = 0
+
+
 class ApiKeyConfig(BaseModel):
     """API Key configuration with permissions."""
 
@@ -155,6 +170,7 @@ class SettingsConfig(BaseModel):
     auto_discover_tables: bool = True
     excluded_tables: list[str] = Field(default_factory=list)
     pagination: PaginationConfig = Field(default_factory=PaginationConfig)
+    export: ExportConfig = Field(default_factory=ExportConfig)
     enable_raw_query: bool = False  # default off; opt-in only, refused in production
     raw_query_whitelist: list[str] = Field(default_factory=lambda: ["SELECT"])
     # Columns clients may never write (mass-assignment protection). The primary

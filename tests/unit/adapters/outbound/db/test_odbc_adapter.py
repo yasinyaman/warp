@@ -106,6 +106,10 @@ class FakeCursor:
     async def fetchall(self) -> list[tuple[Any, ...]]:
         return list(self._rows)
 
+    async def fetchmany(self, size: int) -> list[tuple[Any, ...]]:
+        batch, self._rows = self._rows[:size], self._rows[size:]
+        return batch
+
     # ODBC catalog functions (generic profile)
     async def tables(self, *args: Any, **kwargs: Any) -> None:
         self.catalog_calls.append(("tables", args, kwargs))
@@ -959,3 +963,71 @@ class TestSafetyHelpers:
             adapter._sanitize_identifier("x]; DROP TABLE users; --")
         clause, idx, params = adapter._build_where_clause("age", "gte", 18, 1)
         assert (clause, idx, params) == ("[age] >= ?", 2, [18])
+
+
+# --- streaming reads and row estimates ----------------------------------------------
+
+
+class TestStreamSelect:
+    @pytest.mark.asyncio
+    async def test_rows_arrive_in_batches(self) -> None:
+        cur = FakeCursor([ResultSet(["id", "name"], [(1, "a"), (2, "b"), (3, "c")])])
+        adapter = make_adapter(MSSQL_CONFIG, cur)
+        batches = [
+            batch
+            async for batch in adapter.stream_select(
+                "users", ["id", "name"], [("id", "gt", 0)], [("id", "asc")], batch_size=2
+            )
+        ]
+        assert batches == [
+            [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}],
+            [{"id": 3, "name": "c"}],
+        ]
+        sql, params = cur.executed[0]
+        assert sql == "SELECT [id], [name] FROM [users] WHERE [id] > ? ORDER BY [id] ASC"
+        assert params == [0]
+
+    @pytest.mark.asyncio
+    async def test_a_limit_uses_offset_fetch(self) -> None:
+        cur = FakeCursor([ResultSet(["id"], [(1,)])])
+        adapter = make_adapter(MSSQL_CONFIG, cur)
+        _ = [batch async for batch in adapter.stream_select("users", limit=10)]
+        assert cur.executed[0][0].endswith("OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY")
+
+    @pytest.mark.asyncio
+    async def test_a_statement_without_rows_yields_nothing(self) -> None:
+        adapter = make_adapter(MSSQL_CONFIG, FakeCursor([NO_RESULT]))
+        assert [batch async for batch in adapter.stream_select("users")] == []
+
+    @pytest.mark.asyncio
+    async def test_the_timeout_is_ignored_not_fatal(self) -> None:
+        # ODBC has no portable per-statement timeout; the read still works.
+        cur = FakeCursor([ResultSet(["id"], [(1,)])])
+        adapter = make_adapter(MSSQL_CONFIG, cur)
+        batches = [b async for b in adapter.stream_select("users", statement_timeout_ms=5000)]
+        assert batches == [[{"id": 1}]]
+
+
+class TestRowEstimates:
+    @pytest.mark.asyncio
+    async def test_sql_server_reads_partition_counts(self) -> None:
+        cur = FakeCursor([ResultSet(["table_name", "row_count"], [("users", 4321)])])
+        adapter = make_adapter(MSSQL_CONFIG, cur)
+        estimates = await adapter.row_estimates(["users", "orders"])
+        assert estimates == {"users": 4321, "orders": None}
+        sql, params = cur.executed[0]
+        assert "sys.partitions" in sql and "COUNT(*)" not in sql.upper()
+        assert params[1:] == ["users", "orders"]
+
+    @pytest.mark.asyncio
+    async def test_empty_input_asks_nothing(self) -> None:
+        cur = FakeCursor()
+        assert await make_adapter(MSSQL_CONFIG, cur).row_estimates([]) == {}
+        assert cur.executed == []
+
+    @pytest.mark.asyncio
+    async def test_a_generic_odbc_source_reports_nothing(self) -> None:
+        cur = FakeCursor()
+        adapter = make_adapter({**MSSQL_CONFIG, "type": "odbc"}, cur)
+        assert await adapter.row_estimates(["users"]) == {"users": None}
+        assert cur.executed == []

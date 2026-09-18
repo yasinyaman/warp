@@ -12,6 +12,8 @@ Warp connects to your database, discovers tables and columns, and generates a fu
 - **Sorting** - Sort results by any column with ascending/descending support
 - **Pagination** - Built-in pagination with configurable limits
 - **Raw Queries** - Secure raw SQL execution with command whitelist
+- **Typed Schema** - `GET /schema` reports column types, primary keys and planner row estimates (no `COUNT(*)`)
+- **Streaming Export** - `GET|POST /{table}/export` streams rows from a server-side cursor as JSON, NDJSON or Arrow IPC
 - **Multi-DB Support** - PostgreSQL, MySQL and SQL Server (plus any ODBC data source, best effort)
 - **Authentication** - API key authentication with role-based access control
 - **Catalog Intelligence** - LLM-powered schema analysis with semantic types and descriptions
@@ -100,6 +102,11 @@ settings:
   pagination:
     default_limit: 50
     max_limit: 1000
+  export:
+    enabled: true           # GET|POST /{table}/export
+    max_rows: 0             # 0 = unlimited; a cap is announced via X-Export-Max-Rows
+    batch_size: 5000        # rows per cursor fetch / response chunk
+    statement_timeout_ms: 0 # per-export statement timeout (0 = driver default)
   enable_raw_query: false   # opt-in only; refused at startup in production
   api_prefix: /api/v1
 
@@ -221,7 +228,11 @@ PATCH  /api/v1/{table}/{id}   # Partial update record
 DELETE /api/v1/{table}/{id}   # Delete record
 ```
 
-With multiple databases, endpoints include the database name: `/api/v1/{db_name}/{table}`.
+Every table is always reachable under `/api/v1/{db_name}/{table}`. With a
+single configured database the bare `/api/v1/{table}` form is kept as an alias
+(it is not listed in the OpenAPI document). `GET /info` reports the effective
+`api_prefix` and a `capabilities` block (schema, export formats, raw query,
+filter operators) so clients can adapt to a running instance.
 
 ### Filtering
 
@@ -276,6 +287,45 @@ be supplied (a typo is a 400, not a silent no-op).
 
 ```
 ```
+
+### Schema
+
+```bash
+GET /api/v1/schema                 # every table: typed columns, primary key, row estimate
+GET /api/v1/{table}/schema         # one table
+GET /api/v1/schema?estimates=false # skip the planner statistics
+```
+
+Each column carries the database type, a coarse `kind`
+(`int`/`float`/`bool`/`str`/`json`/`bytes`/`list`/`datetime`/`date`/`time`/`uuid`),
+nullability, precision/scale, max length and default. `row_estimate` comes from
+planner statistics (`pg_class.reltuples`, `information_schema.TABLES`) and is
+`null` when the table was never analyzed.
+
+### Export (streaming)
+
+```bash
+# Same fields / filter / sort parameters as the list endpoint, no pagination
+GET /api/v1/orders/export?fields=id,total&filter[status][eq]=paid&sort=id:asc
+GET /api/v1/orders/export?format=ndjson
+GET /api/v1/orders/export?format=arrow          # needs: pip install "warp-engine[arrow]"
+
+# JSON body for long `in` lists
+POST /api/v1/orders/export
+{"fields": ["id", "total"],
+ "filters": [{"column": "customer_id", "op": "in", "value": [1, 2, 3]}],
+ "sort": [{"column": "id", "direction": "asc"}],
+ "limit": 100000, "format": "arrow"}
+```
+
+Rows are pulled through a server-side cursor in `export.batch_size` chunks and
+written to the response as they arrive, so memory stays flat however large the
+table is. `json` produces `{"items": [...], "row_count": N}` (decimals as
+strings, bytes as base64), `ndjson` one object per line, `arrow` an Arrow IPC
+stream with typed columns (`decimal128`, `timestamp[us, UTC]`, `binary`, …).
+Responses carry `X-Export-Format` and `Cache-Control: no-store`; when
+`export.max_rows` cuts the result, `X-Export-Max-Rows` says so. `format=arrow`
+without `pyarrow` answers 501; `export.enabled: false` answers 403.
 
 ## Catalog Intelligence
 

@@ -1,5 +1,6 @@
 """PostgreSQL database adapter implementation."""
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import asyncpg
@@ -174,6 +175,26 @@ class PostgreSQLAdapter(DatabaseAdapter):
 
         return schema
 
+    async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
+        """Planner estimates from ``pg_class.reltuples`` (``-1`` = never analyzed)."""
+        if not tables:
+            return {}
+        query = """
+            SELECT c.relname AS table_name, c.reltuples AS estimate
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind IN ('r', 'p')
+              AND c.relname = ANY($1::text[])
+        """
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(query, list(tables))
+        found = {
+            row["table_name"]: (None if row["estimate"] < 0 else int(row["estimate"]))
+            for row in rows
+        }
+        return {table: found.get(table) for table in tables}
+
     async def execute_query(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -206,6 +227,32 @@ class PostgreSQLAdapter(DatabaseAdapter):
             total = await conn.fetchval(count_query, *params)
             rows = await conn.fetch(query, *params)
             return [dict(row) for row in rows], total
+
+    async def stream_select(  # noqa: PLR0913
+        self,
+        table: str,
+        columns: list[str] | None = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        sort: list[tuple[str, str]] | None = None,
+        batch_size: int = 5000,
+        limit: int | None = None,
+        statement_timeout_ms: int = 0,
+    ) -> AsyncIterator[list[dict[str, Any]]]:
+        """Stream rows through an asyncpg server-side cursor (needs a transaction)."""
+        sql, params = self._qb.build_stream_select(table, columns, filters, sort, limit)
+        async with self._pool.acquire() as conn, conn.transaction():
+            if statement_timeout_ms > 0:
+                # SET LOCAL is scoped to this transaction, so the pooled
+                # connection is untouched afterwards.
+                await conn.execute(f"SET LOCAL statement_timeout = {int(statement_timeout_ms)}")
+            # ``prefetch`` only applies to ``async for`` cursors; an awaited
+            # cursor is pulled explicitly with ``fetch(n)`` instead.
+            cursor = await conn.cursor(sql, *params)
+            while True:
+                rows = await cursor.fetch(batch_size)
+                if not rows:
+                    break
+                yield [dict(row) for row in rows]
 
     async def select_by_id(
         self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None

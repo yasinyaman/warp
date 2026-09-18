@@ -122,6 +122,27 @@ class TestPaginationConfig:
         assert config.max_limit == 500
 
 
+class TestExportConfig:
+    """Streaming export settings."""
+
+    def test_defaults(self):
+        from warp.application.config import ExportConfig
+
+        cfg = ExportConfig()
+        assert cfg.enabled is True
+        assert cfg.max_rows == 0
+        assert cfg.batch_size == 5000
+        assert cfg.statement_timeout_ms == 0
+
+    def test_nested_in_settings(self):
+        from warp.application.config import SettingsConfig
+
+        cfg = SettingsConfig(export={"enabled": False, "max_rows": 100})
+        assert cfg.export.enabled is False
+        assert cfg.export.max_rows == 100
+        assert cfg.export.batch_size == 5000
+
+
 class TestSettingsConfig:
     """Tests for SettingsConfig model."""
 

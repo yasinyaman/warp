@@ -137,6 +137,72 @@ class TestLifespan:
         assert runtime_of(app).is_ready is False
         assert mock_db_with_data.is_connected is False  # disconnected on shutdown
 
+    def test_info_has_capabilities_block(self, tmp_path, mock_db_with_data):
+        container = build_container(
+            _settings(tmp_path, enable_raw_query=False),
+            gateway_factory=FakeGatewayFactory(mock_db_with_data),
+        )
+        with TestClient(_app(container)) as c:
+            caps = c.get("/info").json()["capabilities"]
+        assert caps["db_prefix"] == "always"
+        assert caps["api_prefix"] == "/api/v1"
+        assert caps["schema"] is True
+        assert caps["raw_query"] is False
+        assert caps["export"]["enabled"] is True
+        assert {"json", "ndjson"} <= set(caps["export"]["formats"])
+        assert "in" in caps["filter_ops"]
+
+    def test_single_db_serves_scoped_and_alias_routes(self, tmp_path, mock_db_with_data):
+        container = build_container(
+            _settings(tmp_path), gateway_factory=FakeGatewayFactory(mock_db_with_data)
+        )
+        app = _app(container)
+        with TestClient(app) as c:
+            # The db-scoped prefix is the documented location, always...
+            assert c.get("/api/v1/testdb/users").status_code == 200
+            assert c.get("/api/v1/testdb/users/1").json()["username"] == "admin"
+            r = c.post("/api/v1/testdb/query/execute", json={"query": "SELECT 1"})
+            assert r.status_code == 403
+            # ...and the bare prefix stays as a hidden alias.
+            assert c.get("/api/v1/users").status_code == 200
+            assert c.post("/api/v1/query/execute", json={"query": "SELECT 1"}).status_code == 403
+            paths = c.get("/openapi.json").json()["paths"]
+        assert "/api/v1/testdb/users" in paths
+        assert "/api/v1/users" not in paths  # the alias is not documented twice
+
+    def test_the_alias_never_swallows_a_db_scoped_url(self, tmp_path, mock_db_with_data):
+        """``/api/v1/testdb/schema`` must not resolve as ``/{table}/schema``.
+
+        Every router carries ``/{table}`` paths, so registering the bare
+        alias first made each scoped URL match it with ``table = <db name>``
+        and answer 404 (or read the wrong table).
+        """
+        container = build_container(
+            _settings(tmp_path), gateway_factory=FakeGatewayFactory(mock_db_with_data)
+        )
+        with TestClient(_app(container)) as c:
+            scoped = c.get("/api/v1/testdb/schema")
+            assert scoped.status_code == 200
+            assert scoped.json()["database"] == "testdb"
+            assert "users" in scoped.json()["tables"]
+            assert c.get("/api/v1/testdb/users/schema").status_code == 200
+            assert c.get("/api/v1/testdb/users/export?limit=1").status_code == 200
+            assert c.get("/api/v1/schema").status_code == 200
+
+    def test_multi_db_uses_scoped_prefix_only(self, tmp_path, mock_db_with_data):
+        settings = Settings(
+            databases=[
+                DatabaseConfig(name="one", type="postgresql", database="d", username="u"),
+                DatabaseConfig(name="two", type="postgresql", database="d", username="u"),
+            ],
+            settings={"catalog": {"storage_path": str(tmp_path / "catalogs")}},
+        )
+        container = build_container(settings, gateway_factory=FakeGatewayFactory(mock_db_with_data))
+        with TestClient(_app(container)) as c:
+            assert c.get("/api/v1/one/users").status_code == 200
+            assert c.get("/api/v1/two/users").status_code == 200
+            assert c.get("/api/v1/users").status_code == 404
+
     def test_missing_factory_refuses_to_start(self):
         with pytest.raises(ConfigurationError), TestClient(_app()):
             pass

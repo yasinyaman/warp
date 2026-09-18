@@ -1,6 +1,6 @@
 [project]
 name = "warp-engine"
-version = "0.9.0"
+version = "0.10.0"
 description = "Auto-discovery REST CRUD API generator from database schema"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -56,12 +56,16 @@ llm = [
     "anthropic>=0.18.0",
     "google-genai>=1.0.0",
 ]
+arrow = [
+    "pyarrow>=17",
+]
 # SQL Server (and any other ODBC data source) via aioodbc/pyodbc. The ODBC
 # driver itself (e.g. msodbcsql18) is a system package, see README.
 odbc = [
     "aioodbc>=0.5.0",
 ]
 dev = [
+    "pyarrow>=17",
     "pytest>=7.4.0",
     "pytest-asyncio>=0.23.0",
     "pytest-cov>=4.1.0",
@@ -187,6 +191,7 @@ pretty = true
 module = [
     "asyncpg.*",
     "aiomysql.*",
+    "pyarrow.*",
     "pymysql.*",
     "openai.*",
     "anthropic.*",

@@ -1,5 +1,6 @@
 """MySQL database adapter implementation."""
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import aiomysql
@@ -172,6 +173,26 @@ class MySQLAdapter(DatabaseAdapter):
 
         return schema
 
+    async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
+        """Estimates from ``information_schema.TABLES.TABLE_ROWS`` (NULL = unknown)."""
+        if not tables:
+            return {}
+        placeholders = ", ".join("%s" for _ in tables)
+        query = f"""
+            SELECT TABLE_NAME, TABLE_ROWS
+            FROM information_schema.TABLES
+            WHERE TABLE_SCHEMA = %s
+              AND TABLE_NAME IN ({placeholders})
+        """  # noqa: S608 - only placeholders are interpolated
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(query, (self.config["database"], *tables))
+            rows = await cur.fetchall()
+        found = {
+            row["TABLE_NAME"]: (None if row["TABLE_ROWS"] is None else int(row["TABLE_ROWS"]))
+            for row in rows
+        }
+        return {table: found.get(table) for table in tables}
+
     async def execute_query(
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -222,6 +243,33 @@ class MySQLAdapter(DatabaseAdapter):
             await cur.execute(query, params)
             rows = await cur.fetchall()
             return list(rows), total
+
+    async def stream_select(  # noqa: PLR0913
+        self,
+        table: str,
+        columns: list[str] | None = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        sort: list[tuple[str, str]] | None = None,
+        batch_size: int = 5000,
+        limit: int | None = None,
+        statement_timeout_ms: int = 0,
+    ) -> AsyncIterator[list[dict[str, Any]]]:
+        """Stream rows through an unbuffered (server-side) dict cursor."""
+        sql, params = self._qb.build_stream_select(table, columns, filters, sort, limit)
+        if statement_timeout_ms > 0:
+            # Per-statement optimizer hint (MySQL >= 5.7.8); MariaDB ignores it.
+            sql = sql.replace(
+                "SELECT ", f"SELECT /*+ MAX_EXECUTION_TIME({int(statement_timeout_ms)}) */ ", 1
+            )
+        # The `async with` closes the unbuffered cursor (draining it) before the
+        # connection goes back to the pool, even when the consumer stops early.
+        async with self._pool.acquire() as conn, conn.cursor(aiomysql.SSDictCursor) as cur:
+            await cur.execute(sql, params or None)
+            while True:
+                rows = await cur.fetchmany(batch_size)
+                if not rows:
+                    break
+                yield list(rows)
 
     async def select_by_id(
         self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import struct
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -555,6 +555,63 @@ class ODBCAdapter(DatabaseAdapter):
         total = int(next(iter(count_rows[0].values()))) if count_rows else 0
         rows, _ = await self._execute(sql, params)
         return rows, total
+
+    async def stream_select(  # noqa: PLR0913
+        self,
+        table: str,
+        columns: list[str] | None = None,
+        filters: list[tuple[str, str, Any]] | None = None,
+        sort: list[tuple[str, str]] | None = None,
+        batch_size: int = 5000,
+        limit: int | None = None,
+        statement_timeout_ms: int = 0,
+    ) -> AsyncIterator[list[dict[str, Any]]]:
+        """Stream rows in batches, pulling them from the driver as they are asked for.
+
+        ODBC has no portable per-statement timeout, so ``statement_timeout_ms``
+        is ignored here; cap the read with ``limit`` instead.
+        """
+        sql, params = self._qb.build_stream_select(table, columns, filters, sort, limit)
+        if statement_timeout_ms > 0:
+            logger.debug("ODBC ignores statement_timeout_ms (%d)", statement_timeout_ms)
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(sql, list(params)) if params else await cur.execute(sql)
+            if cur.description is None:
+                return
+            names = [column[0] for column in cur.description]
+            while True:
+                rows = await cur.fetchmany(batch_size)
+                if not rows:
+                    break
+                yield [dict(zip(names, row, strict=False)) for row in rows]
+
+    async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
+        """Row counts from the catalog views, never a ``COUNT(*)``.
+
+        SQL Server keeps per-partition counts in ``sys.partitions``; other ODBC
+        sources have no portable equivalent, so they report nothing.
+        """
+        if not tables:
+            return {}
+        estimates: dict[str, int | None] = dict.fromkeys(tables)
+        if not self._mssql:
+            return estimates
+        placeholders = ", ".join("?" for _ in tables)
+        rows, _ = await self._execute(
+            "SELECT t.name AS table_name, SUM(p.rows) AS row_count "
+            "FROM sys.tables t "
+            "JOIN sys.schemas s ON s.schema_id = t.schema_id "
+            "JOIN sys.partitions p ON p.object_id = t.object_id AND p.index_id IN (0, 1) "
+            f"WHERE s.name = ? AND t.name IN ({placeholders}) "
+            "GROUP BY t.name",
+            [self._schema, *tables],
+        )
+        for row in rows:
+            values = list(row.values())
+            name, count = str(values[0]), values[1]
+            if name in estimates and count is not None:
+                estimates[name] = int(count)
+        return estimates
 
     async def select_by_id(
         self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None

@@ -328,6 +328,98 @@ async def test_execute_query_missing_param_raises_value_error(conn: AsyncMock) -
 
 
 @pytest.mark.asyncio
+async def test_row_estimates_from_pg_class(conn: AsyncMock) -> None:
+    conn.fetch.return_value = [
+        {"table_name": "users", "estimate": 1234.0},
+        {"table_name": "never_analyzed", "estimate": -1.0},
+    ]
+    adapter = make_adapter(conn)
+    estimates = await adapter.row_estimates(["users", "never_analyzed", "missing"])
+    assert estimates == {"users": 1234, "never_analyzed": None, "missing": None}
+    sql, tables = conn.fetch.call_args.args
+    assert "pg_class" in sql and "COUNT(*)" not in sql.upper()
+    assert tables == ["users", "never_analyzed", "missing"]
+
+
+@pytest.mark.asyncio
+async def test_row_estimates_empty_input_skips_query(conn: AsyncMock) -> None:
+    adapter = make_adapter(conn)
+    assert await adapter.row_estimates([]) == {}
+    conn.fetch.assert_not_called()
+
+
+class FakeTransaction:
+    """Async context manager standing in for asyncpg's ``conn.transaction()``."""
+
+    def __init__(self) -> None:
+        self.entered = False
+        self.exited = False
+
+    async def __aenter__(self) -> "FakeTransaction":
+        self.entered = True
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        self.exited = True
+
+
+def _cursor_conn(batches: list[list[dict[str, Any]]]) -> tuple[AsyncMock, Any, FakeTransaction]:
+    conn = AsyncMock()
+    tx = FakeTransaction()
+    conn.transaction = lambda: tx  # sync call returning the context manager
+    cursor = AsyncMock()
+    cursor.fetch = AsyncMock(side_effect=[*batches, []])
+    conn.cursor = AsyncMock(return_value=cursor)
+    return conn, cursor, tx
+
+
+@pytest.mark.asyncio
+async def test_stream_select_batches_via_server_side_cursor() -> None:
+    conn, cursor, tx = _cursor_conn([[{"id": 1}, {"id": 2}], [{"id": 3}]])
+    adapter = make_adapter(conn)
+    batches = [
+        b
+        async for b in adapter.stream_select(
+            "users", ["id"], [("id", "gt", 0)], [("id", "asc")], batch_size=2, limit=3
+        )
+    ]
+    assert batches == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
+    conn.cursor.assert_awaited_once_with(
+        'SELECT "id" FROM "users" WHERE "id" > $1 ORDER BY "id" ASC LIMIT 3 OFFSET 0', 0
+    )
+    assert cursor.fetch.await_args_list[0].args == (2,)
+    assert cursor.fetch.await_count == 3  # two batches + the empty one that ends the loop
+    assert tx.entered and tx.exited
+    conn.execute.assert_not_awaited()  # no statement timeout by default
+
+
+@pytest.mark.asyncio
+async def test_stream_select_sets_local_statement_timeout() -> None:
+    conn, _, _ = _cursor_conn([[{"id": 1}]])
+    adapter = make_adapter(conn)
+    _ = [b async for b in adapter.stream_select("users", statement_timeout_ms=1500)]
+    conn.execute.assert_awaited_once_with("SET LOCAL statement_timeout = 1500")
+
+
+@pytest.mark.asyncio
+async def test_stream_select_empty_result_yields_nothing() -> None:
+    conn, _, tx = _cursor_conn([])
+    adapter = make_adapter(conn)
+    assert [b async for b in adapter.stream_select("users")] == []
+    assert tx.exited
+
+
+@pytest.mark.asyncio
+async def test_stream_select_early_close_leaves_transaction() -> None:
+    conn, cursor, tx = _cursor_conn([[{"id": 1}], [{"id": 2}]])
+    adapter = make_adapter(conn)
+    stream = adapter.stream_select("users", batch_size=1)
+    assert await stream.__anext__() == [{"id": 1}]
+    await stream.aclose()
+    assert tx.exited and cursor.fetch.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_get_table_schema_marks_identity_columns(conn: AsyncMock) -> None:
     columns = [
         {

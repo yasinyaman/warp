@@ -166,6 +166,28 @@ class SafeQueryBuilder:
         select_sql = " ".join(p for p in (f"SELECT {cols} FROM {tbl}", where_sql, tail) if p)
         return count_sql, select_sql, params
 
+    def build_stream_select(
+        self,
+        table: str,
+        columns: list[str] | None,
+        filters: list[tuple[str, str, Any]] | None,
+        sort: list[tuple[str, str]] | None,
+        limit: int | None = None,
+    ) -> tuple[str, list[Any]]:
+        """Return ``(select_sql, params)`` for a streamed read: no COUNT, no paging.
+
+        The row cap goes through the dialect, so it is ``LIMIT`` on
+        PostgreSQL/MySQL and ``OFFSET ... FETCH`` on SQL Server; identifiers
+        and values take the same validated paths as ``build_select``.
+        """
+        where_sql, _, params = self.build_where(filters or [])
+        parts = [
+            f"SELECT {self._select_columns(columns)} FROM {self.quote(table)}",
+            where_sql,
+            self.dialect.order_and_limit(self._order_by(sort), limit),
+        ]
+        return " ".join(part for part in parts if part), params
+
     def build_insert(
         self, table: str, data: dict[str, Any], *, returning: bool = True
     ) -> tuple[str, list[Any]]:

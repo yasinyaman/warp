@@ -11,21 +11,26 @@ import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.types import Lifespan
 
 from warp import __version__
+from warp.adapters.inbound.http.arrow_export import arrow_available
 from warp.adapters.inbound.http.auth import AuthManager, Permission
+from warp.adapters.inbound.http.capabilities import capabilities_of
 from warp.adapters.inbound.http.routes.catalog import (
     _refresh_openapi_enrichment,
     create_catalog_router,
 )
 from warp.adapters.inbound.http.routes.crud import RouterFactory
+from warp.adapters.inbound.http.routes.export import create_export_router
 from warp.adapters.inbound.http.routes.query import create_query_router
+from warp.adapters.inbound.http.routes.schema import create_schema_router
 from warp.application.config import RuntimeEnv, Settings, validate_production_config
 from warp.application.container import Container
 from warp.application.ports.database import DatabaseGateway
@@ -92,6 +97,34 @@ async def connect_with_retry(
     )
 
 
+def _mount_prefixes(api_prefix: str, db_name: str, multi_db: bool) -> list[str]:
+    """Where one database's routers are mounted: the documented prefix first.
+
+    Every database answers at ``{api_prefix}/{db_name}``, so a client can
+    address it by name however many databases are configured; that is the
+    documented (OpenAPI-visible) location. With a single database the bare
+    ``{api_prefix}`` is kept as a hidden alias for compatibility.
+
+    The scoped prefix must be registered **first**: routers carry
+    ``/{table}`` paths, so an alias route would otherwise swallow
+    ``{api_prefix}/{db_name}/…`` with ``table = db_name``.
+    """
+    scoped = f"{api_prefix}/{db_name}"
+    return [scoped] if multi_db else [scoped, api_prefix]
+
+
+def _include_at_prefixes(
+    app: FastAPI,
+    routers: list[APIRouter],
+    prefixes: list[str],
+    tags: list[str | Enum] | None = None,
+) -> None:
+    """Include ``routers`` under each prefix; only the first prefix is in the schema."""
+    for position, prefix in enumerate(prefixes):
+        for router in routers:
+            app.include_router(router, prefix=prefix, tags=tags, include_in_schema=position == 0)
+
+
 async def _mount_database(  # noqa: PLR0913
     app: FastAPI,
     runtime: RuntimeContext,
@@ -122,7 +155,19 @@ async def _mount_database(  # noqa: PLR0913
         f"{', '.join(table_names[:10])}{'...' if len(table_names) > 10 else ''}"
     )
 
-    db_prefix = f"/{db_name}" if multi_db else ""
+    prefixes = _mount_prefixes(settings.api_prefix, db_name, multi_db)
+    # Schema and export routes first: GET /{table}/schema and /{table}/export
+    # must win over CRUD's GET /{table}/{id}.
+    _include_at_prefixes(
+        app, [create_schema_router(db_name, schema, gateway, auth_manager)], prefixes
+    )
+    export_routers = [
+        create_export_router(
+            table, gateway, settings.export, auth_manager, db_name if multi_db else None
+        )
+        for table in schema.tables.values()
+    ]
+    _include_at_prefixes(app, export_routers, prefixes)
     router_factory = RouterFactory(
         db=gateway,
         schema_analyzer=analyzer,
@@ -132,8 +177,7 @@ async def _mount_database(  # noqa: PLR0913
         auth_manager=auth_manager,
         readonly_columns=settings.readonly_columns,
     )
-    for router in router_factory.create_routers_for_all_tables(schema.tables):
-        app.include_router(router, prefix=f"{settings.api_prefix}{db_prefix}")
+    _include_at_prefixes(app, router_factory.create_routers_for_all_tables(schema.tables), prefixes)
 
     # Raw query endpoint: use a separate read-only connection when configured,
     # so a whitelist bypass still cannot mutate data.
@@ -146,14 +190,16 @@ async def _mount_database(  # noqa: PLR0913
         query_gateway = readonly_gateway
         logger.info(f"Raw query endpoint for {db_name} uses a read-only connection")
 
-    app.include_router(
-        create_query_router(
-            db=query_gateway,
-            whitelist=settings.raw_query_whitelist,
-            enabled=settings.enable_raw_query,
-            auth_manager=auth_manager,
-        ),
-        prefix=f"{settings.api_prefix}{db_prefix}",
+    query_router = create_query_router(
+        db=query_gateway,
+        whitelist=settings.raw_query_whitelist,
+        enabled=settings.enable_raw_query,
+        auth_manager=auth_manager,
+    )
+    _include_at_prefixes(
+        app,
+        [query_router],
+        prefixes,
         tags=[f"{db_name} - Raw Query"] if multi_db else ["Raw Query"],
     )
 
@@ -470,6 +516,7 @@ GET /api/v1/users?limit=20&offset=40
                 },
                 "raw_query_enabled": cfg.enable_raw_query if cfg else False,
             },
+            "capabilities": capabilities_of(cfg, arrow_available()),
         }
 
     return app

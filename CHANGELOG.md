@@ -7,7 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-09-18
+
+SQL Server support, and a data-access layer for external analytics engines:
+a typed schema endpoint, a streaming export (JSON, NDJSON, Arrow IPC) and a
+`/info` capabilities block so clients can detect what a running Warp supports.
+
 ### Added
+
+- `GET /schema` and `GET /{table}/schema`: typed columns (`kind`, precision,
+  scale, max length, nullability, default), the primary key as a list and a
+  planner **row estimate** (`pg_class.reltuples` / `information_schema.TABLES`,
+  never a `COUNT(*)`). New port method `DatabaseGateway.row_estimates`.
+- `GET|POST /{table}/export`: rows are read through a server-side cursor
+  (asyncpg cursor in a transaction, aiomysql `SSDictCursor`) and written to the
+  response batch by batch, so exporting a large table keeps API memory flat.
+  Formats: `json` (`{"items": [...], "row_count": N}` written incrementally),
+  `ndjson`, and `arrow` (Arrow IPC stream, `application/vnd.apache.arrow.stream`)
+  when the optional `warp-engine[arrow]` extra is installed (501 otherwise).
+  `GET` takes the list endpoint's `fields`/`filter[col][op]`/`sort`/`limit`;
+  `POST` takes a JSON body for long `in` lists. New port method
+  `DatabaseGateway.stream_select`; `SafeQueryBuilder.build_stream_select`;
+  `FilterParser.parse_conditions` for structured filters.
+- `settings.export` (`enabled`, `max_rows`, `batch_size`,
+  `statement_timeout_ms`). A cap applied by `max_rows` is announced with the
+  `X-Export-Max-Rows` header; every export answers with `X-Export-Format` and
+  `Cache-Control: no-store`. Disabled exports answer 403.
+- `/info.capabilities`: `api_prefix`, `db_prefix`, `schema`, `export`
+  (`enabled`, `formats`, `max_rows`, `batch_size`), `raw_query`, `filter_ops`.
+- Arrow type mapping: int16/int32/int64, `decimal128(p, s)` for numerics with a
+  known precision ≤ 38, float32/float64, bool (incl. MySQL `tinyint(1)`),
+  `timestamp[us, UTC]` for `timestamptz`, naive `timestamp[us]`, date32,
+  time64, binary; json/uuid/interval/arrays/enums and anything unknown are
+  exported as text. The schema message is written before the first row.
 
 - **SQL Server support** through a new ODBC adapter (`type: mssql` /
   `sqlserver`, `odbc` extra: aioodbc + pyodbc; Microsoft's `msodbcsql18`
@@ -29,6 +61,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   missing (`WARP_MSSQL_HOST` targets an existing server instead).
 
 ### Changed
+
+- Every route is now mounted under `/api/v1/{db_name}/…` **always**; with a
+  single database the bare `/api/v1/…` paths remain as an alias (hidden from
+  the OpenAPI document). Clients no longer need to know how many databases a
+  Warp serves to build a URL.
+- Route order: `/{table}/schema` and `/{table}/export` are registered before
+  the CRUD routes so they are not captured by `GET /{table}/{id}`. A table
+  literally named `schema` or `export` is shadowed by these endpoints.
 
 - Engine differences (placeholders, quoting, `ILIKE`/`LIKE`,
   `RETURNING`/`OUTPUT`/re-select, pagination, default schema, catalog queries)

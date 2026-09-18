@@ -136,6 +136,47 @@ class TestStatements:
             PG.build_insert("users", {'name"; DROP TABLE x; --': 1})
 
 
+class TestStreamSelect:
+    """A streamed read has no COUNT and no paging, and caps rows per dialect."""
+
+    def test_pg_select_with_filter_sort_and_limit(self):
+        sql, params = PG.build_stream_select(
+            "users", ["id", "name"], [("status", "eq", "x")], [("id", "desc")], limit=10
+        )
+        assert sql == (
+            'SELECT "id", "name" FROM "users" WHERE "status" = $1 '
+            'ORDER BY "id" DESC LIMIT 10 OFFSET 0'
+        )
+        assert params == ["x"]
+        assert "COUNT" not in sql.upper()
+
+    def test_mysql_star_without_clauses(self):
+        sql, params = MY.build_stream_select("t", None, None, None)
+        assert sql == "SELECT * FROM `t`"
+        assert params == []
+
+    def test_sql_server_uses_offset_fetch(self):
+        sql, _ = MS.build_stream_select("t", None, None, [("id", "asc")], limit=10)
+        assert sql == "SELECT * FROM [t] ORDER BY [id] ASC OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"
+        # OFFSET/FETCH needs an ORDER BY, so one is supplied when the caller has none.
+        unsorted, _ = MS.build_stream_select("t", None, None, None, limit=5)
+        assert unsorted == (
+            "SELECT * FROM [t] ORDER BY (SELECT NULL) OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY"
+        )
+
+    def test_no_limit_means_no_pagination_tail(self):
+        sql, _ = PG.build_stream_select("t", None, [("a", "in", [1, 2])], None, limit=None)
+        assert sql == 'SELECT * FROM "t" WHERE "a" IN ($1, $2)'
+        assert "OFFSET" not in sql and "LIMIT" not in sql
+        assert MS.build_stream_select("t", None, None, None)[0] == "SELECT * FROM [t]"
+
+    def test_identifiers_validated(self):
+        with pytest.raises(ValueError):
+            PG.build_stream_select('t"; DROP', None, None, None)
+        with pytest.raises(ValueError):
+            PG.build_stream_select("t", ["id; DROP TABLE x"], None, None)
+
+
 MS = SafeQueryBuilder("mssql")
 
 
