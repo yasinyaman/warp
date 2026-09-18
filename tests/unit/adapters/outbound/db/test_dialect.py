@@ -187,3 +187,9 @@ class TestPaginationIsAlwaysInteger:
     def test_a_numeric_string_is_coerced(self, dialect):
         sql = dialect.order_and_limit("", "7", "3")  # type: ignore[arg-type]
         assert "7" in sql and "3" in sql and ";" not in sql
+
+    @pytest.mark.parametrize("dialect", [POSTGRESQL, MYSQL, MSSQL])
+    def test_a_sample_row_cap_is_an_integer_too(self, dialect):
+        assert "5" in dialect.sample_select("[t]", "5")  # type: ignore[arg-type]
+        with pytest.raises((TypeError, ValueError)):
+            dialect.sample_select("[t]", "5; DROP TABLE t")  # type: ignore[arg-type]

@@ -111,7 +111,7 @@ class Dialect:
         requires an ``ORDER BY``, so a stable dummy ordering is injected when
         the caller did not sort.
 
-        Pagination is the only thing this layer interpolates into SQL, so the
+        Row counts are the only thing this layer interpolates into SQL, so the
         numbers are forced to ``int`` here instead of being trusted from the
         caller. Callers validate their ranges; this keeps the guarantee even
         if one day one forgets.
@@ -126,10 +126,15 @@ class Dialect:
         return f"{order_sql} {tail}" if order_sql else tail
 
     def sample_select(self, table_sql: str, limit: int) -> str:
-        """``SELECT *`` of at most ``limit`` rows from an already-quoted table."""
+        """``SELECT *`` of at most ``limit`` rows from an already-quoted table.
+
+        The row cap is interpolated, so it is forced to ``int`` here for the
+        same reason as in ``order_and_limit``.
+        """
+        rows = int(limit)
         if self.limit_style == "offset_fetch":
-            return f"SELECT TOP ({limit}) * FROM {table_sql}"
-        return f"SELECT * FROM {table_sql} LIMIT {limit}"
+            return f"SELECT TOP ({rows}) * FROM {table_sql}"
+        return f"SELECT * FROM {table_sql} LIMIT {rows}"
 
 
 # --- PostgreSQL ---------------------------------------------------------------
