@@ -176,6 +176,14 @@ class TestStreamSelect:
         with pytest.raises(ValueError):
             PG.build_stream_select("t", ["id; DROP TABLE x"], None, None)
 
+    def test_the_row_cap_is_coerced_to_an_integer(self):
+        # The cap is the only value interpolated into the statement.
+        assert MY.build_stream_select("t", None, None, None, limit=7)[0].endswith(
+            "LIMIT 7 OFFSET 0"
+        )
+        with pytest.raises((TypeError, ValueError)):
+            MY.build_stream_select("t", None, None, None, limit="7; DROP TABLE t")  # type: ignore[arg-type]
+
 
 MS = SafeQueryBuilder("mssql")
 

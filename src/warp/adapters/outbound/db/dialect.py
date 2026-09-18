@@ -110,13 +110,19 @@ class Dialect:
         ``limit=None`` means no pagination. SQL Server's ``OFFSET ... FETCH``
         requires an ``ORDER BY``, so a stable dummy ordering is injected when
         the caller did not sort.
+
+        Pagination is the only thing this layer interpolates into SQL, so the
+        numbers are forced to ``int`` here instead of being trusted from the
+        caller. Callers validate their ranges; this keeps the guarantee even
+        if one day one forgets.
         """
         if limit is None:
             return order_sql
+        rows, start = int(limit), int(offset)
         if self.limit_style == "offset_fetch":
             order = order_sql or "ORDER BY (SELECT NULL)"
-            return f"{order} OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
-        tail = f"LIMIT {limit} OFFSET {offset}"
+            return f"{order} OFFSET {start} ROWS FETCH NEXT {rows} ROWS ONLY"
+        tail = f"LIMIT {rows} OFFSET {start}"
         return f"{order_sql} {tail}" if order_sql else tail
 
     def sample_select(self, table_sql: str, limit: int) -> str:

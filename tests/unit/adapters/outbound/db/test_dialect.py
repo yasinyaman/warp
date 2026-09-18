@@ -171,3 +171,19 @@ class TestCatalogQueries:
         assert get_dialect(custom) is custom
         assert custom.escape_percent is False
         assert custom.schema_qualified is True
+
+
+class TestPaginationIsAlwaysInteger:
+    """Pagination is the only value interpolated into SQL, so it must be a number."""
+
+    @pytest.mark.parametrize("dialect", [POSTGRESQL, MYSQL, MSSQL])
+    def test_a_non_numeric_limit_is_rejected(self, dialect):
+        with pytest.raises((TypeError, ValueError)):
+            dialect.order_and_limit("", "7; DROP TABLE t")  # type: ignore[arg-type]
+        with pytest.raises((TypeError, ValueError)):
+            dialect.order_and_limit("", 7, "0; DROP TABLE t")  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("dialect", [POSTGRESQL, MYSQL, MSSQL])
+    def test_a_numeric_string_is_coerced(self, dialect):
+        sql = dialect.order_and_limit("", "7", "3")  # type: ignore[arg-type]
+        assert "7" in sql and "3" in sql and ";" not in sql
