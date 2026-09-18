@@ -20,6 +20,25 @@ class ColumnSchema(BaseModel):
     extra: str | None = None
     udt_name: str | None = None  # PostgreSQL specific
 
+    @property
+    def is_auto_generated(self) -> bool:
+        """Whether the database fills this column itself.
+
+        MySQL reports ``auto_increment`` in ``extra``; PostgreSQL serials carry
+        a ``nextval(...)`` default; identity and computed columns (PostgreSQL,
+        SQL Server) are reported with ``identity`` / ``computed`` in ``extra``
+        or ``identity`` in the default expression.
+        """
+        extra = (self.extra or "").lower()
+        default = self.default.lower() if isinstance(self.default, str) else ""
+        return (
+            "auto_increment" in extra
+            or "identity" in extra
+            or "computed" in extra
+            or "nextval" in default
+            or "identity" in default
+        )
+
 
 class ForeignKeySchema(BaseModel):
     """Represents a foreign key relationship."""
@@ -84,25 +103,12 @@ class TableSchema(BaseModel):
             if not col.nullable
             and col.default is None
             and col.name != self.pk_column
-            and "auto_increment" not in (col.extra or "").lower()
-            and "nextval" not in (col.default or "").lower()
+            and not col.is_auto_generated
         ]
 
     def get_insertable_columns(self) -> list[str]:
         """Get columns that can be inserted (excluding auto-generated)."""
-        excluded = set()
-
-        for col in self.columns:
-            # Exclude auto-increment columns
-            if col.extra and "auto_increment" in col.extra.lower():
-                excluded.add(col.name)
-            # Exclude serial/identity columns in PostgreSQL
-            if col.default and (
-                "nextval" in col.default.lower() or "identity" in col.default.lower()
-            ):
-                excluded.add(col.name)
-
-        return [col.name for col in self.columns if col.name not in excluded]
+        return [col.name for col in self.columns if not col.is_auto_generated]
 
 
 class DatabaseSchema(BaseModel):

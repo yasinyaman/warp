@@ -9,9 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.10.0] - 2026-09-18
 
-Data-access release for external analytics engines: a typed schema endpoint,
-a streaming export (JSON, NDJSON, Arrow IPC) and a `/info` capabilities block
-so clients can detect what a running Warp supports.
+SQL Server support, and a data-access layer for external analytics engines:
+a typed schema endpoint, a streaming export (JSON, NDJSON, Arrow IPC) and a
+`/info` capabilities block so clients can detect what a running Warp supports.
 
 ### Added
 
@@ -41,6 +41,25 @@ so clients can detect what a running Warp supports.
   time64, binary; json/uuid/interval/arrays/enums and anything unknown are
   exported as text. The schema message is written before the first row.
 
+- **SQL Server support** through a new ODBC adapter (`type: mssql` /
+  `sqlserver`, `odbc` extra: aioodbc + pyodbc; Microsoft's `msodbcsql18`
+  driver is a system package). Full schema discovery via `INFORMATION_SCHEMA`
+  and `sys.*` (identity/computed columns, keys, indexes), `OUTPUT`-based writes
+  with a per-table fallback for tables with triggers (error 334), `TOP` /
+  `OFFSET … FETCH` pagination, a `datetimeoffset` converter, and catalog
+  intelligence (comments from `MS_Description`, samples, row counts).
+- A best-effort generic `type: odbc` profile for other ODBC data sources
+  (`options.driver` or `options.connection_string`).
+- `options.schema` selects the schema to introspect for any engine;
+  `options.connection_string`, `options.driver`, `options.encrypt`,
+  `options.trust_server_certificate`, `options.extra` and `options.pool_recycle`
+  for ODBC connections.
+- Docker image installs the SQL Server ODBC driver by default
+  (`--build-arg WITH_MSSQL_ODBC=0` opts out); `docker compose --profile mssql`
+  starts a local SQL Server; SQL Server integration tests run in CI
+  (testcontainers) and auto-skip locally when the driver or an x86-64 engine is
+  missing (`WARP_MSSQL_HOST` targets an existing server instead).
+
 ### Changed
 
 - Every route is now mounted under `/api/v1/{db_name}/…` **always**; with a
@@ -50,6 +69,24 @@ so clients can detect what a running Warp supports.
 - Route order: `/{table}/schema` and `/{table}/export` are registered before
   the CRUD routes so they are not captured by `GET /{table}/{id}`. A table
   literally named `schema` or `export` is shadowed by these endpoints.
+
+- Engine differences (placeholders, quoting, `ILIKE`/`LIKE`,
+  `RETURNING`/`OUTPUT`/re-select, pagination, default schema, catalog queries)
+  now live in one frozen `Dialect` per engine; the query builder, named
+  parameter binder, identifier quoting, comment/sample readers and the
+  composition root consume it instead of branching on type strings
+  (ADR-0008). PostgreSQL/MySQL SQL is unchanged.
+- `ColumnSchema.is_auto_generated` is the single definition of "the database
+  fills this column" (auto-increment, serial, identity, computed) used by
+  create models and required/insertable column checks. `requirements-prod.lock`
+  now includes the `odbc` extra.
+
+### Fixed
+
+- MySQL comment discovery was scoped by the config entry *name* instead of the
+  database name, so table/column comments were only found when the two matched.
+- PostgreSQL `GENERATED … AS IDENTITY` columns are now reported as identity and
+  no longer demanded (or accepted) on create.
 
 ## [0.9.0] - 2026-09-17
 

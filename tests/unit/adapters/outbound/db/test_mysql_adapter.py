@@ -493,7 +493,7 @@ async def test_stream_select_uses_unbuffered_dict_cursor() -> None:
     assert batches == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
     assert conn.cursor_args == [(aiomysql.SSDictCursor,)]
     assert cursor.executed == [
-        ("SELECT `id` FROM `users` WHERE `id` > %s ORDER BY `id` ASC LIMIT 3", [0])
+        ("SELECT `id` FROM `users` WHERE `id` > %s ORDER BY `id` ASC LIMIT 3 OFFSET 0", [0])
     ]
     assert cursor.fetchmany_sizes == [2, 2, 2]
     assert cursor.closed

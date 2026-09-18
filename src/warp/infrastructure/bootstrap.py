@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
 from warp.adapters.outbound.db.comment_reader import CommentReader
+from warp.adapters.outbound.db.dialect import dialect_or_generic
 from warp.adapters.outbound.db.factory import DatabaseFactory
 from warp.adapters.outbound.db.sample_reader import SampleReader
 from warp.adapters.outbound.export.registry import default_exporters
@@ -41,7 +42,8 @@ def build_analysis_service(
     repository: CatalogRepository,
 ) -> CatalogAnalysisService:
     """Wire readers, review and cross-reference around a connected gateway."""
-    schema = "public" if db_config.type == "postgresql" else db_config.database
+    dialect = dialect_or_generic(db_config.type)
+    schema = dialect.default_schema(db_config.database, db_config.options)
     cross_reference = (
         CrossReferenceService(repository, exclude_db=db_config.name)
         if settings.settings.catalog.auto_cross_reference
@@ -52,9 +54,9 @@ def build_analysis_service(
         config=settings,
         text_generator=text_generator,
         comments=CommentReader(
-            gateway, db_type=db_config.type, schema=schema, database=db_config.name
+            gateway, db_type=dialect, schema=schema, database=db_config.database
         ),
-        samples=SampleReader(gateway, db_type=db_config.type, schema=schema),
+        samples=SampleReader(gateway, db_type=dialect, schema=schema),
         review=CatalogReviewService(repository),
         cross_reference=cross_reference,
         db_type=db_config.type,

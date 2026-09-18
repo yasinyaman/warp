@@ -62,6 +62,17 @@ TYPE_EXAMPLES = {
     "jsonb": {"key": "value", "items": [1, 2, 3]},
     "enum": "active",
     "set": "option1,option2",
+    # SQL Server types
+    "nvarchar": "example text",
+    "nchar": "A",
+    "ntext": "This is a longer text content example.",
+    "datetime2": "2024-01-15T10:30:00",
+    "smalldatetime": "2024-01-15T10:30:00",
+    "datetimeoffset": "2024-01-15T10:30:00+03:00",
+    "money": 99.99,
+    "smallmoney": 9.99,
+    "uniqueidentifier": "550e8400-e29b-41d4-a716-446655440000",
+    "xml": "<root><item>1</item></root>",
     # Binary types
     "bytea": "base64_encoded_data",
     "blob": "binary_data",
@@ -171,14 +182,9 @@ class SchemaAnalyzer:
         fields: dict[str, Any] = {}
 
         for col in table_schema.columns:
-            # Skip auto-generated columns for create models
-            if for_create:
-                if col.extra and "auto_increment" in col.extra.lower():
-                    continue
-                if col.default and (
-                    "nextval" in col.default.lower() or "identity" in col.default.lower()
-                ):
-                    continue
+            # Skip auto-generated columns (serial/identity/computed) for create models
+            if for_create and col.is_auto_generated:
+                continue
 
             python_type: Any = self._get_python_type(col)
             example_value = self._get_example_value(col)

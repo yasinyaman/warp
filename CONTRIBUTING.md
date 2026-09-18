@@ -16,7 +16,7 @@ uv pip install --no-deps -e .
 
 # Or plain pip with the version ranges from pyproject.toml
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev,llm]"
+pip install -e ".[dev,llm,odbc]"
 ```
 
 Copy `.env.example` to `.env` and fill in values for local Docker work:
@@ -42,11 +42,18 @@ lint-imports                       # layered-architecture contracts must hold
 CI runs the same checks on Python 3.11 and 3.12 (`.github/workflows/ci.yml`).
 `pip-audit` runs as well (advisory). `make lint` runs all of them locally.
 
+`make test-integration` runs the real-database suite through testcontainers
+(Docker required). PostgreSQL and MySQL always run; SQL Server runs when the
+Microsoft ODBC driver is installed and the Docker engine is x86-64 (as in CI,
+where it is mandatory), otherwise it is skipped with a reason. To exercise it
+from an Apple Silicon machine, point it at a server you run yourself:
+`WARP_MSSQL_HOST=... WARP_MSSQL_PASSWORD=... pytest tests/integration -m integration -k mssql`.
+
 ### Dependencies
 
 Version ranges live in `pyproject.toml`; exact, hash-pinned versions live in
 `requirements.lock` (all extras, used by CI) and `requirements-prod.lock`
-(runtime + `llm`, used by the Docker image). After changing dependencies in
+(runtime + `llm` + `odbc`, used by the Docker image). After changing dependencies in
 `pyproject.toml`, regenerate both with `make lock` (needs [uv](https://docs.astral.sh/uv/))
 and commit them together.
 

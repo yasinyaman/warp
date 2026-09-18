@@ -115,6 +115,7 @@ async def test_get_table_schema(conn: AsyncMock) -> None:
     assert len(schema["columns"]) == 2
     assert schema["columns"][0]["name"] == "id"
     assert schema["columns"][0]["nullable"] is False
+    assert schema["columns"][0]["extra"] is None
     assert schema["columns"][1]["nullable"] is True
     assert schema["primary_key"] == "id"
     assert schema["foreign_keys"][0]["references_table"] == "users"
@@ -384,7 +385,7 @@ async def test_stream_select_batches_via_server_side_cursor() -> None:
     ]
     assert batches == [[{"id": 1}, {"id": 2}], [{"id": 3}]]
     conn.cursor.assert_awaited_once_with(
-        'SELECT "id" FROM "users" WHERE "id" > $1 ORDER BY "id" ASC LIMIT 3', 0
+        'SELECT "id" FROM "users" WHERE "id" > $1 ORDER BY "id" ASC LIMIT 3 OFFSET 0', 0
     )
     assert cursor.fetch.await_args_list[0].args == (2,)
     assert cursor.fetch.await_count == 3  # two batches + the empty one that ends the loop
@@ -416,3 +417,24 @@ async def test_stream_select_early_close_leaves_transaction() -> None:
     assert await stream.__anext__() == [{"id": 1}]
     await stream.aclose()
     assert tx.exited and cursor.fetch.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_get_table_schema_marks_identity_columns(conn: AsyncMock) -> None:
+    columns = [
+        {
+            "column_name": "id",
+            "data_type": "bigint",
+            "udt_name": "int8",
+            "is_nullable": "NO",
+            "column_default": None,
+            "character_maximum_length": None,
+            "numeric_precision": 64,
+            "numeric_scale": 0,
+            "is_identity": "YES",
+        }
+    ]
+    conn.fetch.side_effect = [columns, [{"column_name": "id"}], [], []]
+    schema = await make_adapter(conn).get_table_schema("t")
+    assert schema["columns"][0]["extra"] == "identity"
+    assert "is_identity" in conn.fetch.call_args_list[0].args[0]

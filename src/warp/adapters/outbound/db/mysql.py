@@ -7,6 +7,7 @@ import aiomysql
 from pymysql.constants import CLIENT
 
 from warp.adapters.outbound.db.base import DatabaseAdapter
+from warp.adapters.outbound.db.dialect import MYSQL
 from warp.adapters.outbound.db.identifiers import sanitize_identifier
 from warp.adapters.outbound.db.params import bind_named_params
 from warp.adapters.outbound.db.query_builder import SafeQueryBuilder
@@ -15,7 +16,7 @@ from warp.adapters.outbound.db.query_builder import SafeQueryBuilder
 class MySQLAdapter(DatabaseAdapter):
     """MySQL database adapter using aiomysql."""
 
-    _qb = SafeQueryBuilder("mysql")
+    _qb = SafeQueryBuilder(MYSQL)
 
     async def connect(self) -> None:
         """Create connection pool to MySQL."""
@@ -196,7 +197,7 @@ class MySQLAdapter(DatabaseAdapter):
         self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Execute a raw SQL query."""
-        sql, args = bind_named_params(query, params, "mysql")
+        sql, args = bind_named_params(query, params, self._qb.dialect)
         async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
             if args:
                 await cur.execute(sql, args)

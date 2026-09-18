@@ -1,4 +1,8 @@
-"""The whole hexagon over a real PostgreSQL: lifespan, CRUD routes, validation, raw SQL."""
+"""The whole hexagon over real databases: lifespan, CRUD routes, validation, raw SQL.
+
+Runs once over PostgreSQL and once over SQL Server (skipped where the SQL
+Server prerequisites are missing, see conftest).
+"""
 
 import json
 from datetime import UTC, datetime
@@ -9,15 +13,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from warp.adapters.inbound.http.app import create_app, runtime_of
-from warp.application.config import DatabaseConfig, RuntimeEnv, Settings
+from warp.application.config import RuntimeEnv, Settings
 from warp.infrastructure.bootstrap import build_container
 
 pytestmark = pytest.mark.integration
 
+BACKENDS = {"pg": ("pg_gateway", "postgres_config"), "mssql": ("mssql_gateway", "mssql_config")}
 
-def _make_app(postgres_config: DatabaseConfig, tmp_path):
+
+def _make_app(config, tmp_path):
     settings = Settings(
-        databases=[postgres_config],
+        databases=[config],
         settings={
             "catalog": {"storage_path": str(tmp_path / "catalogs")},
             "enable_raw_query": True,
@@ -27,12 +33,22 @@ def _make_app(postgres_config: DatabaseConfig, tmp_path):
     return create_app(container_factory=lambda: build_container(settings), env=RuntimeEnv())
 
 
-@pytest.fixture
-def client(pg_gateway, postgres_config: DatabaseConfig, tmp_path):
-    app = _make_app(postgres_config, tmp_path)
+@pytest.fixture(params=list(BACKENDS))
+def client(request: pytest.FixtureRequest, tmp_path):
+    gateway_fixture, config_fixture = BACKENDS[request.param]
+    request.getfixturevalue(gateway_fixture)  # fresh `users` table
+    app = _make_app(request.getfixturevalue(config_fixture), tmp_path)
     with TestClient(app) as c:
         yield c
     assert runtime_of(app).is_ready is False
+
+
+@pytest.fixture
+def pg_client(pg_gateway, postgres_config, tmp_path):
+    """PostgreSQL only, for assertions about PostgreSQL's own types."""
+    app = _make_app(postgres_config, tmp_path)
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture
@@ -53,7 +69,7 @@ async def ledger(pg_gateway):
 
 
 @pytest.fixture
-def ledger_client(ledger, postgres_config: DatabaseConfig, tmp_path):
+def ledger_client(ledger, postgres_config, tmp_path):
     app = _make_app(postgres_config, tmp_path)
     with TestClient(app) as c:
         yield c
@@ -62,7 +78,7 @@ def ledger_client(ledger, postgres_config: DatabaseConfig, tmp_path):
 def test_startup_discovers_schema(client: TestClient) -> None:
     assert client.get("/health").json()["status"] == "healthy"
     info = client.get("/info").json()
-    assert "users" in info["databases"]["pg"]["tables"]
+    assert any("users" in db["tables"] for db in info["databases"].values())
 
 
 def test_crud_over_http(client: TestClient) -> None:
@@ -111,8 +127,8 @@ def test_catalog_name_traversal_is_rejected(client: TestClient) -> None:
     assert client.delete("/api/v1/catalog/%2e%2e").status_code == 422
 
 
-def test_schema_endpoint_over_postgres(client: TestClient) -> None:
-    table = client.get("/api/v1/users/schema").json()
+def test_schema_endpoint_over_postgres(pg_client: TestClient) -> None:
+    table = pg_client.get("/api/v1/users/schema").json()
     assert table["primary_key"] == ["id"]
     cols = {c["name"]: c for c in table["columns"]}
     assert cols["id"]["kind"] == "int" and cols["id"]["nullable"] is False
@@ -120,24 +136,28 @@ def test_schema_endpoint_over_postgres(client: TestClient) -> None:
     assert cols["active"]["kind"] == "bool"
     assert cols["created_at"]["kind"] == "datetime"
     assert table["row_estimate"] is None or isinstance(table["row_estimate"], int)
-    whole = client.get("/api/v1/schema").json()
+    whole = pg_client.get("/api/v1/schema").json()
     assert whole["database"] == "pg" and "users" in whole["tables"]
-    assert client.get("/api/v1/nope/schema").status_code == 404
+    assert pg_client.get("/api/v1/nope/schema").status_code == 404
 
 
-def test_db_prefixed_and_alias_routes(client: TestClient) -> None:
-    assert client.get("/api/v1/pg/users?sort=id:asc").json()["total"] == 3
-    assert client.get("/api/v1/pg/users/1").json()["username"] == "alice"
-    assert client.get("/api/v1/pg/users/schema").status_code == 200
+def test_db_scoped_and_alias_routes(client: TestClient) -> None:
+    info = client.get("/info").json()
+    database = next(iter(info["databases"]))
+    assert client.get(f"/api/v1/{database}/users?sort=id:asc").json()["total"] == 3
+    assert client.get(f"/api/v1/{database}/users/1").json()["username"] == "alice"
+    assert client.get(f"/api/v1/{database}/users/schema").status_code == 200
     # The database-level endpoints must resolve under the scoped prefix too.
-    assert client.get("/api/v1/pg/schema").json()["database"] == "pg"
-    assert client.get("/api/v1/pg/users/export?limit=1").status_code == 200
-    caps = client.get("/info").json()["capabilities"]
+    assert client.get(f"/api/v1/{database}/schema").json()["database"] == database
+    assert client.get(f"/api/v1/{database}/users/export?limit=1").status_code == 200
+    # ...and the bare alias still answers for a single database.
+    assert client.get("/api/v1/users?limit=1").status_code == 200
+    caps = info["capabilities"]
     assert caps["db_prefix"] == "always" and caps["schema"] is True
 
 
-def test_export_ndjson_over_postgres(client: TestClient) -> None:
-    r = client.get("/api/v1/users/export?format=ndjson&fields=id,username&sort=id:asc")
+def test_export_ndjson_over_postgres(pg_client: TestClient) -> None:
+    r = pg_client.get("/api/v1/users/export?format=ndjson&fields=id,username&sort=id:asc")
     assert r.status_code == 200 and r.headers["x-export-format"] == "ndjson"
     rows = [json.loads(line) for line in r.text.splitlines()]
     assert rows == [
@@ -145,7 +165,7 @@ def test_export_ndjson_over_postgres(client: TestClient) -> None:
         {"id": 2, "username": "bob"},
         {"id": 3, "username": "carol"},
     ]
-    body = client.post(
+    body = pg_client.post(
         "/api/v1/users/export",
         json={
             "filters": [{"column": "id", "op": "in", "value": [1, 3]}],
@@ -154,8 +174,8 @@ def test_export_ndjson_over_postgres(client: TestClient) -> None:
     ).json()
     assert [i["username"] for i in body["items"]] == ["carol", "alice"]
     assert body["row_count"] == 2
-    assert client.get("/api/v1/users/export?filter[active][eq]=false").json()["row_count"] == 1
-    assert "export" in client.get("/info").json()["capabilities"]
+    assert pg_client.get("/api/v1/users/export?filter[active][eq]=false").json()["row_count"] == 1
+    assert "export" in pg_client.get("/info").json()["capabilities"]
 
 
 def test_export_arrow_over_postgres(ledger_client: TestClient) -> None:

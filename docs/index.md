@@ -12,7 +12,8 @@ and tools get rich context automatically.
 
 ## Highlights
 
-- **Auto-discovery** of tables → full CRUD endpoints (PostgreSQL & MySQL)
+- **Auto-discovery** of tables → full CRUD endpoints (PostgreSQL, MySQL & SQL Server;
+  other ODBC sources best effort)
 - **Filtering / sorting / pagination** with a safe, parameterized query layer
 - **Typed schema and streaming export** (JSON, NDJSON, Arrow IPC) for external analytics engines
 - **API-key auth** with role-based permissions

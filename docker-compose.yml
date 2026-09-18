@@ -37,6 +37,8 @@ services:
       - DB_PORT=5432
       - MYSQL_HOST=mysql
       - MYSQL_PORT=3306
+      - MSSQL_HOST=mssql
+      - MSSQL_PORT=1433
     # Dev-only hot-reload against the mounted ./src (the prod image has no --reload).
     command: ["uvicorn", "warp.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
     depends_on:
@@ -98,6 +100,36 @@ services:
     restart: unless-stopped
 
   # ===================
+  # SQL Server (optional): docker compose --profile mssql up -d
+  # ===================
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: warp-mssql
+    profiles: ["mssql"]
+    # The image is x86-64 only. On Apple Silicon enable Rosetta in Docker
+    # Desktop (Settings > General > "Use Rosetta for x86_64/amd64 emulation").
+    platform: linux/amd64
+    ports:
+      - "1433:1433"
+    environment:
+      ACCEPT_EULA: "Y"
+      # Required when the profile is enabled (SQL Server enforces a strong
+      # password); left empty otherwise so the default stack still starts.
+      MSSQL_SA_PASSWORD: ${MSSQL_PASS:-}
+      MSSQL_PID: Developer
+    volumes:
+      - mssql_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - warp-network
+    restart: unless-stopped
+
+  # ===================
   # Adminer (DB Admin UI)
   # ===================
   adminer:
@@ -121,3 +153,4 @@ networks:
 volumes:
   postgres_data:
   mysql_data:
+  mssql_data:

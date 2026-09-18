@@ -1,1 +1,1 @@
-"""Database adapters (PostgreSQL, MySQL) and SQL helpers."""
+"""Database adapters (PostgreSQL, MySQL, ODBC/SQL Server) and SQL helpers."""

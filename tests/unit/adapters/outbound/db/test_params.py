@@ -2,6 +2,7 @@
 
 import pytest
 
+from warp.adapters.outbound.db.dialect import MSSQL, POSTGRESQL
 from warp.adapters.outbound.db.params import bind_named_params
 
 
@@ -84,3 +85,24 @@ class TestErrors:
     def test_unknown_dialect(self):
         with pytest.raises(ValueError, match="dialect"):
             bind_named_params("SELECT 1", {"a": 1}, "sqlite")
+
+
+class TestQmark:
+    def test_repeated_name_repeats_value(self):
+        sql, args = bind_named_params("SELECT :v, :v WHERE x = :v", {"v": 7}, "mssql")
+        assert sql == "SELECT ?, ? WHERE x = ?"
+        assert args == [7, 7, 7]
+
+    def test_percent_is_not_escaped(self):
+        sql, args = bind_named_params("SELECT 'a%b' WHERE x LIKE :p", {"p": "%z%"}, "odbc")
+        assert sql == "SELECT 'a%b' WHERE x LIKE ?"
+        assert args == ["%z%"]
+
+    def test_casts_and_literals_still_skipped(self):
+        sql, args = bind_named_params("SELECT ':x', y::int, :a", {"a": 1}, "sqlserver")
+        assert sql == "SELECT ':x', y::int, ?"
+        assert args == [1]
+
+    def test_accepts_dialect_object(self):
+        assert bind_named_params("WHERE a = :a", {"a": 1}, MSSQL) == ("WHERE a = ?", [1])
+        assert bind_named_params("WHERE a = :a", {"a": 1}, POSTGRESQL) == ("WHERE a = $1", [1])

@@ -1,10 +1,11 @@
 """Dialect-aware SQL builder shared by the database adapters.
 
-This is the single source of truth for constructing CRUD SQL. It centralizes the
-two things that differ between PostgreSQL and MySQL — placeholder style
-(``$1`` vs ``%s``), identifier quoting (``"x"`` vs `` `x` ``), the ``ILIKE`` vs
-``LIKE`` operator, and ``RETURNING`` support — so the adapters only deal with
-driver-specific *execution*.
+This is the single source of truth for constructing CRUD SQL. Everything that
+differs between engines — placeholder style (``$1`` / ``%s`` / ``?``),
+identifier quoting, ``ILIKE`` vs ``LIKE``, how written rows are handed back
+(``RETURNING`` / ``OUTPUT`` / re-select) and pagination syntax — comes from the
+:class:`~warp.adapters.outbound.db.dialect.Dialect`, so the adapters only deal
+with driver-specific *execution*.
 
 Invariants:
 - Values are ALWAYS emitted as bound-parameter placeholders, never interpolated.
@@ -14,39 +15,56 @@ Invariants:
 
 from typing import Any
 
-from warp.adapters.outbound.db.identifiers import quote_identifier
+from warp.adapters.outbound.db.dialect import Dialect, ReturningStyle, get_dialect
 
 
 class SafeQueryBuilder:
     """Builds parameterized SQL strings for a given SQL dialect."""
 
-    def __init__(self, dialect: str) -> None:
-        """Create a builder for the given dialect ("postgresql" or "mysql")."""
-        self.dialect = dialect
+    def __init__(self, dialect: str | Dialect) -> None:
+        """Create a builder for a dialect name (``postgresql``, ``mysql``, ``mssql``, ...) or object."""
+        self.dialect: Dialect = get_dialect(dialect)
 
     # --- dialect primitives -------------------------------------------------
 
     def _placeholder(self, index: int) -> str:
-        """Positional placeholder: ``$N`` for PostgreSQL, ``%s`` for MySQL."""
-        return f"${index}" if self.dialect == "postgresql" else "%s"
+        """Positional placeholder: ``$N``, ``%s`` or ``?`` depending on the dialect."""
+        return self.dialect.placeholder(index)
 
     def quote(self, name: str) -> str:
         """Validate and quote an identifier for this dialect."""
-        return quote_identifier(name, self.dialect)
+        return self.dialect.quote(name)
+
+    @property
+    def returning_style(self) -> ReturningStyle:
+        """How INSERT/UPDATE/DELETE hand back the affected row."""
+        return self.dialect.returning_style
 
     @property
     def supports_returning(self) -> bool:
-        """Whether this dialect supports a ``RETURNING`` clause."""
-        return self.dialect == "postgresql"
+        """Whether a write statement can return the affected row by itself."""
+        return self.dialect.returning_style != "refetch"
 
     @property
     def _like_operator(self) -> str:
-        return "ILIKE" if self.dialect == "postgresql" else "LIKE"
+        return self.dialect.like_operator
 
     def _select_columns(self, columns: list[str] | None) -> str:
         if columns:
             return ", ".join(self.quote(c) for c in columns)
         return "*"
+
+    def _output(self, returning: bool, expression: str) -> str:
+        """SQL Server ``OUTPUT`` clause (placed before ``VALUES``/``WHERE``)."""
+        if returning and self.returning_style == "output":
+            return f" OUTPUT {expression}"
+        return ""
+
+    def _returning(self, returning: bool, expression: str) -> str:
+        """PostgreSQL ``RETURNING`` clause (placed at the end of the statement)."""
+        if returning and self.returning_style == "returning":
+            return f" RETURNING {expression}"
+        return ""
 
     # --- WHERE --------------------------------------------------------------
 
@@ -56,7 +74,7 @@ class SafeQueryBuilder:
         """Build a single WHERE condition.
 
         Returns ``(clause, next_index, params)``. ``next_index`` is the running
-        placeholder index (used by PostgreSQL; harmless for MySQL).
+        placeholder index (used by numbered dialects; harmless for the others).
         """
         col = self.quote(column)
         params: list[Any] = []
@@ -117,13 +135,16 @@ class SafeQueryBuilder:
         parts = [f"{self.quote(col)} {direction.upper()}" for col, direction in sort]
         return f"ORDER BY {', '.join(parts)}"
 
-    @staticmethod
-    def _limit_offset(pagination: dict[str, int] | None) -> str:
+    def _order_and_limit(
+        self, sort: list[tuple[str, str]] | None, pagination: dict[str, int] | None
+    ) -> str:
+        """``ORDER BY`` plus the dialect's pagination tail (may be empty)."""
+        order_sql = self._order_by(sort)
         if not pagination:
-            return ""
-        limit = pagination.get("limit", 50)
-        offset = pagination.get("offset", 0)
-        return f"LIMIT {limit} OFFSET {offset}"
+            return self.dialect.order_and_limit(order_sql, None)
+        return self.dialect.order_and_limit(
+            order_sql, pagination.get("limit", 50), pagination.get("offset", 0)
+        )
 
     # --- statements ---------------------------------------------------------
 
@@ -139,11 +160,10 @@ class SafeQueryBuilder:
         tbl = self.quote(table)
         cols = self._select_columns(columns)
         where_sql, _, params = self.build_where(filters or [])
-        order_sql = self._order_by(sort)
-        limit_sql = self._limit_offset(pagination)
+        tail = self._order_and_limit(sort, pagination)
 
-        count_sql = f"SELECT COUNT(*) AS cnt FROM {tbl} {where_sql}".rstrip()
-        select_sql = f"SELECT {cols} FROM {tbl} {where_sql} {order_sql} {limit_sql}".rstrip()
+        count_sql = " ".join(p for p in (f"SELECT COUNT(*) AS cnt FROM {tbl}", where_sql) if p)
+        select_sql = " ".join(p for p in (f"SELECT {cols} FROM {tbl}", where_sql, tail) if p)
         return count_sql, select_sql, params
 
     def build_stream_select(
@@ -154,29 +174,32 @@ class SafeQueryBuilder:
         sort: list[tuple[str, str]] | None,
         limit: int | None = None,
     ) -> tuple[str, list[Any]]:
-        """Return ``(select_sql, params)`` for a streamed read: no COUNT, no OFFSET.
+        """Return ``(select_sql, params)`` for a streamed read: no COUNT, no paging.
 
-        ``limit`` is interpolated only after ``int()`` (it is range-validated
-        upstream); everything else goes through the same validated/quoted
-        identifier and bound-parameter paths as ``build_select``.
+        The row cap goes through the dialect, so it is ``LIMIT`` on
+        PostgreSQL/MySQL and ``OFFSET ... FETCH`` on SQL Server; identifiers
+        and values take the same validated paths as ``build_select``.
         """
         where_sql, _, params = self.build_where(filters or [])
         parts = [
             f"SELECT {self._select_columns(columns)} FROM {self.quote(table)}",
             where_sql,
-            self._order_by(sort),
-            f"LIMIT {int(limit)}" if limit is not None else "",
+            self.dialect.order_and_limit(self._order_by(sort), limit),
         ]
         return " ".join(part for part in parts if part), params
 
-    def build_insert(self, table: str, data: dict[str, Any]) -> tuple[str, list[Any]]:
-        """Build an INSERT statement (with ``RETURNING *`` on PostgreSQL)."""
+    def build_insert(
+        self, table: str, data: dict[str, Any], *, returning: bool = True
+    ) -> tuple[str, list[Any]]:
+        """Build an INSERT statement (``RETURNING *`` / ``OUTPUT INSERTED.*`` when supported)."""
         tbl = self.quote(table)
         columns = list(data.keys())
         quoted_cols = ", ".join(self.quote(c) for c in columns)
         placeholders = ", ".join(self._placeholder(i + 1) for i in range(len(columns)))
-        returning = " RETURNING *" if self.supports_returning else ""
-        sql = f"INSERT INTO {tbl} ({quoted_cols}) VALUES ({placeholders}){returning}"
+        sql = (
+            f"INSERT INTO {tbl} ({quoted_cols}){self._output(returning, 'INSERTED.*')} "
+            f"VALUES ({placeholders}){self._returning(returning, '*')}"
+        )
         return sql, list(data.values())
 
     def build_select_by_id(
@@ -200,8 +223,10 @@ class SafeQueryBuilder:
         id_column: str,
         id_value: Any,
         data: dict[str, Any],
+        *,
+        returning: bool = True,
     ) -> tuple[str, list[Any]]:
-        """Build an UPDATE-by-id statement (``RETURNING *`` on PostgreSQL)."""
+        """Build an UPDATE-by-id statement (``RETURNING *`` / ``OUTPUT INSERTED.*`` when supported)."""
         tbl = self.quote(table)
         set_parts: list[str] = []
         params: list[Any] = []
@@ -212,13 +237,19 @@ class SafeQueryBuilder:
             index += 1
         where = f"{self.quote(id_column)} = {self._placeholder(index)}"
         params.append(id_value)
-        returning = " RETURNING *" if self.supports_returning else ""
-        sql = f"UPDATE {tbl} SET {', '.join(set_parts)} WHERE {where}{returning}"
+        sql = (
+            f"UPDATE {tbl} SET {', '.join(set_parts)}{self._output(returning, 'INSERTED.*')} "
+            f"WHERE {where}{self._returning(returning, '*')}"
+        )
         return sql, params
 
-    def build_delete(self, table: str, id_column: str, id_value: Any) -> tuple[str, list[Any]]:
-        """Build a DELETE-by-id statement (``RETURNING`` id on PostgreSQL)."""
+    def build_delete(
+        self, table: str, id_column: str, id_value: Any, *, returning: bool = True
+    ) -> tuple[str, list[Any]]:
+        """Build a DELETE-by-id statement (returning the id when supported)."""
         col = self.quote(id_column)
-        returning = f" RETURNING {col}" if self.supports_returning else ""
-        sql = f"DELETE FROM {self.quote(table)} WHERE {col} = {self._placeholder(1)}{returning}"
+        sql = (
+            f"DELETE FROM {self.quote(table)}{self._output(returning, f'DELETED.{col}')} "
+            f"WHERE {col} = {self._placeholder(1)}{self._returning(returning, col)}"
+        )
         return sql, [id_value]

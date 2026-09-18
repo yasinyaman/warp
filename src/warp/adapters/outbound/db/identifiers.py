@@ -7,7 +7,13 @@ helpers. Keeping this logic in one place avoids divergent, weaker copies
 (e.g. ``str.replace``-based "sanitizers") across adapters.
 """
 
+from __future__ import annotations
+
 import re
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from warp.adapters.outbound.db.dialect import Dialect
 
 # A safe, unquoted SQL identifier: a letter or underscore followed by letters,
 # digits, or underscores. Deliberately strict — names from schema introspection
@@ -35,13 +41,14 @@ def sanitize_identifier(name: str) -> str:
     return name
 
 
-def quote_identifier(name: str, dialect: str = "postgresql") -> str:
+def quote_identifier(name: str, dialect: str | Dialect = "postgresql") -> str:
     """Validate and quote an identifier for the given SQL dialect.
 
     Args:
         name: The identifier to validate and quote.
-        dialect: Target SQL dialect (``"mysql"``/``"mariadb"`` use backticks,
-            everything else uses ANSI double quotes).
+        dialect: Target dialect name or :class:`Dialect` (``mysql``/``mariadb``
+            use backticks, ``mssql``/``sqlserver`` square brackets, everything
+            else ANSI double quotes).
 
     Returns:
         The safely quoted identifier.
@@ -49,7 +56,7 @@ def quote_identifier(name: str, dialect: str = "postgresql") -> str:
     Raises:
         ValueError: If the identifier is not valid (see :func:`sanitize_identifier`).
     """
-    safe = sanitize_identifier(name)
-    if dialect in ("mysql", "mariadb"):
-        return f"`{safe}`"
-    return f'"{safe}"'
+    # Imported lazily: the dialect module builds on sanitize_identifier above.
+    from warp.adapters.outbound.db.dialect import dialect_or_generic
+
+    return dialect_or_generic(dialect).quote(name)

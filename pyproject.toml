@@ -15,6 +15,8 @@ keywords = [
     "database",
     "postgresql",
     "mysql",
+    "sql-server",
+    "odbc",
     "auto-generate",
     "schema-discovery"
 ]
@@ -56,6 +58,11 @@ llm = [
 ]
 arrow = [
     "pyarrow>=17",
+]
+# SQL Server (and any other ODBC data source) via aioodbc/pyodbc. The ODBC
+# driver itself (e.g. msodbcsql18) is a system package, see README.
+odbc = [
+    "aioodbc>=0.5.0",
 ]
 dev = [
     "pyarrow>=17",
@@ -190,6 +197,7 @@ module = [
     "anthropic.*",
     "google.genai.*",
     "google.*",
+    "aioodbc.*",
 ]
 ignore_missing_imports = true
 
@@ -209,7 +217,7 @@ addopts = [
     "not integration",
 ]
 markers = [
-    "integration: needs Docker (testcontainers spin up PostgreSQL/MySQL)",
+    "integration: needs Docker (testcontainers spin up PostgreSQL/MySQL/SQL Server)",
 ]
 
 [tool.coverage.run]
@@ -272,7 +280,7 @@ name = "domain is framework-free and imports nothing above it"
 type = "forbidden"
 source_modules = ["warp.domain"]
 forbidden_modules = [
-    "fastapi", "starlette", "click", "asyncpg", "aiomysql", "pymysql",
+    "fastapi", "starlette", "click", "asyncpg", "aiomysql", "pymysql", "aioodbc", "pyodbc",
     "openai", "anthropic", "google", "httpx", "yaml", "uvicorn", "dotenv",
     "warp.application", "warp.adapters", "warp.infrastructure",
 ]
@@ -282,7 +290,7 @@ name = "application depends only on domain and its own ports (no adapters, no fr
 type = "forbidden"
 source_modules = ["warp.application"]
 forbidden_modules = [
-    "fastapi", "starlette", "click", "asyncpg", "aiomysql", "pymysql",
+    "fastapi", "starlette", "click", "asyncpg", "aiomysql", "pymysql", "aioodbc", "pyodbc",
     "openai", "anthropic", "google", "httpx", "yaml", "uvicorn", "dotenv",
     "warp.adapters", "warp.infrastructure",
 ]

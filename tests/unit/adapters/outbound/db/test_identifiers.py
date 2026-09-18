@@ -2,6 +2,7 @@
 
 import pytest
 
+from warp.adapters.outbound.db.dialect import MSSQL
 from warp.adapters.outbound.db.identifiers import quote_identifier, sanitize_identifier
 from warp.adapters.outbound.db.sample_reader import SampleReader
 
@@ -79,3 +80,20 @@ class TestSampleReaderHardening:
         await reader.read_samples("users", limit=3)
         assert adapter.queries
         assert '"public"."users"' in adapter.queries[0]
+
+
+class TestQuoteIdentifierDialects:
+    def test_sqlserver_uses_brackets(self):
+        assert quote_identifier("users", "mssql") == "[users]"
+        assert quote_identifier("users", "sqlserver") == "[users]"
+        assert quote_identifier("users", MSSQL) == "[users]"
+
+    def test_generic_odbc_and_unknown_use_ansi_quotes(self):
+        assert quote_identifier("users", "odbc") == '"users"'
+        assert quote_identifier("users", "sqlite") == '"users"'
+
+    def test_sample_reader_quotes_for_sqlserver(self):
+        reader = SampleReader(_NoopAdapter(), db_type="mssql", schema="dbo")
+        assert reader._quote_identifier("users") == "[users]"
+        with pytest.raises(ValueError):
+            reader._quote_identifier("a]b")

@@ -39,7 +39,7 @@ jobs:
         run: pytest --cov=src/warp --cov-report=term-missing
 
   integration:
-    name: integration (PostgreSQL + MySQL via testcontainers)
+    name: integration (PostgreSQL + MySQL + SQL Server via testcontainers)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -55,8 +55,20 @@ jobs:
         run: |
           uv pip sync --require-hashes requirements.lock
           uv pip install --no-deps -e .
+      - name: Install Microsoft ODBC Driver 18 for SQL Server
+        run: |
+          curl -sSL -o /tmp/packages-microsoft-prod.deb \
+            "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
+          sudo dpkg -i /tmp/packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
+          odbcinst -q -d -n "ODBC Driver 18 for SQL Server"
       - name: Run integration tests against real databases
+        # The SQL Server container/driver must work here; the suite only
+        # auto-skips SQL Server on developer machines without them.
         run: pytest tests/integration -m integration
+        env:
+          WARP_REQUIRE_MSSQL: "1"
 
   quality:
     name: lint, format & types

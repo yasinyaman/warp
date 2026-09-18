@@ -7,6 +7,7 @@ import pytest
 from warp.adapters.outbound.db.base import DatabaseAdapter
 from warp.adapters.outbound.db.factory import DatabaseFactory
 from warp.adapters.outbound.db.mysql import MySQLAdapter
+from warp.adapters.outbound.db.odbc import ODBCAdapter
 from warp.adapters.outbound.db.postgres import PostgreSQLAdapter
 
 
@@ -109,3 +110,13 @@ def test_database_config_keeps_options_nested() -> None:
     assert isinstance(adapter, PostgreSQLAdapter)
     assert adapter.name == "main"
     assert adapter.config["options"] == {"pool_size": 3, "ssl": True}
+
+
+@pytest.mark.parametrize("db_type", ["mssql", "sqlserver", "odbc", "MSSQL"])
+def test_create_odbc_variants(db_type: str) -> None:
+    adapter = DatabaseFactory.create({"type": db_type, "database": "d"})
+    assert isinstance(adapter, ODBCAdapter)
+
+
+def test_odbc_types_are_advertised() -> None:
+    assert {"mssql", "sqlserver", "odbc"} <= set(DatabaseFactory.get_supported_types())
