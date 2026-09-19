@@ -7,6 +7,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Row-level security.** An API key may carry `tenant`, `roles` and
+  `row_filters`: mandatory per-table conditions, in the same vocabulary as user
+  filters, with `${tenant}` / `${username}` resolved from the calling key.
+  List, export and stream push them into the `WHERE` clause; reads and writes
+  by primary key match the row in memory and report anything outside the policy
+  as **404 rather than 403**, because refusing tells the caller the record
+  exists. Writes cannot escape the scope — creating into another tenant, or
+  moving a row there, is refused, as is omitting the scope column on create.
+  A key with row rules is denied `query` (raw SQL) even when it holds `all`,
+  since conditions cannot be pushed into a statement the caller wrote.
+  `validate_production_config` refuses startup when row filters are configured
+  while authentication is off, because then nobody is identified and the rules
+  restrict nothing.
+- **Column masking, keyed by the catalog's semantic types** rather than by
+  column name, so a newly labelled PII column is masked as soon as it is
+  discovered. Strategies: `partial`, `last4`, `hash` (stable but not
+  reversible), `redact`, `null`; a `NULL` stays `NULL`. Per-role overrides and
+  exempt roles are supported. Applied to both row-carrying exits — CRUD
+  responses and `/export` in all three formats. Only an *approved* catalog is
+  used, and a mask that could not produce a value the response can carry (text
+  on a numeric column, `null` on `NOT NULL`) is reported at startup.
+- **An audit trail.** One append-only event per data-touching request —
+  actor, tenant, roles, action, database, table, row count, status, request id
+  — recording **whether a row filter applied and which columns were masked**,
+  which is the difference between "read the table" and "read their slice of
+  it". Row values, filter literals and SQL parameters are never written: an
+  audit log that quotes the data it audits becomes a second copy of it. Events
+  go to a dedicated `warp.audit` logger and optionally to `audit.file`.
+  Sinks never raise, because one that can fail a request turns a logging
+  problem into an outage.
+- Every response carries `X-Request-ID` (a caller-supplied one is honoured
+  when it is safe to echo), and the same id appears on the audit event.
+- `AuthenticatedUser` carries the caller's tenant, roles and row policy, and
+  the dependency records it on `request.state` so handlers can reach it —
+  FastAPI discards what a `dependencies=[...]` entry returns, so the identity
+  built during authentication never reached a route before.
+
+### Fixed
+
+- `MockDatabaseAdapter.select` in the test suite ignored its `filters`
+  argument, so every route test that exercised `filter[column][op]` only
+  proved the request did not error. It now filters as SQL would, which is what
+  lets a test notice a *missing* condition.
+
+### Added
+
+- **Oracle support** through the existing ODBC adapter (`type: oracle`).
+  Introspection from `ALL_TAB_COLS` / `ALL_CONSTRAINTS` / `ALL_CONS_COLUMNS` /
+  `ALL_INDEXES` (with a pre-12c fallback to `ALL_TAB_COLUMNS` when
+  `IDENTITY_COLUMN` raises ORA-00904), `FETCH FIRST` sampling,
+  `OFFSET … FETCH` pagination, catalog intelligence from `ALL_TAB_COMMENTS` /
+  `ALL_COL_COMMENTS` and row estimates from `ALL_TABLES.NUM_ROWS`. Oracle's
+  schema is the connecting user, so it is resolved with `SELECT USER FROM DUAL`
+  unless `options.schema` names one. Oracle integration tests run in CI
+  (`WARP_REQUIRE_ORACLE=1`); unlike SQL Server the image has arm64 builds, so
+  they also run natively on Apple Silicon. `docker compose --profile oracle`
+  starts one locally.
+- Oracle type mapping: `NUMBER`, `VARCHAR2`, `NVARCHAR2`, `BINARY_FLOAT`,
+  `BINARY_DOUBLE`, `RAW`, `LONG RAW`, `BFILE`, `ROWID` and
+  `TIMESTAMP WITH LOCAL TIME ZONE`. Oracle reports declared precision inside
+  the type name (`TIMESTAMP(6) WITH TIME ZONE`), so the classifier now retries
+  the lookup without it. A `NUMBER` with no declared precision has no
+  `decimal128` that can hold it and is exported as text.
+- Oracle columns declared as bare `NUMBER` (no precision) are detected during
+  introspection, marked `inexact` in the typed schema and warned about once
+  per table. The ODBC driver returns them as IEEE doubles, so a value above
+  2^53 is rounded before Warp sees it and cannot be recovered afterwards;
+  declaring a precision (`NUMBER(38)`) makes the driver hand over an exact
+  `Decimal`. Verified both ways against a real Oracle 23.
+- `Dialect` gained `sample_style`, `unsorted_pagination_filler`,
+  `identifier_case` and `identifier_extra_chars`, plus a `fold_identifier`
+  helper (see ADR-0008). `sanitize_identifier` now takes the engine's extra
+  characters: Oracle allows `$` and `#` and its data dictionary generates them
+  (an identity column's sequence is `ISEQ$$_73346`). The double quote stays
+  rejected for every engine, so a quoted identifier is still unescapable.
+
+Five of these were found by running the suite against a real Oracle rather
+than by reading the docs:
+
+- The ODBC connection string was assembled SQL-Server-style for every engine.
+  Oracle's driver takes an Easy Connect descriptor in `DBQ`
+  (`host:port/service`) and has no `SERVER`/`DATABASE` pair, so it answered
+  ORA-12162.
+- Oracle folds unquoted *column aliases* to upper case too, so every
+  `AS column_name` in the Oracle catalog queries came back as `COLUMN_NAME`
+  and introspection raised `KeyError`. The aliases are now quoted.
+- `CHAR_LENGTH`/`DATA_PRECISION`/`DATA_SCALE` are `NUMBER`, which pyodbc hands
+  back as `float` — producing `varchar2(50.0)` and a precision `pa.decimal128`
+  refuses. They are narrowed to `int`.
+- `insert` returned the *input* dict on the re-select path when the key was
+  generated, because it looked the key up in the caller's data. Oracle now
+  reads the identity column's sequence with `CURRVAL` on the **same** pooled
+  connection (it is session state, so two connections would be wrong).
+- `SampleReader.read_column_stats` read `distinct_count`/`null_count` by name
+  and so returned all-`None` statistics on any driver that upper-cases result
+  names. It now reads by position, as the ODBC row-count path already did.
+
+### Fixed
+
+- `sample_select` derived its syntax from `limit_style`, so any engine using
+  `OFFSET … FETCH` pagination got SQL Server's `SELECT TOP (n)`.
+- `order_and_limit` injected SQL Server's `ORDER BY (SELECT NULL)` filler for
+  every `offset_fetch` engine.
+- The PostgreSQL adapter hardcoded `table_schema = 'public'` in its table,
+  column, primary-key, foreign-key and row-estimate queries, ignoring
+  `options.schema` even though `Dialect.default_schema` and the metadata
+  readers honour it. Its index query was not schema-scoped at all, so a
+  same-named table in another schema contributed its indexes.
+
 ## [0.10.0] - 2026-09-18
 
 SQL Server support, and a data-access layer for external analytics engines:

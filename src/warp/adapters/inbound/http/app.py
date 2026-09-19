@@ -8,7 +8,7 @@ composition root.
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
@@ -23,6 +23,8 @@ from warp import __version__
 from warp.adapters.inbound.http.arrow_export import arrow_available
 from warp.adapters.inbound.http.auth import AuthManager, Permission
 from warp.adapters.inbound.http.capabilities import capabilities_of
+from warp.adapters.inbound.http.governance import Governance
+from warp.adapters.inbound.http.request_context import add_request_id_middleware
 from warp.adapters.inbound.http.routes.catalog import (
     _refresh_openapi_enrichment,
     create_catalog_router,
@@ -33,10 +35,20 @@ from warp.adapters.inbound.http.routes.query import create_query_router
 from warp.adapters.inbound.http.routes.schema import create_schema_router
 from warp.application.config import RuntimeEnv, Settings, validate_production_config
 from warp.application.container import Container
+from warp.application.ports.audit import AuditSink, NullAuditSink
 from warp.application.ports.database import DatabaseGateway
 from warp.application.services.schema_discovery import SchemaAnalyzer
 from warp.domain.errors import ConfigurationError, DatabaseConnectionError, WarpError
+from warp.domain.masking import (
+    NO_MASKING,
+    CatalogMasking,
+    MaskingPolicy,
+    semantic_types_of,
+    unsafe_rules,
+    validate_strategy,
+)
 from warp.domain.schema import DatabaseSchema
+from warp.domain.sql_types import type_kind
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +63,7 @@ class RuntimeContext:
     container: Container | None = None
     settings: Settings | None = None
     auth_manager: AuthManager | None = None
+    audit: AuditSink = field(default_factory=NullAuditSink)
     gateways: dict[str, DatabaseGateway] = field(default_factory=dict)
     readonly_gateways: dict[str, DatabaseGateway] = field(default_factory=dict)
     schemas: dict[str, DatabaseSchema] = field(default_factory=dict)
@@ -125,6 +138,70 @@ def _include_at_prefixes(
             app.include_router(router, prefix=prefix, tags=tags, include_in_schema=position == 0)
 
 
+def _masking_for(
+    container: Container, settings: Any, db_name: str, schema: DatabaseSchema
+) -> CatalogMasking:
+    """Build this database's masking from config plus its approved catalog.
+
+    Masks key on semantic types, so without an approved catalog there is
+    nothing to key them on and nothing is masked — which is why a rule that
+    cannot be applied is logged loudly rather than passed over in silence.
+    """
+    config = settings.masking
+    if not config.enabled or not (config.rules or config.by_role):
+        return NO_MASKING
+    try:
+        catalog = container.repository.load(db_name)
+    except Exception as e:
+        logger.warning(f"Could not load the catalog for masking in {db_name}: {e}")
+        return NO_MASKING
+
+    labels = semantic_types_of(catalog)
+    if not labels:
+        logger.warning(
+            f"Masking is enabled but {db_name} has no approved catalog, so no "
+            f"column is labelled and nothing will be masked. Run the catalog "
+            f"analysis and approve it."
+        )
+        return NO_MASKING
+
+    for semantic, strategy in {**config.rules, **_flattened(config.by_role)}.items():
+        validate_strategy(strategy, semantic)
+
+    masking = CatalogMasking(
+        policy=MaskingPolicy(
+            rules=dict(config.rules),
+            by_role={role: dict(rules) for role, rules in config.by_role.items()},
+            exempt_roles=tuple(config.exempt_roles),
+            enabled=True,
+        ),
+        semantic_types=labels,
+    )
+    _warn_about_unsafe_masks(masking, schema, db_name)
+    return masking
+
+
+def _flattened(by_role: Mapping[str, Mapping[str, str]]) -> dict[str, str]:
+    return {
+        semantic: strategy for rules in by_role.values() for semantic, strategy in rules.items()
+    }
+
+
+def _warn_about_unsafe_masks(masking: CatalogMasking, schema: DatabaseSchema, db_name: str) -> None:
+    """Report masks that would break response validation, at startup."""
+    for table_name, table in schema.tables.items():
+        column_types = {
+            column.name: (
+                type_kind(column.type, column.udt_name, column.full_type),
+                column.nullable,
+            )
+            for column in table.columns
+        }
+        problems = unsafe_rules(masking.masks_for(table_name), column_types)
+        for problem in problems:
+            logger.warning(f"Masking in {db_name}.{table_name}: {problem}")
+
+
 async def _mount_database(  # noqa: PLR0913
     app: FastAPI,
     runtime: RuntimeContext,
@@ -148,6 +225,10 @@ async def _mount_database(  # noqa: PLR0913
     analyzer = SchemaAnalyzer(gateway, excluded_tables=settings.excluded_tables)
     schema = await analyzer.analyze()
     runtime.schemas[db_name] = schema
+    governance = Governance(
+        masking=_masking_for(container, settings, db_name, schema),
+        audit=runtime.audit,
+    )
 
     table_names = schema.get_table_names()
     logger.info(
@@ -163,7 +244,12 @@ async def _mount_database(  # noqa: PLR0913
     )
     export_routers = [
         create_export_router(
-            table, gateway, settings.export, auth_manager, db_name if multi_db else None
+            table,
+            gateway,
+            settings.export,
+            auth_manager,
+            db_name if multi_db else None,
+            governance,
         )
         for table in schema.tables.values()
     ]
@@ -171,6 +257,7 @@ async def _mount_database(  # noqa: PLR0913
     router_factory = RouterFactory(
         db=gateway,
         schema_analyzer=analyzer,
+        governance=governance,
         default_limit=settings.pagination.default_limit,
         max_limit=settings.pagination.max_limit,
         db_name=db_name if multi_db else None,
@@ -237,6 +324,13 @@ def _make_lifespan(  # noqa: C901
 
         auth_manager = AuthManager(container.settings.settings.auth)
         runtime.auth_manager = auth_manager
+        audit_config = container.settings.settings.audit
+        runtime.audit = container.audit
+        if audit_config.enabled:
+            logger.info(
+                "Audit trail enabled"
+                + (f", appending to {audit_config.file}" if audit_config.file else "")
+            )
         if auth_manager.enabled:
             logger.info(f"Authentication enabled with {auth_manager.api_key_count} API key(s)")
         else:
@@ -394,6 +488,8 @@ GET /api/v1/users?limit=20&offset=40
                 openapi_url=f"/openapi.json?v={int(time.time())}",
                 title=f"{app.title} - ReDoc",
             )
+
+    add_request_id_middleware(app)
 
     # CORS middleware.
     # Browsers reject a "*" allowlist combined with credentials, so credentials

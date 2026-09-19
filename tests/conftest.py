@@ -130,8 +130,20 @@ class MockDatabaseAdapter:
         pagination: dict = None,
         sort: list = None,
     ) -> tuple:
-        """Mock select."""
-        records = self._tables.get(table, [])
+        """Mock select: filters, then counts, then paginates — as SQL would.
+
+        Applying the filters for real is what lets a test detect a *missing*
+        condition (a forgotten row-security rule shows up as an extra row);
+        a mock that returned every row regardless would pass either way.
+        """
+        records = [
+            record
+            for record in self._tables.get(table, [])
+            if all(
+                _mock_filter_match(record.get(column), operator, value)
+                for column, operator, value in (filters or [])
+            )
+        ]
         total = len(records)
 
         # Apply pagination

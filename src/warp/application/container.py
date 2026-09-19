@@ -6,9 +6,10 @@ outbound adapters themselves; everything they need is a port or a service.
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from warp.application.config import DatabaseConfig, Settings
+from warp.application.ports.audit import AuditSink, NullAuditSink
 from warp.application.ports.catalog_repository import CatalogRepository
 from warp.application.ports.database import DatabaseGateway, DatabaseGatewayFactory
 from warp.application.ports.text_generation import TextGenerator
@@ -31,6 +32,9 @@ class Container:
     gateway_factory: DatabaseGatewayFactory
     text_generator_factory: Callable[[], TextGenerator]
     analysis_factory: AnalysisFactory
+    #: Where data-access events go. Built by the composition root, because an
+    #: inbound adapter may not reach for an outbound one itself.
+    audit: AuditSink = field(default_factory=NullAuditSink)
 
     def database(self, name: str) -> DatabaseConfig:
         """Configuration of the database called `name` (404-style error if unknown)."""

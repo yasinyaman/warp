@@ -62,6 +62,31 @@ Warp is built with safe-by-default behavior. Key controls:
   in, PII-looking columns are masked before any LLM call, and sample values of
   PII columns (by name pattern or LLM semantic type) are never stored in the
   catalog.
+- **Row-level security** — an API key may carry mandatory per-table conditions.
+  Reads with a `WHERE` clause push them into SQL; reads and writes by primary
+  key match in memory and report a row outside the policy as 404, not 403.
+  Writes cannot create into, or move a row into, a scope the caller cannot
+  read. A key with row rules is denied raw SQL even when it holds `all`.
+- **Column masking** — keyed on the catalog's semantic types rather than column
+  names, so a newly labelled PII column is masked as soon as it is discovered.
+  Applied to CRUD responses and to `/export` in all three formats.
+- **Audit trail** — one append-only event per data-touching request: actor,
+  tenant, roles, action, table, row count, request id, and whether a row filter
+  or a column mask applied.
+
+### What the audit trail deliberately does not contain
+
+Row values, filter literals and SQL parameters are **never** written to it.
+Filter *column names* are recorded; the values compared against them are not.
+An audit log that quotes the data it audits becomes a second copy of that data,
+usually in a file with weaker access controls and a longer retention period
+than the database it came from.
+
+Events go to the dedicated `warp.audit` logger, and to `audit.file` when one is
+configured (appended, never rewritten). Route that logger to whatever retention
+your obligations require — it is deliberately separate from application logs so
+the two can be retained differently. Each line is one JSON object, so exporting
+a period is `grep`/`jq` over the file rather than a bespoke tool.
 
 See the README "Production Deployment" section and [`docs/adr/`](docs/adr/) for
 details.

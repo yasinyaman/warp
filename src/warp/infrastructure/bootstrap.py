@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from warp.adapters.outbound.audit import LoggingAuditSink
 from warp.adapters.outbound.catalog_store.file_store import CatalogFileStore
 from warp.adapters.outbound.db.comment_reader import CommentReader
 from warp.adapters.outbound.db.dialect import dialect_or_generic
@@ -11,6 +12,7 @@ from warp.adapters.outbound.export.registry import default_exporters
 from warp.adapters.outbound.llm.providers import LLMClient
 from warp.application.config import DatabaseConfig, Settings
 from warp.application.container import AnalysisFactory, Container
+from warp.application.ports.audit import AuditSink, NullAuditSink
 from warp.application.ports.catalog_repository import CatalogRepository
 from warp.application.ports.database import DatabaseGateway, DatabaseGatewayFactory
 from warp.application.ports.text_generation import TextGenerator
@@ -95,4 +97,13 @@ def build_container(
         gateway_factory=gateway_factory or DatabaseFactory(),
         text_generator_factory=text_generators,
         analysis_factory=analysis_factory or default_analysis,
+        audit=_audit_sink(settings),
     )
+
+
+def _audit_sink(settings: Settings) -> AuditSink:
+    """The audit sink for this configuration (a no-op when auditing is off)."""
+    config = settings.settings.audit
+    if not config.enabled:
+        return NullAuditSink()
+    return LoggingAuditSink(config.file)

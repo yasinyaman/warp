@@ -9,6 +9,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
 
 from warp.application.config import ApiKeyConfig, AuthConfig
+from warp.domain.row_policy import EMPTY_POLICY, RowPolicy, build_policy
 
 
 class Permission(StrEnum):
@@ -26,13 +27,34 @@ class AuthenticatedUser:
     """Represents an authenticated API user."""
 
     def __init__(self, api_key_config: ApiKeyConfig):
-        """Store the identity and permissions from the API-key config."""
+        """Store the identity, permissions and row policy from the API-key config."""
         self.name = api_key_config.name
         # Deliberately do NOT retain the plaintext API key on the user object.
         self.permissions = api_key_config.permissions
+        self.tenant = api_key_config.tenant
+        self.roles = list(api_key_config.roles)
+        self.row_policy = build_policy(
+            {
+                table: [rule.model_dump() for rule in rules]
+                for table, rules in api_key_config.row_filters.items()
+            },
+            caller={"tenant": api_key_config.tenant, "username": api_key_config.name},
+        )
+
+    @property
+    def has_row_rules(self) -> bool:
+        """Whether any row rule restricts what this caller may read or write."""
+        return not self.row_policy.is_empty
 
     def has_permission(self, permission: Permission) -> bool:
-        """Check if user has the required permission."""
+        """Check if user has the required permission.
+
+        ``query`` is the exception: raw SQL cannot have row conditions pushed
+        into it, so a caller with row rules is never allowed to run it —
+        otherwise the rules would be one ``SELECT`` away from irrelevant.
+        """
+        if permission is Permission.QUERY and self.has_row_rules:
+            return False
         if Permission.ALL.value in self.permissions:
             return True
         return permission.value in self.permissions
@@ -141,6 +163,23 @@ class AuthManager:
 
         return AuthenticatedUser(key_config)
 
+    @staticmethod
+    def _remember(request: Request, user: AuthenticatedUser | None) -> AuthenticatedUser | None:
+        """Record who is calling on the request, then hand the user back.
+
+        Routes register auth as ``dependencies=[Depends(...)]``, and FastAPI
+        throws away what such a dependency returns — so without this the
+        identity built here would never reach a handler. Stashing it on
+        ``request.state`` gives every route access to the caller without
+        changing a single signature.
+
+        ``None`` means "nobody was authenticated", which happens when auth is
+        off or the path is public. Anything that filters or masks by identity
+        must treat that as *unknown*, not as *permitted*.
+        """
+        request.state.user = user
+        return user
+
     def require(self, permission: Permission) -> Callable[..., Awaitable[AuthenticatedUser | None]]:
         """Create a dependency that requires a specific permission.
 
@@ -153,18 +192,18 @@ class AuthManager:
         ) -> AuthenticatedUser | None:
             # If auth is disabled, allow all
             if not self.enabled:
-                return None
+                return self._remember(request, None)
 
             # Check if path is public
             if self._is_public_path(request.url.path):
-                return None
+                return self._remember(request, None)
 
             # Get current user
             user = await self.get_current_user(request, api_key)
 
             if user is None:
                 # Auth disabled or public path
-                return None
+                return self._remember(request, None)
 
             # Check permission
             if not user.has_permission(permission):
@@ -173,7 +212,7 @@ class AuthManager:
                     detail=f"Permission denied: '{permission.value}' required",
                 )
 
-            return user
+            return self._remember(request, user)
 
         return permission_checker
 
@@ -190,20 +229,20 @@ class AuthManager:
             request: Request, api_key: str | None = Depends(self.api_key_header)
         ) -> AuthenticatedUser | None:
             if not self.enabled:
-                return None
+                return self._remember(request, None)
 
             if self._is_public_path(request.url.path):
-                return None
+                return self._remember(request, None)
 
             user = await self.get_current_user(request, api_key)
 
             if user is None:
-                return None
+                return self._remember(request, None)
 
             # Check if user has any of the required permissions
             for permission in permissions:
                 if user.has_permission(permission):
-                    return user
+                    return self._remember(request, user)
 
             perm_names = [p.value for p in permissions]
             raise HTTPException(
@@ -212,3 +251,31 @@ class AuthManager:
             )
 
         return permission_checker
+
+
+def roles_of(request: Request) -> list[str]:
+    """The roles recorded for this request (empty when nobody is identified)."""
+    caller = caller_of(request)
+    return caller.roles if caller is not None else []
+
+
+def policy_of(request: Request) -> RowPolicy:
+    """The row policy recorded for this request.
+
+    An unauthenticated request has no policy, which is why a configured row
+    rule also requires authentication to be on (see
+    ``validate_production_config``).
+    """
+    caller = caller_of(request)
+    return caller.row_policy if caller is not None else EMPTY_POLICY
+
+
+def caller_of(request: Request) -> AuthenticatedUser | None:
+    """The authenticated caller recorded for this request, if any.
+
+    ``None`` means nobody was authenticated — auth is disabled, or the path is
+    public. It never means "permitted": a caller that filters or masks rows by
+    identity has to decide what to do about an unknown one, and the safe
+    answer is to refuse rather than to serve everything.
+    """
+    return getattr(request.state, "user", None)

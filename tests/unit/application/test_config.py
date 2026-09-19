@@ -375,6 +375,39 @@ class TestProductionValidation:
         s.settings.auth.allow_public_openapi = True
         assert validate_production_config(s, "production", ["https://a"]) == []
 
+    def test_row_filters_without_auth_are_a_violation(self):
+        # Nobody would be identified, so the rules would restrict nothing —
+        # the most dangerous kind of misconfiguration: silently permissive.
+        from warp.application.config import ApiKeyConfig, validate_production_config
+
+        s = self._safe()
+        s.settings.auth.enabled = False
+        s.settings.auth.api_keys = [
+            ApiKeyConfig(
+                key="k",
+                name="acme",
+                tenant="acme",
+                row_filters={"orders": [{"column": "tenant_id", "value": "${tenant}"}]},
+            )
+        ]
+        joined = " ".join(validate_production_config(s, "production", ["https://a"]))
+        assert "row_filters" in joined
+
+    def test_row_filters_with_auth_enabled_are_fine(self):
+        from warp.application.config import ApiKeyConfig, validate_production_config
+
+        s = self._safe()
+        s.settings.auth.api_keys = [
+            ApiKeyConfig(
+                key="k",
+                name="acme",
+                tenant="acme",
+                permissions=["all"],
+                row_filters={"orders": [{"column": "tenant_id", "value": "${tenant}"}]},
+            )
+        ]
+        assert validate_production_config(s, "production", ["https://a"]) == []
+
     def test_default_config_in_production_lists_every_problem(self):
         from warp.application.config import Settings, validate_production_config
 

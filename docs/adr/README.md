@@ -13,3 +13,4 @@ the lightweight format popularized by Michael Nygard.
 | [0006](0006-distribution-name.md) | Distribution name vs. the import package | Accepted |
 | [0007](0007-hexagonal-architecture.md) | Hexagonal architecture (ports & adapters) | Accepted |
 | [0008](0008-dialect-abstraction-and-odbc-adapter.md) | Dialect abstraction and the ODBC (SQL Server) adapter | Accepted |
+| [0009](0009-governance.md) | Row security, column masking and the audit trail | Accepted |

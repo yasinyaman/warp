@@ -75,6 +75,15 @@ class ExportConfig(BaseModel):
     statement_timeout_ms: int = 0
 
 
+class RowRuleConfig(BaseModel):
+    """One mandatory row condition attached to an API key."""
+
+    column: str
+    operator: str = "eq"
+    # ``${tenant}`` / ``${username}`` are filled in from the calling key.
+    value: Any = None
+
+
 class ApiKeyConfig(BaseModel):
     """API Key configuration with permissions."""
 
@@ -83,6 +92,19 @@ class ApiKeyConfig(BaseModel):
     permissions: list[str] = Field(default_factory=lambda: ["read"])
     # Permissions: read, create, update, delete, query (for raw queries)
     # Or use "all" for full access
+
+    # Row-level security. `tenant` and the key's `name` are what `${tenant}`
+    # and `${username}` resolve to inside a rule's value.
+    tenant: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    # table name -> conditions ANDed onto every read of that table, and
+    # enforced on writes. A caller cannot widen or drop them.
+    row_filters: dict[str, list[RowRuleConfig]] = Field(default_factory=dict)
+
+    @property
+    def has_row_rules(self) -> bool:
+        """Whether this key carries any row-level restriction."""
+        return any(self.row_filters.values())
 
 
 class AuthConfig(BaseModel):
@@ -99,6 +121,32 @@ class AuthConfig(BaseModel):
     # In production, startup is refused while "/openapi.json" is public unless
     # this is explicitly set to true (see validate_production_config).
     allow_public_openapi: bool = False
+
+
+class MaskingConfig(BaseModel):
+    """Column masking, keyed by the catalog's semantic types.
+
+    Rules attach to a semantic type rather than a column name, so a newly
+    discovered PII column is masked as soon as the catalog labels it.
+    """
+
+    enabled: bool = False
+    # semantic type -> redact | partial | last4 | hash | null
+    rules: dict[str, str] = Field(default_factory=dict)
+    # role -> its own semantic-type rules, overriding `rules` entirely
+    by_role: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # roles that see raw values
+    exempt_roles: list[str] = Field(default_factory=list)
+
+
+class AuditConfig(BaseModel):
+    """Audit trail for data access."""
+
+    enabled: bool = False
+    # Appended to, never rewritten. Events also go to the `warp.audit` logger.
+    file: str | None = None
+    # Record the column names a caller filtered on (never the values).
+    log_filter_columns: bool = True
 
 
 class CatalogConfig(BaseModel):
@@ -181,6 +229,8 @@ class SettingsConfig(BaseModel):
     redoc_url: str = "/redoc"
     auth: AuthConfig = Field(default_factory=AuthConfig)
     catalog: CatalogConfig = Field(default_factory=CatalogConfig)
+    masking: MaskingConfig = Field(default_factory=MaskingConfig)
+    audit: AuditConfig = Field(default_factory=AuditConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     i18n: I18nConfig = Field(default_factory=I18nConfig)
@@ -289,6 +339,13 @@ def validate_production_config(
         violations.append(
             "CORS_ORIGINS allows '*': any origin could call the API. "
             "Set CORS_ORIGINS to an explicit, comma-separated allowlist."
+        )
+
+    if not cfg.auth.enabled and any(key.has_row_rules for key in cfg.auth.api_keys):
+        violations.append(
+            "auth.enabled is false while API keys carry row_filters: nobody would "
+            "be identified, so the row rules would not apply to anything. Enable "
+            "authentication or remove the row filters."
         )
 
     openapi_public = any(
