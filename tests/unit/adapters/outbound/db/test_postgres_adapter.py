@@ -225,7 +225,7 @@ async def test_select_in_and_isnull_filters(conn: AsyncMock) -> None:
 async def test_select_by_id_found(conn: AsyncMock) -> None:
     conn.fetchrow.return_value = {"id": 7, "name": "x"}
     adapter = make_adapter(conn)
-    result = await adapter.select_by_id("users", "id", 7)
+    result = await adapter.select_by_id("users", {"id": 7})
     assert result == {"id": 7, "name": "x"}
 
 
@@ -233,7 +233,7 @@ async def test_select_by_id_found(conn: AsyncMock) -> None:
 async def test_select_by_id_not_found(conn: AsyncMock) -> None:
     conn.fetchrow.return_value = None
     adapter = make_adapter(conn)
-    result = await adapter.select_by_id("users", "id", 99, columns=["id"])
+    result = await adapter.select_by_id("users", {"id": 99}, columns=["id"])
     assert result is None
 
 
@@ -241,7 +241,7 @@ async def test_select_by_id_not_found(conn: AsyncMock) -> None:
 async def test_update(conn: AsyncMock) -> None:
     conn.fetchrow.return_value = {"id": 1, "name": "new"}
     adapter = make_adapter(conn)
-    result = await adapter.update("users", "id", 1, {"name": "new"})
+    result = await adapter.update("users", {"id": 1}, {"name": "new"})
     assert result == {"id": 1, "name": "new"}
     query = conn.fetchrow.call_args.args[0]
     assert "UPDATE" in query and "SET" in query
@@ -251,7 +251,7 @@ async def test_update(conn: AsyncMock) -> None:
 async def test_update_empty_data_delegates(conn: AsyncMock) -> None:
     conn.fetchrow.return_value = {"id": 1}
     adapter = make_adapter(conn)
-    result = await adapter.update("users", "id", 1, {})
+    result = await adapter.update("users", {"id": 1}, {})
     assert result == {"id": 1}
 
 
@@ -259,14 +259,14 @@ async def test_update_empty_data_delegates(conn: AsyncMock) -> None:
 async def test_delete_true(conn: AsyncMock) -> None:
     conn.fetchrow.return_value = {"id": 1}
     adapter = make_adapter(conn)
-    assert await adapter.delete("users", "id", 1) is True
+    assert await adapter.delete("users", {"id": 1}) is True
 
 
 @pytest.mark.asyncio
 async def test_delete_false(conn: AsyncMock) -> None:
     conn.fetchrow.return_value = None
     adapter = make_adapter(conn)
-    assert await adapter.delete("users", "id", 999) is False
+    assert await adapter.delete("users", {"id": 999}) is False
 
 
 @pytest.mark.asyncio

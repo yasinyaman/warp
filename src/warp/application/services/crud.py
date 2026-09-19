@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel
@@ -46,7 +47,10 @@ class CRUDOperations:
         self.db = db
         self.schema = table_schema
         self.table_name = table_schema.table_name
-        self.pk_column = table_schema.pk_column or "id"
+        # The whole key, never part of it, and never a fabricated one: a table
+        # with no primary key gets no key-addressed operations rather than a
+        # guessed "id" column that may not exist.
+        self.key_columns = table_schema.key_columns
         self.response_model = response_model
         self.row_policy = row_policy or EMPTY_POLICY
 
@@ -58,7 +62,7 @@ class CRUDOperations:
         self._creatable_columns = (
             set(table_schema.get_insertable_columns()) - self._readonly_columns
         )
-        self._updatable_columns = self._creatable_columns - {self.pk_column}
+        self._updatable_columns = self._creatable_columns - set(self.key_columns)
 
     def with_policy(self, row_policy: RowPolicy) -> CRUDOperations:
         """A view of these operations bound to one caller's row policy.
@@ -105,12 +109,12 @@ class CRUDOperations:
         return paginate_response(items, total, pagination)
 
     async def get_by_id(
-        self, id_value: Any, columns: list[str] | None = None
+        self, key: Mapping[str, Any], columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Get a single record by its primary key.
 
         Args:
-            id_value: Primary key value.
+            key: Column-to-value map for the whole primary key.
             columns: Optional list of columns to select.
 
         A row outside the caller's row policy is reported as missing rather
@@ -124,8 +128,7 @@ class CRUDOperations:
         extra = self._policy_only_columns(columns)
         record = await self.db.select_by_id(
             table=self.table_name,
-            id_column=self.pk_column,
-            id_value=id_value,
+            key=key,
             columns=[*columns, *extra] if columns is not None and extra else columns,
         )
         if record is None or not self.row_policy.permits(self.table_name, record):
@@ -151,11 +154,11 @@ class CRUDOperations:
 
         return await self.db.insert(table=self.table_name, data=clean_data)
 
-    async def update(self, id_value: Any, data: dict[str, Any]) -> dict[str, Any] | None:
+    async def update(self, key: Mapping[str, Any], data: dict[str, Any]) -> dict[str, Any] | None:
         """Update an existing record.
 
         Args:
-            id_value: Primary key value.
+            key: Column-to-value map for the whole primary key.
             data: Dictionary of column-value pairs to update.
 
         Returns:
@@ -168,44 +171,40 @@ class CRUDOperations:
 
         if not clean_data:
             # No fields to update, just return existing record
-            return await self.get_by_id(id_value)
+            return await self.get_by_id(key)
 
         # Check before mutating: the row must already be one this caller may
         # touch, and the update must not move it out of their scope.
-        if not await self._policy_allows_row(id_value):
+        if not await self._policy_allows_row(key):
             return None
         self._reject_outside_policy(clean_data, "update", partial=True)
 
-        return await self.db.update(
-            table=self.table_name, id_column=self.pk_column, id_value=id_value, data=clean_data
-        )
+        return await self.db.update(table=self.table_name, key=key, data=clean_data)
 
-    async def delete(self, id_value: Any) -> bool:
+    async def delete(self, key: Mapping[str, Any]) -> bool:
         """Delete a record by its primary key.
 
         Args:
-            id_value: Primary key value.
+            key: Column-to-value map for the whole primary key.
 
         Returns:
             True if deleted, False when it does not exist or the caller's row
             policy does not cover it.
         """
-        if not await self._policy_allows_row(id_value):
+        if not await self._policy_allows_row(key):
             return False
-        return await self.db.delete(
-            table=self.table_name, id_column=self.pk_column, id_value=id_value
-        )
+        return await self.db.delete(table=self.table_name, key=key)
 
-    async def exists(self, id_value: Any) -> bool:
+    async def exists(self, key: Mapping[str, Any]) -> bool:
         """Check if a record exists.
 
         Args:
-            id_value: Primary key value.
+            key: Column-to-value map for the whole primary key.
 
         Returns:
             True if record exists.
         """
-        record = await self.get_by_id(id_value, columns=[self.pk_column])
+        record = await self.get_by_id(key, columns=list(self.key_columns))
         return record is not None
 
     async def count(self, filters: list[tuple[str, str, Any]] | None = None) -> int:
@@ -254,13 +253,11 @@ class CRUDOperations:
             return []
         return sorted(self.row_policy.columns_for(self.table_name) - set(columns))
 
-    async def _policy_allows_row(self, id_value: Any) -> bool:
+    async def _policy_allows_row(self, key: Mapping[str, Any]) -> bool:
         """Whether the addressed row exists and the policy covers it."""
         if not self.row_policy.covers(self.table_name):
             return True
-        record = await self.db.select_by_id(
-            table=self.table_name, id_column=self.pk_column, id_value=id_value
-        )
+        record = await self.db.select_by_id(table=self.table_name, key=key)
         return self.row_policy.permits(self.table_name, record)
 
     def _reject_outside_policy(

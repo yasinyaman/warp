@@ -884,8 +884,8 @@ class TestSelect:
     async def test_select_by_id(self):
         cur = FakeCursor([ResultSet(["id"], [(1,)]), ResultSet(["id"], [])])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.select_by_id("users", "id", 1, ["id"]) == {"id": 1}
-        assert await adapter.select_by_id("users", "id", 2) is None
+        assert await adapter.select_by_id("users", {"id": 1}, ["id"]) == {"id": 1}
+        assert await adapter.select_by_id("users", {"id": 2}) is None
         assert cur.executed[0] == ("SELECT [id] FROM [users] WHERE [id] = ?", [1])
 
 
@@ -894,8 +894,8 @@ class TestUpdate:
     async def test_mssql_output(self):
         cur = FakeCursor([ResultSet(["id", "name"], [(1, "z")]), ResultSet(["id", "name"], [])])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.update("users", "id", 1, {"name": "z"}) == {"id": 1, "name": "z"}
-        assert await adapter.update("users", "id", 2, {"name": "z"}) is None
+        assert await adapter.update("users", {"id": 1}, {"name": "z"}) == {"id": 1, "name": "z"}
+        assert await adapter.update("users", {"id": 2}, {"name": "z"}) is None
         assert cur.executed[0] == (
             "UPDATE [users] SET [name] = ? OUTPUT INSERTED.* WHERE [id] = ?",
             ["z", 1],
@@ -905,7 +905,7 @@ class TestUpdate:
     async def test_empty_data_reads_the_row(self):
         cur = FakeCursor([ResultSet(["id"], [(1,)])])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.update("users", "id", 1, {}) == {"id": 1}
+        assert await adapter.update("users", {"id": 1}, {}) == {"id": 1}
         assert cur.executed[0][0].startswith("SELECT")
 
     @pytest.mark.asyncio
@@ -919,15 +919,15 @@ class TestUpdate:
             ]
         )
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.update("users", "id", 1, {"name": "z"}) == {"id": 1, "name": "z"}
+        assert await adapter.update("users", {"id": 1}, {"name": "z"}) == {"id": 1, "name": "z"}
         assert cur.executed[1] == ("UPDATE [users] SET [name] = ? WHERE [id] = ?", ["z", 1])
-        assert await adapter.update("users", "id", 9, {"name": "z"}) is None
+        assert await adapter.update("users", {"id": 9}, {"name": "z"}) is None
 
     @pytest.mark.asyncio
     async def test_generic_unknown_rowcount_rereads(self):
         cur = FakeCursor([ResultSet(rowcount=-1), ResultSet(["ID"], [])])
         adapter = make_adapter(GENERIC_CONFIG, cur)
-        assert await adapter.update("T", "ID", 1, {"NAME": "z"}) is None
+        assert await adapter.update("T", {"ID": 1}, {"NAME": "z"}) is None
         assert cur.executed[0] == ('UPDATE "T" SET "NAME" = ? WHERE "ID" = ?', ["z", 1])
         assert cur.executed[1][0] == 'SELECT * FROM "T" WHERE "ID" = ?'
 
@@ -937,25 +937,25 @@ class TestDelete:
     async def test_mssql_output(self):
         cur = FakeCursor([ResultSet(["id"], [(1,)]), ResultSet(["id"], [])])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.delete("users", "id", 1) is True
-        assert await adapter.delete("users", "id", 2) is False
+        assert await adapter.delete("users", {"id": 1}) is True
+        assert await adapter.delete("users", {"id": 2}) is False
         assert cur.executed[0] == ("DELETE FROM [users] OUTPUT DELETED.[id] WHERE [id] = ?", [1])
 
     @pytest.mark.asyncio
     async def test_mssql_trigger_fallback_uses_rowcount(self):
         cur = FakeCursor([TRIGGER_ERROR, ResultSet(rowcount=1), ResultSet(rowcount=0)])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.delete("users", "id", 1) is True
+        assert await adapter.delete("users", {"id": 1}) is True
         assert cur.executed[1] == ("DELETE FROM [users] WHERE [id] = ?", [1])
-        assert await adapter.delete("users", "id", 2) is False
+        assert await adapter.delete("users", {"id": 2}) is False
 
     @pytest.mark.asyncio
     async def test_generic_checks_existence_first(self):
         cur = FakeCursor([ResultSet(["ID"], []), ResultSet(["ID"], [(1,)]), ResultSet(rowcount=-1)])
         adapter = make_adapter(GENERIC_CONFIG, cur)
-        assert await adapter.delete("T", "ID", 9) is False
+        assert await adapter.delete("T", {"ID": 9}) is False
         assert len(cur.executed) == 1
-        assert await adapter.delete("T", "ID", 1) is True
+        assert await adapter.delete("T", {"ID": 1}) is True
         assert cur.executed[-1] == ('DELETE FROM "T" WHERE "ID" = ?', [1])
 
 

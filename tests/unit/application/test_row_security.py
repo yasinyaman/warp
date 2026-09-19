@@ -47,9 +47,9 @@ class RecordingGateway:
         matching = [r for r in self.rows if self._matches(r, filters)]
         return matching, len(matching)
 
-    async def select_by_id(self, table, id_column, id_value, columns=None):
+    async def select_by_id(self, table, key, columns=None):
         for row in self.rows:
-            if row[id_column] == id_value:
+            if all(row.get(column) == value for column, value in key.items()):
                 return dict(row) if columns is None else {c: row[c] for c in columns if c in row}
         return None
 
@@ -58,18 +58,20 @@ class RecordingGateway:
         self.rows.append(created)
         return created
 
-    async def update(self, table, id_column, id_value, data):
-        self.updated.append((id_value, data))
+    async def update(self, table, key, data):
+        self.updated.append((key, data))
         for row in self.rows:
-            if row[id_column] == id_value:
+            if all(row.get(column) == value for column, value in key.items()):
                 row.update(data)
                 return dict(row)
         return None
 
-    async def delete(self, table, id_column, id_value):
-        self.deleted.append(id_value)
+    async def delete(self, table, key):
+        self.deleted.append(key)
         before = len(self.rows)
-        self.rows = [r for r in self.rows if r[id_column] != id_value]
+        self.rows = [
+            r for r in self.rows if not all(r.get(column) == value for column, value in key.items())
+        ]
         return len(self.rows) != before
 
 
@@ -122,49 +124,49 @@ class TestReads:
         assert await scoped.count() == 2
 
     async def test_by_id_returns_the_callers_row(self, scoped):
-        assert (await scoped.get_by_id(1))["name"] == "acme-one"
+        assert (await scoped.get_by_id({"id": 1}))["name"] == "acme-one"
 
     async def test_by_id_reports_another_tenants_row_as_missing(self, scoped):
         # Not 403: saying "exists but not yours" discloses that it exists.
-        assert await scoped.get_by_id(2) is None
+        assert await scoped.get_by_id({"id": 2}) is None
 
     async def test_exists_follows_the_policy(self, scoped):
-        assert await scoped.exists(1)
-        assert not await scoped.exists(2)
+        assert await scoped.exists({"id": 1})
+        assert not await scoped.exists({"id": 2})
 
     async def test_a_projection_cannot_hide_the_policy_column(self, scoped):
         # Selecting only id,name must not blind the tenant_id check...
-        assert await scoped.get_by_id(2, columns=["id", "name"]) is None
+        assert await scoped.get_by_id({"id": 2}, columns=["id", "name"]) is None
         # ...and the column added for the check is not returned.
-        allowed = await scoped.get_by_id(1, columns=["id", "name"])
+        allowed = await scoped.get_by_id({"id": 1}, columns=["id", "name"])
         assert allowed == {"id": 1, "name": "acme-one"}
 
     async def test_an_unrestricted_caller_sees_everything(self, unrestricted):
         page = await unrestricted.get_all()
         assert [item["id"] for item in page.items] == [1, 2, 3]
-        assert await unrestricted.get_by_id(2) is not None
+        assert await unrestricted.get_by_id({"id": 2}) is not None
 
 
 class TestWrites:
     async def test_update_of_another_tenants_row_is_a_miss_and_changes_nothing(
         self, scoped, gateway
     ):
-        assert await scoped.update(2, {"name": "hijacked"}) is None
+        assert await scoped.update({"id": 2}, {"name": "hijacked"}) is None
         assert gateway.updated == []
         assert gateway.rows[1]["name"] == "other-one"
 
     async def test_update_of_your_own_row_works(self, scoped, gateway):
-        updated = await scoped.update(1, {"name": "renamed"})
+        updated = await scoped.update({"id": 1}, {"name": "renamed"})
         assert updated["name"] == "renamed"
-        assert gateway.updated == [(1, {"name": "renamed"})]
+        assert gateway.updated == [({"id": 1}, {"name": "renamed"})]
 
     async def test_delete_of_another_tenants_row_reports_not_found(self, scoped, gateway):
-        assert await scoped.delete(2) is False
+        assert await scoped.delete({"id": 2}) is False
         assert gateway.deleted == []
         assert len(gateway.rows) == 3
 
     async def test_delete_of_your_own_row_works(self, scoped, gateway):
-        assert await scoped.delete(1) is True
+        assert await scoped.delete({"id": 1}) is True
         assert [r["id"] for r in gateway.rows] == [2, 3]
 
     async def test_create_outside_the_scope_is_refused(self, scoped):
@@ -185,10 +187,10 @@ class TestWrites:
 
     async def test_moving_a_row_to_another_tenant_is_refused(self, scoped):
         with pytest.raises(ValidationError, match="outside your access scope"):
-            await scoped.update(1, {"tenant_id": "other"})
+            await scoped.update({"id": 1}, {"tenant_id": "other"})
 
     async def test_an_update_that_does_not_touch_the_scope_column_is_fine(self, scoped):
-        assert (await scoped.update(1, {"name": "ok"}))["name"] == "ok"
+        assert (await scoped.update({"id": 1}, {"name": "ok"}))["name"] == "ok"
 
 
 class TestBinding:

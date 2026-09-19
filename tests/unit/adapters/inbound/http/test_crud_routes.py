@@ -636,3 +636,114 @@ class _NoCatalog:
         @staticmethod
         def load(_name):
             raise FileNotFoundError("no catalog")
+
+
+LINES_SCHEMA = TableSchema(
+    table_name="siparis_satirlari",
+    columns=[
+        ColumnSchema(name="siparis_id", type="integer", nullable=False),
+        ColumnSchema(name="satir_no", type="integer", nullable=False),
+        ColumnSchema(name="urun", type="varchar", nullable=False),
+        ColumnSchema(name="miktar", type="integer", nullable=True),
+    ],
+    primary_key=["siparis_id", "satir_no"],
+)
+
+LOG_SCHEMA = TableSchema(
+    table_name="islem_log",
+    columns=[
+        ColumnSchema(name="mesaj", type="varchar", nullable=True),
+        ColumnSchema(name="zaman", type="timestamp", nullable=True),
+    ],
+    primary_key=None,
+)
+
+
+@pytest.fixture
+def lines_client(mock_db):
+    """One order with three lines — enough to see a delete overreach."""
+    mock_db.add_mock_table(
+        "siparis_satirlari",
+        {"table_name": "siparis_satirlari", "primary_key": ["siparis_id", "satir_no"]},
+        [
+            {"siparis_id": 5, "satir_no": 1, "urun": "kalem", "miktar": 10},
+            {"siparis_id": 5, "satir_no": 2, "urun": "defter", "miktar": 3},
+            {"siparis_id": 5, "satir_no": 3, "urun": "silgi", "miktar": 7},
+            {"siparis_id": 6, "satir_no": 1, "urun": "cetvel", "miktar": 1},
+        ],
+    )
+    factory = RouterFactory(db=mock_db, schema_analyzer=SchemaAnalyzer(mock_db))
+    app = FastAPI()
+    app.include_router(factory.create_router(LINES_SCHEMA), prefix="/api/v1")
+    return TestClient(app)
+
+
+class TestCompositeKeys:
+    """A key addressed by one of its columns reaches every row sharing it.
+
+    On an ERP schema that is most of the line-item tables — order lines,
+    invoice lines, stock movements — and the statement carried no LIMIT, so a
+    delete aimed at one line took the whole order with it and reported one row
+    affected.
+    """
+
+    def test_a_line_is_addressed_by_its_whole_key(self, lines_client):
+        body = lines_client.get("/api/v1/siparis_satirlari/5/2").json()
+        assert body["urun"] == "defter"
+
+    def test_deleting_one_line_leaves_the_others(self, lines_client):
+        """The regression test. Before the fix this emptied the order."""
+        assert lines_client.delete("/api/v1/siparis_satirlari/5/2").status_code == 204
+
+        remaining = lines_client.get("/api/v1/siparis_satirlari").json()["items"]
+        left = sorted(r["satir_no"] for r in remaining if r["siparis_id"] == 5)
+        assert left == [1, 3], "the rest of the order must still be there"
+        # And the neighbouring order is untouched.
+        assert any(r["siparis_id"] == 6 for r in remaining)
+
+    def test_updating_one_line_leaves_the_others(self, lines_client):
+        lines_client.patch("/api/v1/siparis_satirlari/5/2", json={"miktar": 99})
+
+        rows = lines_client.get("/api/v1/siparis_satirlari").json()["items"]
+        by_line = {(r["siparis_id"], r["satir_no"]): r["miktar"] for r in rows}
+        assert by_line[(5, 2)] == 99
+        assert by_line[(5, 1)] == 10 and by_line[(5, 3)] == 7
+
+    def test_a_partial_key_is_not_a_route(self, lines_client):
+        """`/5` addresses nothing: the path needs every key column."""
+        assert lines_client.get("/api/v1/siparis_satirlari/5").status_code == 404
+
+    def test_the_path_names_the_key_columns(self, lines_client):
+        """Which is what a spec reader — or a generated MCP tool — sees."""
+        paths = lines_client.get("/openapi.json").json()["paths"]
+        assert "/api/v1/siparis_satirlari/{siparis_id}/{satir_no}" in paths
+
+    def test_a_missing_line_names_both_columns(self, lines_client):
+        detail = lines_client.get("/api/v1/siparis_satirlari/5/99").json()["detail"]
+        assert "siparis_id=5" in detail and "satir_no=99" in detail
+
+    def test_the_key_columns_are_typed(self, lines_client):
+        """`/5/abc` is a 422, not a database round trip with a string."""
+        assert lines_client.get("/api/v1/siparis_satirlari/5/abc").status_code == 422
+
+
+class TestTablesWithoutAKey:
+    """A fabricated ``id`` used to reach the database and fail there."""
+
+    @pytest.fixture
+    def log_client(self, mock_db):
+        mock_db.add_mock_table(
+            "islem_log", {"table_name": "islem_log"}, [{"mesaj": "x", "zaman": None}]
+        )
+        factory = RouterFactory(db=mock_db, schema_analyzer=SchemaAnalyzer(mock_db))
+        app = FastAPI()
+        app.include_router(factory.create_router(LOG_SCHEMA), prefix="/api/v1")
+        return TestClient(app)
+
+    def test_the_list_still_works(self, log_client):
+        assert log_client.get("/api/v1/islem_log").json()["items"][0]["mesaj"] == "x"
+
+    def test_no_by_key_routes_are_registered(self, log_client):
+        paths = log_client.get("/openapi.json").json()["paths"]
+        assert "/api/v1/islem_log" in paths
+        assert not [p for p in paths if p.startswith("/api/v1/islem_log/")]

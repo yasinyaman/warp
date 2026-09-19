@@ -13,6 +13,7 @@ Invariants:
 - Only integer pagination (already range-validated upstream) is interpolated.
 """
 
+from collections.abc import Mapping
 from typing import Any
 
 from warp.adapters.outbound.db.dialect import Dialect, ReturningStyle, get_dialect
@@ -202,26 +203,44 @@ class SafeQueryBuilder:
         )
         return sql, list(data.values())
 
+    def _key_clause(self, key: Mapping[str, Any], start: int = 1) -> tuple[str, list[Any], int]:
+        """``a = $1 AND b = $2`` for every column of the key.
+
+        The whole key, never part of it. A statement built from one column of a
+        composite key addresses every row sharing that value, which for a
+        DELETE means the rest of the order goes with the line.
+
+        Raises:
+            ValueError: On an empty key, which would produce a statement with
+                no WHERE clause at all.
+        """
+        if not key:
+            raise ValueError("A key-addressed statement needs at least one key column.")
+        parts = []
+        params: list[Any] = []
+        index = start
+        for column, value in key.items():
+            parts.append(f"{self.quote(column)} = {self._placeholder(index)}")
+            params.append(value)
+            index += 1
+        return " AND ".join(parts), params, index
+
     def build_select_by_id(
         self,
         table: str,
-        id_column: str,
-        id_value: Any,
+        key: Mapping[str, Any],
         columns: list[str] | None,
     ) -> tuple[str, list[Any]]:
         """Build a single-row SELECT by primary key."""
         cols = self._select_columns(columns)
-        sql = (
-            f"SELECT {cols} FROM {self.quote(table)} "
-            f"WHERE {self.quote(id_column)} = {self._placeholder(1)}"
-        )
-        return sql, [id_value]
+        where, params, _ = self._key_clause(key)
+        sql = f"SELECT {cols} FROM {self.quote(table)} WHERE {where}"
+        return sql, params
 
     def build_update(
         self,
         table: str,
-        id_column: str,
-        id_value: Any,
+        key: Mapping[str, Any],
         data: dict[str, Any],
         *,
         returning: bool = True,
@@ -235,8 +254,8 @@ class SafeQueryBuilder:
             set_parts.append(f"{self.quote(column)} = {self._placeholder(index)}")
             params.append(value)
             index += 1
-        where = f"{self.quote(id_column)} = {self._placeholder(index)}"
-        params.append(id_value)
+        where, key_params, _ = self._key_clause(key, index)
+        params.extend(key_params)
         sql = (
             f"UPDATE {tbl} SET {', '.join(set_parts)}{self._output(returning, 'INSERTED.*')} "
             f"WHERE {where}{self._returning(returning, '*')}"
@@ -244,12 +263,15 @@ class SafeQueryBuilder:
         return sql, params
 
     def build_delete(
-        self, table: str, id_column: str, id_value: Any, *, returning: bool = True
+        self, table: str, key: Mapping[str, Any], *, returning: bool = True
     ) -> tuple[str, list[Any]]:
-        """Build a DELETE-by-id statement (returning the id when supported)."""
-        col = self.quote(id_column)
+        """Build a DELETE-by-key statement (returning a key column when supported)."""
+        where, params, _ = self._key_clause(key)
+        # One key column is enough for the returned value: the caller reads it
+        # only as "a row was there", never for its contents.
+        first = self.quote(next(iter(key)))
         sql = (
-            f"DELETE FROM {self.quote(table)}{self._output(returning, f'DELETED.{col}')} "
-            f"WHERE {col} = {self._placeholder(1)}{self._returning(returning, col)}"
+            f"DELETE FROM {self.quote(table)}{self._output(returning, f'DELETED.{first}')} "
+            f"WHERE {where}{self._returning(returning, first)}"
         )
-        return sql, [id_value]
+        return sql, params

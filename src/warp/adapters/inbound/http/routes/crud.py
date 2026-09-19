@@ -1,8 +1,9 @@
 """Dynamic router factory for generating CRUD endpoints for database tables."""
 
+import inspect
 import logging
-from collections.abc import Mapping, Sequence
-from typing import Any
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, TypeVar
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -30,6 +31,11 @@ from warp.domain.sorting import parse_sort_from_request
 from warp.domain.sql_types import type_kind
 
 logger = logging.getLogger(__name__)
+
+
+#: A route handler. Named so the key-route decorator can promise it returns
+#: the same function it was given, which keeps the handlers typed.
+RouteFn = TypeVar("RouteFn", bound=Callable[..., Any])
 
 
 def parse_id(value: str, kind: str, column: str = "id") -> Any:
@@ -121,16 +127,68 @@ class RouterFactory:
             FastAPI router with CRUD endpoints.
         """
         table_name = table_schema.table_name
-        pk_column = table_schema.pk_column or "id"
+        key_columns = table_schema.key_columns
         column_names = table_schema.get_column_names()
 
-        # Column kinds drive id parsing and typed filter coercion.
-        pk_col_schema = table_schema.get_column(pk_column)
-        pk_kind = (
-            type_kind(pk_col_schema.type, pk_col_schema.udt_name, pk_col_schema.full_type)
-            if pk_col_schema
-            else "int"
-        )
+        # One path segment per key column, so a composite key cannot be
+        # collapsed to its first: `/{siparis_id}/{satir_no}`. A single-key
+        # table is unchanged on the wire.
+        key_path = "".join(f"/{{{column}}}" for column in key_columns) or "/{id}"
+
+        # Column kinds drive key parsing and typed filter coercion.
+        def kind_of(column: str) -> str:
+            schema = table_schema.get_column(column)
+            return type_kind(schema.type, schema.udt_name, schema.full_type) if schema else "int"
+
+        key_kinds = {column: kind_of(column) for column in key_columns}
+
+        def parse_key(raw: Mapping[str, str]) -> dict[str, Any]:
+            """Coerce the path segments to their columns' types, in key order."""
+            return {
+                column: parse_id(raw[column], key_kinds[column], column) for column in key_columns
+            }
+
+        def key_text(key: Mapping[str, Any]) -> str:
+            return ", ".join(f"{column}={key[column]}" for column in key_columns)
+
+        def key_route(method: Callable[..., Any], **options: Any) -> Callable[[RouteFn], RouteFn]:
+            """Register a route addressed by the whole primary key.
+
+            A table without one registers nothing: there is no way to address
+            a single row, and the fabricated ``id`` column this used to fall
+            back on was a guess that reached the database.
+            """
+            if not key_columns:
+                return lambda fn: fn
+            register = method(key_path, **options)
+
+            def decorate(fn: RouteFn) -> RouteFn:
+                # FastAPI reads path parameters off the signature, so the key
+                # columns are declared there rather than caught as **kwargs.
+                declared = [
+                    parameter
+                    for parameter in inspect.signature(fn).parameters.values()
+                    if parameter.kind is not inspect.Parameter.VAR_KEYWORD
+                ]
+                # Set rather than declared: `__signature__` is how FastAPI is
+                # told what the path parameters are, and it is not part of the
+                # Callable type.
+                fn.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+                    [
+                        *declared,
+                        *(
+                            inspect.Parameter(
+                                column, inspect.Parameter.KEYWORD_ONLY, annotation=str
+                            )
+                            for column in key_columns
+                        ),
+                    ]
+                )
+                register(fn)
+                return fn
+
+            return decorate
+
         column_kinds = {
             c.name: type_kind(c.type, c.udt_name, c.full_type) for c in table_schema.columns
         }
@@ -252,32 +310,32 @@ Retrieve a paginated list of {table_name} records.
             return page
 
         # GET BY ID endpoint
-        @router.get(
-            "/{id}",
+        @key_route(
+            router.get,
             response_model=ResponseModel,
             summary=f"Get {table_name} by ID",
-            description=f"Retrieve a single {table_name} record by its {pk_column}.",
+            description=f"Retrieve a single {table_name} record by its primary key.",
             dependencies=get_auth_deps(Permission.READ),
         )
         async def get_record(
             request: Request,
-            id: str,
             fields: str | None = Query(
                 default=None, description="Comma-separated list of fields to return"
             ),
+            **raw: str,
         ) -> dict[str, Any]:
             crud = base_crud.with_policy(policy_of(request))
-            typed_id = parse_id(id, pk_kind, pk_column)
+            key = parse_key(raw)
             columns = parse_fields(fields)
 
-            record = await crud.get_by_id(typed_id, columns=columns)
+            record = await crud.get_by_id(key, columns=columns)
 
             if record is None:
                 # Recorded too: a caller probing for rows they cannot see is
                 # exactly what an audit trail is for.
                 self._record(request, "read", table_name, status=404, row_count=0)
                 raise HTTPException(
-                    status_code=404, detail=f"{table_name} with {pk_column}={id} not found"
+                    status_code=404, detail=f"{table_name} with {key_text(key)} not found"
                 )
 
             masks = self.masking.masks_for(table_name, roles_of(request))
@@ -309,28 +367,28 @@ Retrieve a paginated list of {table_name} records.
             return record
 
         # UPDATE endpoint
-        @router.put(
-            "/{id}",
+        @key_route(
+            router.put,
             response_model=ResponseModel,
             summary=f"Update {table_name}",
             description=f"Update an existing {table_name} record.",
             dependencies=get_auth_deps(Permission.UPDATE),
         )
         async def update_record(
-            request: Request, id: str, data: UpdateModel
+            request: Request, data: UpdateModel, **raw: str
         ) -> dict[str, Any] | None:
             crud = base_crud.with_policy(policy_of(request))
-            typed_id = parse_id(id, pk_kind, pk_column)
+            key = parse_key(raw)
 
             # Check if exists
-            if not await crud.exists(typed_id):
+            if not await crud.exists(key):
                 self._record(request, "update", table_name, status=404, row_count=0)
                 raise HTTPException(
-                    status_code=404, detail=f"{table_name} with {pk_column}={id} not found"
+                    status_code=404, detail=f"{table_name} with {key_text(key)} not found"
                 )
 
             try:
-                record = await crud.update(typed_id, data.model_dump(exclude_unset=True))
+                record = await crud.update(key, data.model_dump(exclude_unset=True))
             except ValidationError as e:
                 # Safe, intentional message (e.g. read-only column rejected).
                 self._record(request, "update", table_name, status=400)
@@ -343,28 +401,28 @@ Retrieve a paginated list of {table_name} records.
             return record
 
         # PATCH endpoint (partial update)
-        @router.patch(
-            "/{id}",
+        @key_route(
+            router.patch,
             response_model=ResponseModel,
             summary=f"Partial update {table_name}",
             description=f"Partially update an existing {table_name} record.",
             dependencies=get_auth_deps(Permission.UPDATE),
         )
         async def patch_record(
-            request: Request, id: str, data: UpdateModel
+            request: Request, data: UpdateModel, **raw: str
         ) -> dict[str, Any] | None:
             crud = base_crud.with_policy(policy_of(request))
-            typed_id = parse_id(id, pk_kind, pk_column)
+            key = parse_key(raw)
 
             # Check if exists
-            if not await crud.exists(typed_id):
+            if not await crud.exists(key):
                 self._record(request, "update", table_name, status=404, row_count=0)
                 raise HTTPException(
-                    status_code=404, detail=f"{table_name} with {pk_column}={id} not found"
+                    status_code=404, detail=f"{table_name} with {key_text(key)} not found"
                 )
 
             try:
-                record = await crud.update(typed_id, data.model_dump(exclude_unset=True))
+                record = await crud.update(key, data.model_dump(exclude_unset=True))
             except ValidationError as e:
                 # Safe, intentional message (e.g. read-only column rejected).
                 self._record(request, "update", table_name, status=400)
@@ -377,23 +435,23 @@ Retrieve a paginated list of {table_name} records.
             return record
 
         # DELETE endpoint
-        @router.delete(
-            "/{id}",
+        @key_route(
+            router.delete,
             status_code=204,
             summary=f"Delete {table_name}",
-            description=f"Delete a {table_name} record by its {pk_column}.",
+            description=f"Delete a {table_name} record by its primary key.",
             dependencies=get_auth_deps(Permission.DELETE),
         )
-        async def delete_record(request: Request, id: str) -> None:
+        async def delete_record(request: Request, **raw: str) -> None:
             crud = base_crud.with_policy(policy_of(request))
-            typed_id = parse_id(id, pk_kind, pk_column)
+            key = parse_key(raw)
 
-            deleted = await crud.delete(typed_id)
+            deleted = await crud.delete(key)
 
             if not deleted:
                 self._record(request, "delete", table_name, status=404, row_count=0)
                 raise HTTPException(
-                    status_code=404, detail=f"{table_name} with {pk_column}={id} not found"
+                    status_code=404, detail=f"{table_name} with {key_text(key)} not found"
                 )
             self._record(request, "delete", table_name, status=204, row_count=1)
 

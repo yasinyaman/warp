@@ -1,6 +1,6 @@
 """PostgreSQL database adapter implementation."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 import asyncpg
@@ -264,29 +264,29 @@ class PostgreSQLAdapter(DatabaseAdapter):
                 yield [dict(row) for row in rows]
 
     async def select_by_id(
-        self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None
+        self, table: str, key: Mapping[str, Any], columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Select a single record by ID."""
-        query, params = self._qb.build_select_by_id(table, id_column, id_value, columns)
+        query, params = self._qb.build_select_by_id(table, key, columns)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(query, *params)
             return dict(row) if row else None
 
     async def update(
-        self, table: str, id_column: str, id_value: Any, data: dict[str, Any]
+        self, table: str, key: Mapping[str, Any], data: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Update an existing record."""
         if not data:
-            return await self.select_by_id(table, id_column, id_value)
+            return await self.select_by_id(table, key)
 
-        query, values = self._qb.build_update(table, id_column, id_value, data)
+        query, values = self._qb.build_update(table, key, data)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(query, *values)
             return dict(row) if row else None
 
-    async def delete(self, table: str, id_column: str, id_value: Any) -> bool:
+    async def delete(self, table: str, key: Mapping[str, Any]) -> bool:
         """Delete a record by ID."""
-        query, params = self._qb.build_delete(table, id_column, id_value)
+        query, params = self._qb.build_delete(table, key)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(query, *params)
             return row is not None

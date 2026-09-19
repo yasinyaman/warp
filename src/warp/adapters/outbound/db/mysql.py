@@ -1,6 +1,6 @@
 """MySQL database adapter implementation."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 import aiomysql
@@ -217,7 +217,7 @@ class MySQLAdapter(DatabaseAdapter):
 
             # Fetch the inserted record (assumes an auto-increment `id` PK)
             if last_id:
-                refetch, refetch_params = self._qb.build_select_by_id(table, "id", last_id, None)
+                refetch, refetch_params = self._qb.build_select_by_id(table, {"id": last_id}, None)
                 await cur.execute(refetch, refetch_params)
                 row = await cur.fetchone()
                 return row if row else data
@@ -272,35 +272,35 @@ class MySQLAdapter(DatabaseAdapter):
                 yield list(rows)
 
     async def select_by_id(
-        self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None
+        self, table: str, key: Mapping[str, Any], columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Select a single record by ID."""
-        query, params = self._qb.build_select_by_id(table, id_column, id_value, columns)
+        query, params = self._qb.build_select_by_id(table, key, columns)
         async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(query, params)
             row: dict[str, Any] | None = await cur.fetchone()
             return row
 
     async def update(
-        self, table: str, id_column: str, id_value: Any, data: dict[str, Any]
+        self, table: str, key: Mapping[str, Any], data: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Update an existing record."""
         if not data:
-            return await self.select_by_id(table, id_column, id_value)
+            return await self.select_by_id(table, key)
 
-        query, values = self._qb.build_update(table, id_column, id_value, data)
+        query, values = self._qb.build_update(table, key, data)
         async with self._pool.acquire() as conn, conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(query, values)
 
             # rowcount == matched rows thanks to CLIENT.FOUND_ROWS (see connect):
             # 0 means no such record, not "nothing changed".
             if cur.rowcount > 0:
-                return await self.select_by_id(table, id_column, id_value)
+                return await self.select_by_id(table, key)
             return None
 
-    async def delete(self, table: str, id_column: str, id_value: Any) -> bool:
+    async def delete(self, table: str, key: Mapping[str, Any]) -> bool:
         """Delete a record by ID."""
-        query, params = self._qb.build_delete(table, id_column, id_value)
+        query, params = self._qb.build_delete(table, key)
         async with self._pool.acquire() as conn, conn.cursor() as cur:
             await cur.execute(query, params)
             return bool(cur.rowcount > 0)

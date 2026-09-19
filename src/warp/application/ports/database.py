@@ -1,6 +1,6 @@
 """Database ports: what the application needs from a SQL database."""
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any, Protocol
 
 from warp.application.config import DatabaseConfig
@@ -85,18 +85,18 @@ class DatabaseGateway(Protocol):
         ...
 
     async def select_by_id(
-        self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None
+        self, table: str, key: Mapping[str, Any], columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Select one record by primary key."""
         ...
 
     async def update(
-        self, table: str, id_column: str, id_value: Any, data: dict[str, Any]
+        self, table: str, key: Mapping[str, Any], data: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Update one record and return it, or None when it does not exist."""
         ...
 
-    async def delete(self, table: str, id_column: str, id_value: Any) -> bool:
+    async def delete(self, table: str, key: Mapping[str, Any]) -> bool:
         """Delete one record; True when a row was removed."""
         ...
 

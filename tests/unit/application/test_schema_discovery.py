@@ -126,23 +126,30 @@ class TestTableSchema:
             indexes=[IndexSchema(name="idx_email", columns=["email"], unique=True)],
         )
 
-    def test_pk_column_single(self, users_schema):
-        """Test getting single primary key column."""
-        assert users_schema.pk_column == "id"
+    def test_key_columns_single(self, users_schema):
+        """A single-column key is still a key: one entry, not a bare string."""
+        assert users_schema.key_columns == ("id",)
+        assert users_schema.has_key is True
 
-    def test_pk_column_composite(self):
-        """Test getting composite primary key."""
+    def test_key_columns_composite_keeps_every_column(self):
+        """The whole key travels.
+
+        This used to answer `"order_id"` — the first column — and every
+        key-addressed statement was built from it alone, so `DELETE` on one
+        line reached every line of the order.
+        """
         schema = TableSchema(
             table_name="order_items", columns=[], primary_key=["order_id", "product_id"]
         )
-        assert schema.pk_column == "order_id"  # First column
+        assert schema.key_columns == ("order_id", "product_id")
         assert schema.has_composite_pk is True
+        assert schema.has_key is True
 
-    def test_pk_column_none(self):
-        """Test table without primary key."""
-        schema = TableSchema(table_name="logs", columns=[])
-        assert schema.pk_column is None
-        assert schema.has_composite_pk is False
+    def test_a_table_with_no_key_says_so(self):
+        """No key means no key-addressed routes, not a fabricated ``id``."""
+        schema = TableSchema(table_name="logs", columns=[], primary_key=None)
+        assert schema.key_columns == ()
+        assert schema.has_key is False
 
     def test_get_column(self, users_schema):
         """Test getting column by name."""

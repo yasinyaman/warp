@@ -806,10 +806,10 @@ class ODBCAdapter(DatabaseAdapter):
             await self._execute(sql, values)
 
         pk = await self._primary_key(table)
-        key = new_id if new_id is not None else (data.get(pk) if pk else None)
-        if pk is None or key is None:
+        value = new_id if new_id is not None else (data.get(pk) if pk else None)
+        if pk is None or value is None:
             return dict(data)
-        row = await self.select_by_id(table, pk, key)
+        row = await self.select_by_id(table, {pk: value})
         return row if row is not None else dict(data)
 
     async def _oracle_insert(self, table: str, sql: str, values: Sequence[Any]) -> Any:
@@ -950,22 +950,22 @@ class ODBCAdapter(DatabaseAdapter):
         return estimates
 
     async def select_by_id(
-        self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None
+        self, table: str, key: Mapping[str, Any], columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Select a single record by ID."""
-        sql, params = self._qb.build_select_by_id(table, id_column, id_value, columns)
+        sql, params = self._qb.build_select_by_id(table, key, columns)
         rows, _ = await self._execute(sql, params)
         return rows[0] if rows else None
 
     async def update(
-        self, table: str, id_column: str, id_value: Any, data: dict[str, Any]
+        self, table: str, key: Mapping[str, Any], data: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Update a record and return it, or ``None`` when it does not exist."""
         if not data:
-            return await self.select_by_id(table, id_column, id_value)
+            return await self.select_by_id(table, key)
 
         if self._use_output(table):
-            sql, values = self._qb.build_update(table, id_column, id_value, data)
+            sql, values = self._qb.build_update(table, key, data)
             try:
                 rows, _ = await self._execute(sql, values)
             except Exception as e:
@@ -975,17 +975,17 @@ class ODBCAdapter(DatabaseAdapter):
             else:
                 return rows[0] if rows else None
 
-        sql, values = self._qb.build_update(table, id_column, id_value, data, returning=False)
+        sql, values = self._qb.build_update(table, key, data, returning=False)
         _, rowcount = await self._execute(sql, values)
         if rowcount == 0:
             return None
         # rowcount > 0, or -1 when the driver does not report it: re-read.
-        return await self.select_by_id(table, id_column, id_value)
+        return await self.select_by_id(table, key)
 
-    async def delete(self, table: str, id_column: str, id_value: Any) -> bool:
+    async def delete(self, table: str, key: Mapping[str, Any]) -> bool:
         """Delete a record by ID; ``True`` when a row was removed."""
         if self._use_output(table):
-            sql, params = self._qb.build_delete(table, id_column, id_value)
+            sql, params = self._qb.build_delete(table, key)
             try:
                 rows, _ = await self._execute(sql, params)
             except Exception as e:
@@ -996,9 +996,9 @@ class ODBCAdapter(DatabaseAdapter):
                 return bool(rows)
 
         # Generic drivers may not report a rowcount: confirm existence first.
-        if not self._mssql and await self.select_by_id(table, id_column, id_value) is None:
+        if not self._mssql and await self.select_by_id(table, key) is None:
             return False
-        sql, params = self._qb.build_delete(table, id_column, id_value, returning=False)
+        sql, params = self._qb.build_delete(table, key, returning=False)
         _, rowcount = await self._execute(sql, params)
         return rowcount != 0
 
