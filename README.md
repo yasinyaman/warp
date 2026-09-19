@@ -241,11 +241,20 @@ masking:
     support:
       email: redact
   exempt_roles: [admin]     # sees raw values
+  hash_secret: ${WARP_MASKING_HASH_SECRET}   # only needed by `hash`
 ```
 
-Strategies: `partial`, `last4`, `hash` (stable, so values can still be
-correlated across rows, but not reversed), `redact` and `null`. A `NULL` value
+Strategies: `partial`, `last4`, `hash`, `redact` and `null`. A `NULL` value
 stays `NULL` — masking one would invent the appearance of data.
+
+`hash` produces a **keyed pseudonym**: the same value masks the same way in
+every row, so it can still be joined on, and anyone holding the key can
+re-derive the original. That is pseudonymisation, not anonymisation — keep the
+key apart from anything it masks. It is keyed because an unkeyed digest of
+enumerable data is not a mask at all: an email falls to a wordlist and an
+11-digit national id to a loop, whatever the digest length. Rotating or losing
+the key breaks correlation with data exported earlier, which is the price of
+stability and the right trade.
 
 Applied to both paths that carry rows: CRUD responses, and `/export` in all
 three formats (JSON, NDJSON and Arrow). `/schema` returns no sample values, and
@@ -261,6 +270,11 @@ Two things to know:
 - **A mask has to fit the column.** The text strategies need a text column and
   `null` needs a nullable one, or the response could not carry the result.
   Anything that does not fit is reported at startup, naming the column.
+- **`hash` refuses to run without a key.** Masking configured with a `hash`
+  rule and no `masking.hash_secret` fails startup rather than falling back to
+  an unkeyed digest or quietly skipping the rule — both would return readable
+  PII while reporting that it was masked. In production a secret shorter than
+  32 characters is also refused.
 
 ### Audit trail
 

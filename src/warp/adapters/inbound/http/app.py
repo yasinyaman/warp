@@ -150,6 +150,20 @@ def _masking_for(
     config = settings.masking
     if not config.enabled or not (config.rules or config.by_role):
         return NO_MASKING
+
+    # Checked before the catalog is loaded, because this is wrong whether or
+    # not this database has one. Refused in every environment rather than only
+    # production: a `hash` rule with no key cannot run, and both alternatives —
+    # skipping the rule, or falling back to an unkeyed digest — would return
+    # readable PII while reporting that it was masked.
+    if "hash" in config.strategies and not config.hash_secret:
+        raise ValueError(
+            "Masking is configured with the 'hash' strategy but masking.hash_secret "
+            "is not set. An unkeyed digest of enumerable data (an email, a national "
+            "id) is reversible, so there is no safe default. Set masking.hash_secret "
+            "or choose redact/partial/last4/null."
+        )
+
     try:
         catalog = container.repository.load(db_name)
     except Exception as e:
@@ -174,6 +188,7 @@ def _masking_for(
             by_role={role: dict(rules) for role, rules in config.by_role.items()},
             exempt_roles=tuple(config.exempt_roles),
             enabled=True,
+            hash_key=config.hash_secret.encode("utf-8") if config.hash_secret else None,
         ),
         semantic_types=labels,
     )

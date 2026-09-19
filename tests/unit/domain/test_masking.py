@@ -22,6 +22,9 @@ from warp.domain.masking import (
     validate_strategy,
 )
 
+#: A fixed key, so the pinned digest below means something.
+KEY = b"benchmark-key-for-tests-32-chars!"
+
 
 class TestStrategies:
     def test_redact_keeps_nothing(self):
@@ -46,17 +49,55 @@ class TestStrategies:
         assert mask_value("123", "last4") == REDACTED
 
     def test_hash_is_stable_and_not_the_value(self):
-        once = mask_value("alice@example.com", "hash")
-        assert once == mask_value("alice@example.com", "hash")
-        assert once != mask_value("bob@example.com", "hash")
+        once = mask_value("alice@example.com", "hash", KEY)
+        assert once == mask_value("alice@example.com", "hash", KEY)
+        assert once != mask_value("bob@example.com", "hash", KEY)
         assert "alice" not in once
+
+    def test_hash_is_stable_across_runs_for_a_given_key(self):
+        """Pinned to a literal, which is the only assertion that can catch a
+        change to the derivation.
+
+        Its absence is why the strategy shipped as a bare truncated SHA-256:
+        every other assertion here passes just as well for a per-process random
+        key, which would silently break correlation with anything exported
+        earlier — the one thing `hash` exists to provide.
+        """
+        assert mask_value("alice@example.com", "hash", KEY) == ("4b39c1f763170b98f8b84c70e852e6bb")
+
+    def test_hash_without_a_key_refuses(self):
+        with pytest.raises(MaskingError, match="hash_secret"):
+            mask_value("alice@example.com", "hash")
+
+    def test_hash_differs_under_a_different_key(self):
+        """Rotating the key changes every pseudonym, which is what a key means."""
+        assert mask_value("alice@example.com", "hash", KEY) != mask_value(
+            "alice@example.com", "hash", b"a-different-key-of-sufficient-length"
+        )
+
+    def test_hash_is_not_a_bare_digest_of_the_value(self):
+        """Regression guard: the defect was an unsalted SHA-256, truncated.
+
+        An email falls to a wordlist and an 11-digit national id to a loop, so
+        the unkeyed form was reversible however wide the digest.
+        """
+        import hashlib
+
+        value = "alice@example.com"
+        bare = hashlib.sha256(value.encode()).hexdigest()
+        masked = mask_value(value, "hash", KEY)
+        assert masked != bare[:12]
+        assert masked not in bare
+        # 128 bits: at 48, ten million addresses collide better than 1 in 6.
+        assert len(masked) == 32
 
     def test_null(self):
         assert mask_value("anything", "null") is None
 
     @pytest.mark.parametrize("strategy", ["redact", "partial", "last4", "hash", "null"])
     def test_a_missing_value_stays_missing(self, strategy):
-        # Masking a NULL would invent the appearance of data.
+        # Masking a NULL would invent the appearance of data. `hash` needs no
+        # key here: the None check comes first, deliberately.
         assert mask_value(None, strategy) is None
 
     def test_a_non_string_is_stringified_before_masking(self):

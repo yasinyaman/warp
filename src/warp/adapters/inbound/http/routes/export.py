@@ -247,7 +247,7 @@ class TableExport:
         if item.masks:
             # Applied to the batches, so JSON, NDJSON and Arrow all get
             # masked rows rather than each encoder having to remember.
-            batches = _masked_batches(batches, item.masks)
+            batches = _masked_batches(batches, item.masks, self.masking.hash_key)
         if item.format == "arrow":
             return arrow_ipc_stream(batches, self.table_schema, item.columns)
         if item.format == "ndjson":
@@ -265,11 +265,13 @@ class TableExport:
 
 
 async def _masked_batches(
-    batches: AsyncIterator[list[dict[str, Any]]], masks: Mapping[str, str]
+    batches: AsyncIterator[list[dict[str, Any]]],
+    masks: Mapping[str, str],
+    hash_key: bytes | None = None,
 ) -> AsyncIterator[list[dict[str, Any]]]:
     """Mask every row on its way out, one batch at a time."""
     async for batch in batches:
-        yield mask_rows(batch, masks)
+        yield mask_rows(batch, masks, hash_key)
 
 
 def _read_dependencies(auth_manager: AuthManager | None) -> list[Any]:

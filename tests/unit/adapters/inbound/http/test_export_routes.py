@@ -440,3 +440,33 @@ class TestExportMasking:
             .json()["items"]
         )
         assert "product 1" in {item["name"] for item in items}
+
+
+class TestHashMaskingOnTheExportPath:
+    """The streaming path threads the key separately from CRUD, so it needs
+    its own case — `_masked_batches` is where it would go missing."""
+
+    KEY = b"an-export-key-of-sufficient-length!!"
+
+    def _client(self) -> TestClient:
+        masking = CatalogMasking(
+            policy=MaskingPolicy(rules={"name": "hash"}, hash_key=self.KEY),
+            semantic_types={"products": {"name": "name"}},
+        )
+        return TestClient(_app(with_crud=False, masking=masking))
+
+    def test_the_streamed_rows_carry_the_keyed_digest(self):
+        from warp.domain.masking import mask_value
+
+        items = self._client().get("/api/v1/products/export").json()["items"]
+
+        assert items[0]["name"] == mask_value("product 1", "hash", self.KEY)
+        assert "product" not in items[0]["name"]
+
+    def test_ndjson_takes_the_same_path(self):
+        from warp.domain.masking import mask_value
+
+        text = self._client().get("/api/v1/products/export?format=ndjson").text
+
+        assert mask_value("product 1", "hash", self.KEY) in text
+        assert "product 1" not in text

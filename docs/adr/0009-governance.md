@@ -70,6 +70,33 @@ strategies require a text column and `null` requires a nullable one. Anything
 that does not fit is reported at startup, naming the column, rather than
 failing response validation on the first row that reaches it.
 
+### `hash` is a pseudonym, and it is keyed
+
+Four of the five strategies destroy the value. `hash` does not: it exists
+because none of the others preserves equality across rows, and a masked column
+that can still be joined on is a real analytics capability. The output is
+therefore a **pseudonym**, and the word matters — under KVKK a pseudonym is
+still personal data, so an export of `hash`-masked rows has not been
+anonymised and cannot be treated as if it had.
+
+It is keyed for a reason that is not a matter of taste. An unkeyed digest of
+enumerable data is not a mask: an email address falls to a wordlist, and a
+TCKN is eleven digits with a check rule, so the valid space is about a billion
+and a laptop walks all of it. Widening the digest does nothing about that —
+the attack is enumeration, not collision. The key is what moves the attack
+from "anyone holding the exported file" to "anyone holding the key", which is
+the standard pseudonymisation posture: keep the key apart from the data.
+
+Two consequences an operator has to accept. Rotating or losing the key breaks
+correlation with anything exported earlier — that is the cost of stability,
+and it is the right trade, because a key that changed per process would make
+the strategy useless for the one thing it is for. And a `hash` rule with no
+key refuses startup. The two tempting alternatives are both worse: skipping
+the rule leaves a PII column unmasked while the configuration says otherwise,
+and falling back to an unkeyed digest reintroduces the defect under a name
+that sounds safe. A masking layer must not return a readable value while
+reporting that it masked it.
+
 ### The audit trail records restriction, not data
 
 One event per data-touching request: who, when, which database and table, which
@@ -89,6 +116,10 @@ problem into an outage.
 
 ## Consequences
 
+- Masking configured with a `hash` rule and no `masking.hash_secret` refuses
+  startup, in every environment rather than only production — an unusable
+  strategy is a configuration error wherever it is found. Production
+  additionally refuses a secret short enough to be guessed.
 - Row rules mean nothing without authentication, so `auth.enabled: false` with
   `row_filters` configured refuses startup in production. The same hazard
   exists for a data path listed in `auth.public_paths`, which the README warns

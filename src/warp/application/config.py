@@ -137,6 +137,21 @@ class MaskingConfig(BaseModel):
     by_role: dict[str, dict[str, str]] = Field(default_factory=dict)
     # roles that see raw values
     exempt_roles: list[str] = Field(default_factory=list)
+    # Keys the `hash` strategy, which refuses to run without one. Store it
+    # apart from anything it masks: whoever holds it can re-derive the values.
+    hash_secret: str | None = None
+
+    @property
+    def strategies(self) -> set[str]:
+        """Every strategy this configuration asks for, from both rule sources.
+
+        ``by_role`` is the one that gets forgotten — a support role's own rules
+        live there and nowhere else.
+        """
+        used = set(self.rules.values())
+        for rules in self.by_role.values():
+            used |= set(rules.values())
+        return used
 
 
 class AuditConfig(BaseModel):
@@ -294,6 +309,11 @@ class RuntimeEnv:
         )
 
 
+#: Below this a masking key is a passphrase somebody chose, which is itself
+#: dictionary-attackable — the hole the key exists to close.
+MIN_HASH_SECRET_LENGTH = 32
+
+
 def validate_production_config(
     settings: Settings,
     app_env: str,
@@ -347,6 +367,22 @@ def validate_production_config(
             "be identified, so the row rules would not apply to anything. Enable "
             "authentication or remove the row filters."
         )
+
+    if cfg.masking.enabled and "hash" in cfg.masking.strategies:
+        secret = cfg.masking.hash_secret or ""
+        if not secret:
+            violations.append(
+                "masking rules use the 'hash' strategy with no masking.hash_secret: "
+                "an unkeyed digest of an email or a national id is reversible by "
+                "enumeration, so the column would not actually be masked. Set "
+                "masking.hash_secret, or use redact/partial/last4/null."
+            )
+        elif len(secret) < MIN_HASH_SECRET_LENGTH:
+            violations.append(
+                f"masking.hash_secret is shorter than {MIN_HASH_SECRET_LENGTH} "
+                f"characters: a guessable key is the same exposure as no key. "
+                f"Use a generated secret."
+            )
 
     openapi_public = any(
         p.rstrip("/") in ("/openapi.json", "/openapi", "/") for p in cfg.auth.public_paths

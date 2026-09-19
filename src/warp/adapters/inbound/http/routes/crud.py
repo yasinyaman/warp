@@ -240,7 +240,7 @@ Retrieve a paginated list of {table_name} records.
             )
             masks = self.masking.masks_for(table_name, roles_of(request))
             if masks:
-                page.items = mask_rows(page.items, masks)
+                page.items = mask_rows(page.items, masks, self.masking.hash_key)
             self._record(
                 request,
                 "read",
@@ -282,7 +282,7 @@ Retrieve a paginated list of {table_name} records.
 
             masks = self.masking.masks_for(table_name, roles_of(request))
             self._record(request, "read", table_name, row_count=1, masks=masks)
-            return mask_row(record, masks)
+            return mask_row(record, masks, self.masking.hash_key)
 
         # CREATE endpoint
         @router.post(

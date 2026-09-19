@@ -92,7 +92,14 @@ class AuthManager:
 
     @staticmethod
     def _hash_key(api_key: str) -> str:
-        """Hash an API key for constant-length, timing-safe comparison."""
+        """Hash an API key for constant-length, timing-safe comparison.
+
+        Unkeyed, unlike the masking module's `hash` strategy, and deliberately
+        so: the input here is a generated token with ~256 bits of entropy, so
+        there is no dictionary to attack. The masking case hashes emails and
+        national ids, which are enumerable — that is the difference, not the
+        algorithm.
+        """
         return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
     def _get_api_key_config(self, api_key: str | None) -> ApiKeyConfig | None:

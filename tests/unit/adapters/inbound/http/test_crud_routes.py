@@ -523,3 +523,116 @@ class TestAuditTrail:
         )
         assert sink.events[-1].request_id != "a b\nInjected: yes"
         assert sink.events[-1].request_id.isalnum()
+
+
+HASH_KEY = b"an-export-key-of-sufficient-length!!"
+
+HASHED = CatalogMasking(
+    policy=MaskingPolicy(rules={"email": "hash"}, hash_key=HASH_KEY),
+    semantic_types={"people": {"email": "email", "id": "id"}},
+)
+
+
+@pytest.fixture
+def hashing_client(mock_db):
+    """Two rows sharing an address, so correlation is observable."""
+    mock_db.add_mock_table(
+        "people",
+        {"table_name": "people", "primary_key": "id"},
+        [
+            {"id": 1, "email": "alice@example.com", "name": "Alice"},
+            {"id": 2, "email": "alice@example.com", "name": "Alice again"},
+            {"id": 3, "email": "bob@example.com", "name": "Bob"},
+        ],
+    )
+    factory = RouterFactory(
+        db=mock_db,
+        schema_analyzer=SchemaAnalyzer(mock_db),
+        governance=Governance(masking=HASHED),
+    )
+    app = FastAPI()
+    app.include_router(factory.create_router(PII_SCHEMA), prefix="/api/v1")
+    return TestClient(app)
+
+
+class TestHashMaskingOverHttp:
+    """The key has to reach `mask_value` through the route, which is only
+    exercised here — the domain tests call it directly."""
+
+    def test_the_same_value_masks_the_same_way_in_two_rows(self, hashing_client):
+        items = hashing_client.get("/api/v1/people").json()["items"]
+        by_id = {row["id"]: row["email"] for row in items}
+
+        assert by_id[1] == by_id[2], "the point of `hash` is that it correlates"
+        assert by_id[1] != by_id[3]
+        assert "alice" not in by_id[1]
+
+    def test_the_digest_is_the_keyed_one(self, hashing_client):
+        """Pins the route to the same derivation the domain tests pin."""
+        from warp.domain.masking import mask_value
+
+        body = hashing_client.get("/api/v1/people/1").json()
+        assert body["email"] == mask_value("alice@example.com", "hash", HASH_KEY)
+
+    def test_a_route_without_the_key_would_refuse_rather_than_leak(self, mock_db):
+        """If the key ever stopped being threaded, this is what happens.
+
+        Loudly, not silently — the failure mode a masking layer must not have
+        is returning the raw value while reporting that it masked it.
+        """
+        from warp.domain.masking import MaskingError, mask_row
+
+        with pytest.raises(MaskingError, match="hash_secret"):
+            mask_row({"email": "alice@example.com"}, {"email": "hash"})
+
+
+class TestMaskingStartupRefusesAnUnkeyedHash:
+    """`_masking_for` is the composition seam, and the refusal belongs there.
+
+    Checked before the catalog is loaded: a `hash` rule with no key is a
+    misconfiguration whether or not this particular database happens to have
+    an approved catalog, and an operator should hear about it either way.
+    """
+
+    def _settings(self, **masking):
+        from warp.application.config import Settings
+
+        settings = Settings().settings
+        settings.masking.enabled = True
+        for name, value in masking.items():
+            setattr(settings.masking, name, value)
+        return settings
+
+    def test_a_hash_rule_without_a_secret_refuses(self):
+        from warp.adapters.inbound.http.app import _masking_for
+
+        with pytest.raises(ValueError, match="hash_secret"):
+            _masking_for(None, self._settings(rules={"email": "hash"}), "db", PII_SCHEMA)
+
+    def test_it_refuses_even_with_no_catalog_to_load(self):
+        """The container is never touched, so `None` here is the assertion."""
+        from warp.adapters.inbound.http.app import _masking_for
+
+        with pytest.raises(ValueError, match="hash_secret"):
+            _masking_for(
+                None,
+                self._settings(by_role={"support": {"phone": "hash"}}),
+                "db",
+                PII_SCHEMA,
+            )
+
+    def test_other_strategies_start_normally(self):
+        from warp.adapters.inbound.http.app import _masking_for
+
+        settings = self._settings(rules={"email": "partial"})
+        # No catalog, so this returns NO_MASKING rather than raising.
+        assert _masking_for(_NoCatalog(), settings, "db", PII_SCHEMA).is_empty
+
+
+class _NoCatalog:
+    """A container whose repository has nothing to give."""
+
+    class repository:  # noqa: N801 - mimics the container's attribute shape
+        @staticmethod
+        def load(_name):
+            raise FileNotFoundError("no catalog")
