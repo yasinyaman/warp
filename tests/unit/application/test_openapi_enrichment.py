@@ -253,3 +253,86 @@ class TestMultiDatabaseContext:
         OpenAPIEnricher(self._catalog("a")).enrich(spec2)
         OpenAPIEnricher(self._catalog("a")).enrich(spec2)
         assert spec2["x-llm-context"]["database"] == "a"  # still flat, no duplicate
+
+
+class TestStructureWithoutACatalog:
+    """Types, keys and relationships are the engine's own words, not a model's.
+
+    They used to travel inside the catalog, so `x-llm-context` carried nothing
+    at all until an LLM pass had run over every table and a reviewer had
+    approved it. On a schema with a couple of thousand tables that is weeks
+    before a consumer can see that one column points at another table.
+    """
+
+    @staticmethod
+    def _schema():
+        from warp.domain.schema import (
+            ColumnSchema,
+            DatabaseSchema,
+            ForeignKeySchema,
+            TableSchema,
+        )
+
+        return DatabaseSchema(
+            database_name="erp",
+            tables={
+                "siparis_satirlari": TableSchema(
+                    table_name="siparis_satirlari",
+                    columns=[
+                        ColumnSchema(name="siparis_id", type="integer", nullable=False),
+                        ColumnSchema(name="satir_no", type="integer", nullable=False),
+                        ColumnSchema(name="urun_id", type="integer", nullable=True),
+                    ],
+                    primary_key=["siparis_id", "satir_no"],
+                    foreign_keys=[
+                        ForeignKeySchema(
+                            column="urun_id",
+                            references_table="urunler",
+                            references_column="id",
+                        )
+                    ],
+                )
+            },
+        )
+
+    def test_it_carries_the_whole_composite_key(self):
+        from warp.domain.catalog import structural_catalog
+
+        table = structural_catalog("erp", self._schema()).tables["siparis_satirlari"]
+        keys = {c.name for c in table.columns if c.is_primary_key}
+
+        assert keys == {"siparis_id", "satir_no"}
+        assert table.primary_key == ["siparis_id", "satir_no"]
+
+    def test_it_carries_relationships(self):
+        from warp.domain.catalog import structural_catalog
+
+        table = structural_catalog("erp", self._schema()).tables["siparis_satirlari"]
+        urun = next(c for c in table.columns if c.name == "urun_id")
+
+        assert urun.is_foreign_key is True
+        assert urun.references == "urunler.id"
+        assert urun.nullable is True
+
+    def test_it_claims_no_meaning(self):
+        """Descriptions and semantic types are the half that needs a model."""
+        from warp.domain.catalog import structural_catalog
+
+        table = structural_catalog("erp", self._schema()).tables["siparis_satirlari"]
+
+        assert all(column.semantic_type is None for column in table.columns)
+        assert all(not column.description.texts for column in table.columns)
+
+    def test_it_is_not_approved(self):
+        """So nothing that gates on review can be satisfied by it.
+
+        Masking keys on semantic types and only reads an approved catalog. A
+        structural stand-in has neither, and must not look like it does.
+        """
+        from warp.domain.catalog import CatalogStatus, structural_catalog
+        from warp.domain.masking import semantic_types_of
+
+        catalog = structural_catalog("erp", self._schema())
+
+        assert catalog.status != CatalogStatus.approved
+        assert semantic_types_of(catalog) == {}

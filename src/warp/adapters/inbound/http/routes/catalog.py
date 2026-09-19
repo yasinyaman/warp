@@ -9,6 +9,7 @@ Provides REST endpoints for catalog operations:
 """
 
 import logging
+from collections.abc import Mapping
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
@@ -20,7 +21,7 @@ from warp.adapters.inbound.http.auth import AuthManager, Permission
 from warp.application.container import Container
 from warp.application.ports.database import DatabaseGateway
 from warp.application.services.openapi_enrichment import OpenAPIEnricher
-from warp.domain.catalog import CatalogStatus
+from warp.domain.catalog import CatalogStatus, structural_catalog
 from warp.domain.catalog_naming import CATALOG_NAME_PATTERN
 from warp.domain.errors import (
     AnalysisError,
@@ -28,6 +29,7 @@ from warp.domain.errors import (
     LLMError,
     UnsupportedExportFormatError,
 )
+from warp.domain.schema import DatabaseSchema
 
 logger = logging.getLogger(__name__)
 
@@ -186,11 +188,18 @@ def _refresh_openapi_enrichment(
     app: FastAPI,
     container: Container,
     gateways: dict[str, DatabaseGateway],
+    schemas: Mapping[str, DatabaseSchema] | None = None,
 ) -> None:
     """Rebuild OpenAPI enrichment after catalog changes.
 
-    Clears the cached OpenAPI schema and sets up a new enriched_openapi
-    function using all available catalogs.
+    Clears the cached OpenAPI schema and installs a new generator.
+
+    A database with an approved catalog is enriched from it, descriptions and
+    semantic types included. One without falls back to what the engine itself
+    reported — types, keys and relationships — so a consumer can see that
+    `musteri_id` points at another table without waiting for an LLM pass over
+    every table and a reviewer to approve it. Structure is mechanical; only
+    the words need a model.
     """
     from fastapi.openapi.utils import get_openapi
 
@@ -202,15 +211,19 @@ def _refresh_openapi_enrichment(
 
     enrichment_lang = config.settings.catalog.openapi_enrichment_lang
     enrichers = []
+    structural = 0
     for db_name in gateways:
         catalog = store.load(db_name)
-        if catalog is None:
-            logger.debug(f"OpenAPI enrichment: no catalog found for '{db_name}'")
-            continue
-        if catalog.status != CatalogStatus.approved:
-            # Drafts are still under review; only approved descriptions are published.
-            logger.debug(f"OpenAPI enrichment: skipping draft catalog '{db_name}'")
-            continue
+        if catalog is None or catalog.status != CatalogStatus.approved:
+            # A draft's words have not been reviewed, so none of them are
+            # published — but its structure was never the model's to say.
+            schema = (schemas or {}).get(db_name)
+            if schema is None:
+                logger.debug(f"OpenAPI enrichment: nothing to enrich '{db_name}' with")
+                continue
+            catalog = structural_catalog(db_name, schema)
+            structural += 1
+            logger.debug(f"OpenAPI enrichment: structure only for '{db_name}'")
         enrichers.append(
             OpenAPIEnricher(
                 catalog,
@@ -235,7 +248,11 @@ def _refresh_openapi_enrichment(
     app.openapi = enriched_openapi  # type: ignore[method-assign]
     app.openapi_schema = None
     enriched_openapi()
-    logger.info(f"OpenAPI enrichment refreshed with {len(enrichers)} approved catalog(s)")
+    approved = len(enrichers) - structural
+    logger.info(
+        f"OpenAPI enrichment refreshed: {approved} approved catalog(s), "
+        f"{structural} from schema structure alone"
+    )
 
 
 def create_catalog_router(  # noqa: C901, PLR0915

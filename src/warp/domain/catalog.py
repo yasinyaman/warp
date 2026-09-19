@@ -12,6 +12,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from warp.domain.schema import DatabaseSchema
+
 
 class CatalogStatus(StrEnum):
     """Status of the overall catalog."""
@@ -325,3 +327,51 @@ class CatalogIndex(BaseModel):
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+def structural_catalog(
+    database_name: str, schema: DatabaseSchema, database_type: str = ""
+) -> DatabaseCatalog:
+    """A catalog carrying only what the database itself already said.
+
+    Types, primary keys, foreign keys and nullability are *mechanical* facts:
+    the engine's own catalog has them, exactly, for nothing. Descriptions,
+    human names and semantic types are not — those need a model and a reviewer.
+
+    The two used to travel together, so the mechanical half was hostage to the
+    semantic one: with no catalog analysis run, `x-llm-context` carried nothing
+    at all, and a consumer could not see that `musteri_id` points at another
+    table until somebody had paid for an LLM pass over every table and approved
+    the result. On a schema with a couple of thousand tables that is weeks.
+
+    What this builds stands in for the catalog when there is no approved one.
+    It is deliberately *not* marked approved, and it carries no semantic types,
+    so nothing that gates on review — masking above all — can be satisfied by
+    it. It only makes structure available on day one.
+    """
+    tables: dict[str, TableCatalogEntry] = {}
+    for table_name, table in schema.tables.items():
+        references = {
+            fk.column: f"{fk.references_table}.{fk.references_column}" for fk in table.foreign_keys
+        }
+        key_columns = set(table.key_columns)
+        tables[table_name] = TableCatalogEntry(
+            table_name=table_name,
+            columns=[
+                ColumnCatalogEntry(
+                    name=column.name,
+                    data_type=column.type,
+                    nullable=column.nullable,
+                    is_primary_key=column.name in key_columns,
+                    is_foreign_key=column.name in references,
+                    references=references.get(column.name),
+                )
+                for column in table.columns
+            ],
+            primary_key=table.primary_key,
+        )
+    return DatabaseCatalog(
+        database_name=database_name,
+        database_type=database_type,
+        tables=tables,
+    )

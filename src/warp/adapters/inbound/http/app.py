@@ -377,7 +377,7 @@ def _make_lifespan(  # noqa: C901
 
         if runtime.gateways:
             try:
-                _refresh_openapi_enrichment(app, container, runtime.gateways)
+                _refresh_openapi_enrichment(app, container, runtime.gateways, runtime.schemas)
             except Exception as e:
                 logger.warning(f"Failed to setup OpenAPI auto-enrichment: {e}")
 
