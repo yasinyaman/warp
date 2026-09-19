@@ -9,6 +9,7 @@ from warp.adapters.outbound.db.dialect import (
     MSSQL,
     MYSQL,
     ODBC,
+    ORACLE,
     POSTGRESQL,
     CommentQueries,
     Dialect,
@@ -193,3 +194,82 @@ class TestPaginationIsAlwaysInteger:
         assert "5" in dialect.sample_select("[t]", "5")  # type: ignore[arg-type]
         with pytest.raises((TypeError, ValueError)):
             dialect.sample_select("[t]", "5; DROP TABLE t")  # type: ignore[arg-type]
+
+
+class TestIdentifierCase:
+    """Quoting makes a name case-sensitive, so it must match how the engine stored it."""
+
+    @pytest.mark.parametrize("dialect", [POSTGRESQL, MYSQL, MSSQL, ODBC])
+    def test_existing_dialects_preserve_case(self, dialect):
+        assert dialect.identifier_case == "preserve"
+        assert dialect.fold_identifier("Users") == "Users"
+        open_q, close_q = dialect.quote_chars
+        assert dialect.quote("users") == f"{open_q}users{close_q}"
+        assert dialect.quote("Users") == f"{open_q}Users{close_q}"
+
+    def test_oracle_folds_to_upper(self):
+        # Oracle stores unquoted identifiers upper-cased, so "users" would not
+        # resolve against a table created as `users`.
+        assert ORACLE.identifier_case == "upper"
+        assert ORACLE.fold_identifier("users") == "USERS"
+        assert ORACLE.quote("users") == '"USERS"'
+        assert ORACLE.quote("Order_Items") == '"ORDER_ITEMS"'
+
+    def test_folding_still_goes_through_the_sanitizer(self):
+        with pytest.raises(ValueError):
+            ORACLE.quote("users; DROP TABLE t")
+        with pytest.raises(ValueError):
+            ORACLE.quote('a" OR "1"="1')
+
+    def test_default_schema_is_folded_for_oracle_only(self):
+        # The schema is both a bound :schema value compared against
+        # ALL_TABLES.OWNER and a quoted identifier, so the two must agree.
+        assert ORACLE.default_schema("svc", {"schema": "hr"}) == "HR"
+        assert ORACLE.default_schema("appdb") == "APPDB"
+        assert POSTGRESQL.default_schema("mydb", {"schema": "Reporting"}) == "Reporting"
+        assert MYSQL.default_schema("MyDb") == "MyDb"
+
+
+class TestOracleDialect:
+    def test_registered(self):
+        assert get_dialect("oracle") is ORACLE
+        assert get_dialect("ORACLE") is ORACLE
+
+    def test_pagination_needs_no_filler(self):
+        # Oracle's row-limiting clause does not require an ORDER BY, and it
+        # rejects SQL Server's `ORDER BY (SELECT NULL)` filler outright.
+        assert ORACLE.unsorted_pagination_filler is None
+        assert ORACLE.order_and_limit("", 10, 5) == "OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY"
+        assert "SELECT NULL" not in ORACLE.order_and_limit("", 10, 0)
+        assert ORACLE.order_and_limit('ORDER BY "ID" DESC', 10, 5) == (
+            'ORDER BY "ID" DESC OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY'
+        )
+        assert ORACLE.order_and_limit("", None) == ""
+
+    def test_sample_style_is_independent_of_pagination(self):
+        # Oracle paginates like SQL Server but has no SELECT TOP (n).
+        assert ORACLE.limit_style == MSSQL.limit_style == "offset_fetch"
+        assert (
+            ORACLE.sample_select('"HR"."T"', 5) == 'SELECT * FROM "HR"."T" FETCH FIRST 5 ROWS ONLY'
+        )
+        assert "TOP" not in ORACLE.sample_select('"HR"."T"', 5)
+
+    def test_writes_refetch(self):
+        # `RETURNING ... INTO` binds output parameters, which the gateway
+        # interface cannot express, so Oracle re-selects like MySQL.
+        assert ORACLE.returning_style == "refetch"
+
+    def test_catalog_queries(self):
+        assert ORACLE.comment_queries is not None
+        assert ORACLE.comment_queries.scope_param == "schema"
+        assert "ALL_TAB_COMMENTS" in ORACLE.comment_queries.table
+        assert "ALL_COL_COMMENTS" in ORACLE.comment_queries.columns
+        assert ORACLE.row_count_sql is not None
+        assert "ALL_TABLES" in ORACLE.row_count_sql
+
+    def test_row_cap_is_still_an_integer(self):
+        assert "5" in ORACLE.sample_select('"T"', "5")  # type: ignore[arg-type]
+        with pytest.raises((TypeError, ValueError)):
+            ORACLE.sample_select('"T"', "5; DROP TABLE t")  # type: ignore[arg-type]
+        with pytest.raises((TypeError, ValueError)):
+            ORACLE.order_and_limit("", "7; DROP TABLE t")  # type: ignore[arg-type]

@@ -55,6 +55,14 @@ _KIND_BY_TYPE: dict[str, str] = {
     "longblob": "binary",
     "binary": "binary",
     "varbinary": "binary",
+    # Oracle. A NUMBER with no declared precision has no decimal128 that can
+    # hold it, so _arrow_type falls back to text for those columns.
+    "number": "decimal",
+    "binary_float": "float32",
+    "binary_double": "float64",
+    "raw": "binary",
+    "long raw": "binary",
+    "bfile": "binary",
 }
 _KIND_BY_UDT: dict[str, str] = {
     "bool": "bool",

@@ -14,9 +14,11 @@ ADAPTERS: dict[str, type[DatabaseAdapter]] = {
     "postgres": PostgreSQLAdapter,
     "mysql": MySQLAdapter,
     "mariadb": MySQLAdapter,
-    # ODBC (aioodbc/pyodbc): SQL Server profile and a generic best-effort profile.
+    # ODBC (aioodbc/pyodbc): SQL Server and Oracle profiles, plus a generic
+    # best-effort profile for every other ODBC data source.
     "mssql": ODBCAdapter,
     "sqlserver": ODBCAdapter,
+    "oracle": ODBCAdapter,
     "odbc": ODBCAdapter,
 }
 

@@ -336,8 +336,9 @@ async def test_row_estimates_from_pg_class(conn: AsyncMock) -> None:
     adapter = make_adapter(conn)
     estimates = await adapter.row_estimates(["users", "never_analyzed", "missing"])
     assert estimates == {"users": 1234, "never_analyzed": None, "missing": None}
-    sql, tables = conn.fetch.call_args.args
+    sql, schema, tables = conn.fetch.call_args.args
     assert "pg_class" in sql and "COUNT(*)" not in sql.upper()
+    assert schema == "public"
     assert tables == ["users", "never_analyzed", "missing"]
 
 
@@ -438,3 +439,44 @@ async def test_get_table_schema_marks_identity_columns(conn: AsyncMock) -> None:
     schema = await make_adapter(conn).get_table_schema("t")
     assert schema["columns"][0]["extra"] == "identity"
     assert "is_identity" in conn.fetch.call_args_list[0].args[0]
+
+
+class TestConfiguredSchema:
+    """`options.schema` used to be ignored here, while every other reader honoured it."""
+
+    def test_defaults_to_public(self) -> None:
+        assert PostgreSQLAdapter(CONFIG)._schema == "public"
+
+    def test_options_schema_wins(self) -> None:
+        config = {**CONFIG, "options": {"schema": "reporting"}}
+        assert PostgreSQLAdapter(config)._schema == "reporting"
+
+    @pytest.mark.asyncio
+    async def test_every_introspection_query_is_scoped(self, conn: AsyncMock) -> None:
+        config = {**CONFIG, "options": {"schema": "reporting"}}
+        adapter = PostgreSQLAdapter(config)
+        adapter._pool = FakePool(conn)
+        conn.fetch.return_value = []
+
+        await adapter.get_tables()
+        await adapter.get_table_schema("users")
+        await adapter.row_estimates(["users"])
+
+        assert conn.fetch.call_count == 6
+        for call in conn.fetch.call_args_list:
+            sql, *args = call.args
+            assert "'public'" not in sql
+            assert args[0] == "reporting"
+
+    @pytest.mark.asyncio
+    async def test_indexes_are_scoped_by_schema(self, conn: AsyncMock) -> None:
+        # The index query joined nothing to pg_namespace, so a same-named table
+        # in another schema contributed its indexes.
+        adapter = make_adapter(conn)
+        conn.fetch.return_value = []
+
+        await adapter.get_table_schema("users")
+
+        idx_sql = conn.fetch.call_args_list[3].args[0]
+        assert "pg_namespace" in idx_sql
+        assert "n.nspname = $1" in idx_sql

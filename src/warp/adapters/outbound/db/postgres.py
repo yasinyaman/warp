@@ -17,6 +17,13 @@ class PostgreSQLAdapter(DatabaseAdapter):
 
     _qb = SafeQueryBuilder(POSTGRESQL)
 
+    def __init__(self, config: dict[str, Any]):
+        """Resolve the schema to introspect from ``options.schema``."""
+        super().__init__(config)
+        self._schema = POSTGRESQL.default_schema(
+            str(config.get("database") or ""), config.get("options") or {}
+        )
+
     async def connect(self) -> None:
         """Create connection pool to PostgreSQL."""
         options = self.config.get("options", {})
@@ -39,16 +46,16 @@ class PostgreSQLAdapter(DatabaseAdapter):
             self._pool = None
 
     async def get_tables(self) -> list[str]:
-        """Get all table names from public schema."""
+        """Get all base table names from the configured schema."""
         query = """
             SELECT table_name
             FROM information_schema.tables
-            WHERE table_schema = 'public'
+            WHERE table_schema = $1
               AND table_type = 'BASE TABLE'
             ORDER BY table_name
         """
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(query)
+            rows = await conn.fetch(query, self._schema)
             return [row["table_name"] for row in rows]
 
     async def get_table_schema(self, table: str) -> dict[str, Any]:
@@ -75,11 +82,11 @@ class PostgreSQLAdapter(DatabaseAdapter):
                     c.numeric_scale,
                     c.is_identity
                 FROM information_schema.columns c
-                WHERE c.table_schema = 'public'
-                  AND c.table_name = $1
+                WHERE c.table_schema = $1
+                  AND c.table_name = $2
                 ORDER BY c.ordinal_position
             """
-            columns = await conn.fetch(columns_query, table)
+            columns = await conn.fetch(columns_query, self._schema, table)
 
             for col in columns:
                 schema["columns"].append(
@@ -107,11 +114,11 @@ class PostgreSQLAdapter(DatabaseAdapter):
                     ON tc.constraint_name = kcu.constraint_name
                     AND tc.table_schema = kcu.table_schema
                 WHERE tc.constraint_type = 'PRIMARY KEY'
-                  AND tc.table_schema = 'public'
-                  AND tc.table_name = $1
+                  AND tc.table_schema = $1
+                  AND tc.table_name = $2
                 ORDER BY kcu.ordinal_position
             """
-            pk_cols = await conn.fetch(pk_query, table)
+            pk_cols = await conn.fetch(pk_query, self._schema, table)
             if pk_cols:
                 pk_columns = [row["column_name"] for row in pk_cols]
                 schema["primary_key"] = pk_columns[0] if len(pk_columns) == 1 else pk_columns
@@ -131,10 +138,10 @@ class PostgreSQLAdapter(DatabaseAdapter):
                     ON ccu.constraint_name = tc.constraint_name
                     AND ccu.table_schema = tc.table_schema
                 WHERE tc.constraint_type = 'FOREIGN KEY'
-                  AND tc.table_schema = 'public'
-                  AND tc.table_name = $1
+                  AND tc.table_schema = $1
+                  AND tc.table_name = $2
             """
-            fks = await conn.fetch(fk_query, table)
+            fks = await conn.fetch(fk_query, self._schema, table)
             for fk in fks:
                 schema["foreign_keys"].append(
                     {
@@ -156,12 +163,14 @@ class PostgreSQLAdapter(DatabaseAdapter):
                 JOIN pg_index ix ON t.oid = ix.indrelid
                 JOIN pg_class i ON i.oid = ix.indexrelid
                 JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+                JOIN pg_namespace n ON n.oid = t.relnamespace
                 WHERE t.relkind = 'r'
-                  AND t.relname = $1
+                  AND n.nspname = $1
+                  AND t.relname = $2
                   AND NOT ix.indisprimary
                 ORDER BY i.relname, a.attnum
             """
-            indexes = await conn.fetch(idx_query, table)
+            indexes = await conn.fetch(idx_query, self._schema, table)
 
             # Group index columns
             idx_map = {}
@@ -183,12 +192,12 @@ class PostgreSQLAdapter(DatabaseAdapter):
             SELECT c.relname AS table_name, c.reltuples AS estimate
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = 'public'
+            WHERE n.nspname = $1
               AND c.relkind IN ('r', 'p')
-              AND c.relname = ANY($1::text[])
+              AND c.relname = ANY($2::text[])
         """
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(query, list(tables))
+            rows = await conn.fetch(query, self._schema, list(tables))
         found = {
             row["table_name"]: (None if row["estimate"] < 0 else int(row["estimate"]))
             for row in rows

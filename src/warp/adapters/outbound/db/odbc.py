@@ -65,16 +65,23 @@ def build_connection_string(config: Mapping[str, Any]) -> str:
     ``username``/``password`` are appended when it carries no ``UID``, so the
     read-only credentials of the raw SQL endpoint still apply). Otherwise the
     SQL Server profile assembles ``DRIVER``/``SERVER``/``DATABASE``/``UID``/
-    ``PWD``/``Encrypt``/``TrustServerCertificate`` and the generic profile
-    requires ``options.driver``. ``options.extra`` is appended as raw
-    ``Key=Value;`` pairs.
+    ``PWD``/``Encrypt``/``TrustServerCertificate``, Oracle assembles
+    ``DRIVER``/``DBQ``/``UID``/``PWD``, and the generic profile requires
+    ``options.driver``. ``options.extra`` is appended as raw ``Key=Value;``
+    pairs.
+
+    Oracle is the odd one out: its driver takes an Easy Connect descriptor in
+    ``DBQ`` (``host:port/service``) and has no ``SERVER``/``DATABASE`` pair, so
+    the SQL Server spelling reaches it as ORA-12162.
 
     Raises:
         ValueError: For a generic ODBC config without ``driver`` or
             ``connection_string``.
     """
     options: Mapping[str, Any] = config.get("options") or {}
-    is_mssql = str(config.get("type", "odbc")).lower() in ("mssql", "sqlserver")
+    db_type = str(config.get("type", "odbc")).lower()
+    is_mssql = db_type in ("mssql", "sqlserver")
+    is_oracle = db_type == "oracle"
     parts: list[str] = []
 
     verbatim = options.get("connection_string")
@@ -94,9 +101,15 @@ def build_connection_string(config: Mapping[str, Any]) -> str:
         parts.append(f"DRIVER={{{str(driver).strip('{}')}}}")
         host = config.get("host") or "localhost"
         port = config.get("port")
-        parts.append(f"SERVER={_odbc_value(f'{host},{port}' if port else host)}")
-        if config.get("database"):
-            parts.append(f"DATABASE={_odbc_value(config['database'])}")
+        if is_oracle:
+            # Easy Connect: host:port/service_name. `database` is the service.
+            target = f"{host}:{port}" if port else str(host)
+            service = config.get("database")
+            parts.append(f"DBQ={_odbc_value(f'{target}/{service}' if service else target)}")
+        else:
+            parts.append(f"SERVER={_odbc_value(f'{host},{port}' if port else host)}")
+            if config.get("database"):
+                parts.append(f"DATABASE={_odbc_value(config['database'])}")
         if config.get("username"):
             parts.append(f"UID={_odbc_value(config['username'])}")
             parts.append(f"PWD={_odbc_value(config.get('password') or '')}")
@@ -169,6 +182,38 @@ def _mssql_full_type(
     return data_type
 
 
+def _as_int(value: Any) -> int | None:
+    """Oracle reports catalog numbers as NUMBER, which pyodbc hands back as float.
+
+    Lengths, precisions and scales are whole numbers everywhere else and are
+    typed that way downstream (``pa.decimal128`` will not take a float), so
+    they are narrowed here rather than leaking ``varchar2(50.0)`` into a type
+    name.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _oracle_full_type(
+    data_type: str, max_length: int | None, precision: int | None, scale: int | None
+) -> str:
+    """Render an Oracle type with its length or precision.
+
+    A ``NUMBER`` with no declared precision is Oracle's arbitrary-precision
+    type; it stays bare, which is what tells the Arrow exporter it has no
+    ``decimal128`` mapping.
+    """
+    if data_type in {"varchar2", "nvarchar2", "char", "nchar", "raw"} and max_length:
+        return f"{data_type}({max_length})"
+    if data_type == "number" and precision is not None:
+        return f"{data_type}({precision},{scale or 0})"
+    return data_type
+
+
 # --- SQL Server introspection --------------------------------------------------------
 
 _MSSQL_TABLES_SQL = """
@@ -226,6 +271,100 @@ WHERE s.name = ? AND t.name = ?
 ORDER BY fk.name, fkc.constraint_column_id
 """
 
+_ORACLE_TABLES_SQL = """
+SELECT TABLE_NAME AS "table_name"
+FROM ALL_TABLES
+WHERE OWNER = ?
+ORDER BY TABLE_NAME
+"""
+
+# IDENTITY_COLUMN and DEFAULT_ON_NULL arrived in 12c; older servers raise
+# ORA-00904 for them, which _oracle_columns turns into the 11g fallback below.
+_ORACLE_COLUMNS_SQL = """
+SELECT
+    COLUMN_NAME AS "column_name",
+    DATA_TYPE AS "data_type",
+    NULLABLE AS "nullable",
+    DATA_DEFAULT AS "column_default",
+    CHAR_LENGTH AS "max_length",
+    DATA_PRECISION AS "numeric_precision",
+    DATA_SCALE AS "numeric_scale",
+    IDENTITY_COLUMN AS "is_identity",
+    VIRTUAL_COLUMN AS "is_virtual"
+FROM ALL_TAB_COLS
+WHERE OWNER = ? AND TABLE_NAME = ? AND HIDDEN_COLUMN = 'NO'
+ORDER BY COLUMN_ID
+"""
+
+_ORACLE_COLUMNS_LEGACY_SQL = """
+SELECT
+    COLUMN_NAME AS "column_name",
+    DATA_TYPE AS "data_type",
+    NULLABLE AS "nullable",
+    DATA_DEFAULT AS "column_default",
+    CHAR_LENGTH AS "max_length",
+    DATA_PRECISION AS "numeric_precision",
+    DATA_SCALE AS "numeric_scale",
+    'NO' AS "is_identity",
+    'NO' AS "is_virtual"
+FROM ALL_TAB_COLUMNS
+WHERE OWNER = ? AND TABLE_NAME = ?
+ORDER BY COLUMN_ID
+"""
+
+_ORACLE_PRIMARY_KEY_SQL = """
+SELECT acc.COLUMN_NAME AS "column_name"
+FROM ALL_CONSTRAINTS ac
+JOIN ALL_CONS_COLUMNS acc
+  ON acc.OWNER = ac.OWNER AND acc.CONSTRAINT_NAME = ac.CONSTRAINT_NAME
+WHERE ac.CONSTRAINT_TYPE = 'P' AND ac.OWNER = ? AND ac.TABLE_NAME = ?
+ORDER BY acc.POSITION
+"""
+
+# Oracle foreign keys point at the *constraint* they reference (R_CONSTRAINT_NAME),
+# so the referenced table/column come from a second hop through ALL_CONS_COLUMNS.
+_ORACLE_FOREIGN_KEYS_SQL = """
+SELECT
+    acc.COLUMN_NAME AS "column_name",
+    rcc.TABLE_NAME AS "foreign_table",
+    rcc.COLUMN_NAME AS "foreign_column",
+    ac.CONSTRAINT_NAME AS "constraint_name"
+FROM ALL_CONSTRAINTS ac
+JOIN ALL_CONS_COLUMNS acc
+  ON acc.OWNER = ac.OWNER AND acc.CONSTRAINT_NAME = ac.CONSTRAINT_NAME
+JOIN ALL_CONS_COLUMNS rcc
+  ON rcc.OWNER = ac.R_OWNER AND rcc.CONSTRAINT_NAME = ac.R_CONSTRAINT_NAME
+ AND rcc.POSITION = acc.POSITION
+WHERE ac.CONSTRAINT_TYPE = 'R' AND ac.OWNER = ? AND ac.TABLE_NAME = ?
+ORDER BY ac.CONSTRAINT_NAME, acc.POSITION
+"""
+
+_ORACLE_INDEXES_SQL = """
+SELECT ai.INDEX_NAME AS "index_name", aic.COLUMN_NAME AS "column_name", ai.UNIQUENESS AS "uniqueness"
+FROM ALL_INDEXES ai
+JOIN ALL_IND_COLUMNS aic
+  ON aic.INDEX_OWNER = ai.OWNER AND aic.INDEX_NAME = ai.INDEX_NAME
+WHERE ai.TABLE_OWNER = ? AND ai.TABLE_NAME = ?
+  AND NOT EXISTS (
+      SELECT 1 FROM ALL_CONSTRAINTS ac
+      WHERE ac.OWNER = ai.OWNER AND ac.CONSTRAINT_NAME = ai.INDEX_NAME
+        AND ac.CONSTRAINT_TYPE = 'P'
+  )
+ORDER BY ai.INDEX_NAME, aic.COLUMN_POSITION
+"""
+
+_ORACLE_IDENTITY_SQL = """
+SELECT COLUMN_NAME AS "column_name", SEQUENCE_NAME AS "sequence_name"
+FROM ALL_TAB_IDENTITY_COLS
+WHERE OWNER = ? AND TABLE_NAME = ?
+"""
+
+_ORACLE_ROW_ESTIMATES_SQL = """
+SELECT TABLE_NAME AS "table_name", NUM_ROWS AS "row_count"
+FROM ALL_TABLES
+WHERE OWNER = ? AND TABLE_NAME IN ({placeholders})
+"""
+
 _MSSQL_INDEXES_SQL = """
 SELECT i.name AS index_name, c.name AS column_name, i.is_unique AS is_unique
 FROM sys.indexes i
@@ -248,12 +387,19 @@ class ODBCAdapter(DatabaseAdapter):
         self.dialect: Dialect = get_dialect(str(config.get("type") or "odbc"))
         self._qb = SafeQueryBuilder(self.dialect)
         self._mssql = self.dialect.name == "mssql"
+        self._oracle = self.dialect.name == "oracle"
         self._schema = self.dialect.default_schema(
             str(config.get("database") or ""), config.get("options") or {}
         )
+        # Oracle's schema is the connecting user, not the database (which is a
+        # service name). Resolved from the session in connect() unless the
+        # config named one explicitly.
+        self._resolve_schema = self._oracle and not (config.get("options") or {}).get("schema")
         # Tables where OUTPUT failed with error 334 (triggers): use re-selects.
         self._output_disabled: set[str] = set()
         self._pk_cache: dict[str, str | None] = {}
+        self._identity_sequences: dict[str, str | None] = {}
+        self._warned_inexact: set[str] = set()
 
     # --- lifecycle ----------------------------------------------------------
 
@@ -276,6 +422,24 @@ class ODBCAdapter(DatabaseAdapter):
             autocommit=True,
             after_created=configure_mssql_connection if self._mssql else None,
         )
+        if self._resolve_schema:
+            await self._adopt_session_schema()
+
+    async def _adopt_session_schema(self) -> None:
+        """Use the connected Oracle user as the schema to introspect.
+
+        Oracle's `database` is a service name, so the generic "database name is
+        the schema" fallback is wrong here. Degrades to whatever was configured
+        rather than failing the connection.
+        """
+        try:
+            rows, _ = await self._execute("SELECT USER AS username FROM DUAL")
+        except Exception as e:  # pragma: no cover - driver-specific
+            logger.warning(f"Could not resolve the Oracle session schema: {e}")
+            return
+        if rows:
+            self._schema = str(next(iter(rows[0].values()))).upper()
+            logger.debug(f"Oracle schema resolved from the session: {self._schema}")
 
     async def disconnect(self) -> None:
         """Close the connection pool."""
@@ -314,6 +478,9 @@ class ODBCAdapter(DatabaseAdapter):
         if self._mssql:
             rows, _ = await self._execute(_MSSQL_TABLES_SQL, [self._schema])
             return [str(row["table_name"]) for row in rows]
+        if self._oracle:
+            rows, _ = await self._execute(_ORACLE_TABLES_SQL, [self._schema])
+            return [str(row["table_name"]) for row in rows]
         async with self._pool.acquire() as conn, conn.cursor() as cur:
             await cur.tables(schema=self._schema or None, tableType="TABLE")
             rows = await cur.fetchall()
@@ -323,7 +490,110 @@ class ODBCAdapter(DatabaseAdapter):
         """Columns, primary key, foreign keys and indexes of a table."""
         if self._mssql:
             return await self._mssql_table_schema(table)
+        if self._oracle:
+            return await self._oracle_table_schema(table)
         return await self._generic_table_schema(table)
+
+    async def _oracle_table_schema(self, table: str) -> dict[str, Any]:
+        scope = [self._schema, self.dialect.fold_identifier(table)]
+        columns = await self._oracle_columns(scope)
+        pk_rows, _ = await self._execute(_ORACLE_PRIMARY_KEY_SQL, scope)
+        fk_rows, _ = await self._execute(_ORACLE_FOREIGN_KEYS_SQL, scope)
+        idx_rows, _ = await self._execute(_ORACLE_INDEXES_SQL, scope)
+
+        pk_columns = [str(row["column_name"]) for row in pk_rows]
+        built = [self._oracle_column(col, col["column_name"] in pk_columns) for col in columns]
+        self._warn_about_inexact_numbers(table, built)
+        return {
+            "table_name": table,
+            "columns": built,
+            "primary_key": self._primary_key_value(pk_columns),
+            "foreign_keys": [
+                {
+                    "column": fk["column_name"],
+                    "references_table": fk["foreign_table"],
+                    "references_column": fk["foreign_column"],
+                    "constraint_name": fk["constraint_name"],
+                }
+                for fk in fk_rows
+            ],
+            "indexes": self._group_indexes(
+                (
+                    str(row["index_name"]),
+                    str(row["column_name"]),
+                    str(row["uniqueness"]).upper() == "UNIQUE",
+                )
+                for row in idx_rows
+            ),
+        }
+
+    def _warn_about_inexact_numbers(self, table: str, columns: list[dict[str, Any]]) -> None:
+        """Say once, per table, which columns cannot round-trip exactly.
+
+        An Oracle ``NUMBER`` with no declared precision arrives as an IEEE
+        double, so an id past 2**53 comes back rounded and there is no later
+        point at which the real value could be recovered. Declaring the
+        precision (``NUMBER(38)``) makes the driver hand over an exact
+        ``Decimal`` instead, which is why this names the fix rather than just
+        reporting the problem.
+        """
+        lossy = [str(col["name"]) for col in columns if col.get("inexact")]
+        if not lossy or table in self._warned_inexact:
+            return
+        self._warned_inexact.add(table)
+        logger.warning(
+            "%s.%s: %s declared as NUMBER without a precision. The ODBC driver "
+            "returns these as floating point, so values above 2^53 lose "
+            "precision before Warp sees them. Declare a precision "
+            "(e.g. NUMBER(38)) to get exact values.",
+            self._schema,
+            table,
+            ", ".join(lossy),
+        )
+
+    async def _oracle_columns(self, scope: Sequence[Any]) -> list[dict[str, Any]]:
+        """Columns of a table, falling back to the pre-12c catalog view."""
+        try:
+            rows, _ = await self._execute(_ORACLE_COLUMNS_SQL, scope)
+            return rows
+        except Exception as e:
+            if "ORA-00904" not in str(e):
+                raise
+            logger.debug("Oracle identity columns unavailable (pre-12c); using ALL_TAB_COLUMNS")
+            rows, _ = await self._execute(_ORACLE_COLUMNS_LEGACY_SQL, scope)
+            return rows
+
+    @staticmethod
+    def _oracle_column(col: Mapping[str, Any], is_pk: bool) -> dict[str, Any]:
+        data_type = str(col["data_type"]).lower()
+        extra = None
+        if str(col.get("is_identity") or "NO").upper() == "YES":
+            extra = "identity"
+        elif str(col.get("is_virtual") or "NO").upper() == "YES":
+            extra = "computed"
+        precision = _as_int(col.get("numeric_precision"))
+        scale = _as_int(col.get("numeric_scale"))
+        max_length = _as_int(col.get("max_length"))
+        lossy = data_type == "number" and precision is None
+        return {
+            "name": col["column_name"],
+            "type": data_type,
+            "full_type": _oracle_full_type(data_type, max_length, precision, scale),
+            # Oracle spells nullability 'Y'/'N', and has no separate empty string:
+            # '' IS NULL is true, so a NOT NULL varchar2 really is non-empty.
+            "nullable": str(col["nullable"]).upper() == "Y",
+            "default": _strip_default(col.get("column_default")),
+            "max_length": max_length,
+            "precision": precision,
+            "scale": scale,
+            "key": "PRI" if is_pk else None,
+            "extra": extra,
+            # An undeclared NUMBER is handed over as an IEEE double by the
+            # driver, so values past 2**53 are already rounded before Python
+            # ever sees them. Nothing downstream can undo that, so the column
+            # is flagged and the adapter says so once, at startup.
+            "inexact": lossy,
+        }
 
     async def _mssql_table_schema(self, table: str) -> dict[str, Any]:
         scope = [self._schema, table]
@@ -521,7 +791,9 @@ class ODBCAdapter(DatabaseAdapter):
 
         sql, values = self._qb.build_insert(table, data, returning=False)
         new_id: Any = None
-        if self._mssql:
+        if self._oracle:
+            new_id = await self._oracle_insert(table, sql, values)
+        elif self._mssql:
             # NOCOUNT keeps the INSERT from producing a result set, so the only
             # one is the SELECT; it is switched back so later rowcounts work.
             batch = (
@@ -539,6 +811,43 @@ class ODBCAdapter(DatabaseAdapter):
             return dict(data)
         row = await self.select_by_id(table, pk, key)
         return row if row is not None else dict(data)
+
+    async def _oracle_insert(self, table: str, sql: str, values: Sequence[Any]) -> Any:
+        """Insert, then read the identity column's new value.
+
+        Oracle has no ``RETURNING`` this gateway can consume — it binds output
+        parameters — so the generated key comes from the identity column's
+        sequence instead. ``CURRVAL`` is session state, so the INSERT and the
+        lookup must run on **one** pooled connection; splitting them across two
+        would read another session's value or raise ORA-08002.
+
+        Returns:
+            The new key, or ``None`` when the table has no identity column (the
+            caller then falls back to a key supplied in the data).
+        """
+        sequence = await self._oracle_identity_sequence(table)
+        async with self._pool.acquire() as conn, conn.cursor() as cur:
+            await cur.execute(sql, list(values))
+            if sequence is None:
+                return None
+            await cur.execute(f"SELECT {self.dialect.quote(sequence)}.CURRVAL FROM DUAL")
+            row = await cur.fetchone()
+        return row[0] if row else None
+
+    async def _oracle_identity_sequence(self, table: str) -> str | None:
+        """The sequence backing ``table``'s identity column, if it has one."""
+        folded = self.dialect.fold_identifier(table)
+        if folded in self._identity_sequences:
+            return self._identity_sequences[folded]
+        sequence: str | None = None
+        try:
+            rows, _ = await self._execute(_ORACLE_IDENTITY_SQL, [self._schema, folded])
+            if rows:
+                sequence = str(rows[0]["sequence_name"])
+        except Exception as e:  # pragma: no cover - pre-12c has no such view
+            logger.debug("No identity metadata for %s: %s", table, e)
+        self._identity_sequences[folded] = sequence
+        return sequence
 
     async def select(
         self,
@@ -588,12 +897,16 @@ class ODBCAdapter(DatabaseAdapter):
     async def row_estimates(self, tables: list[str]) -> dict[str, int | None]:
         """Row counts from the catalog views, never a ``COUNT(*)``.
 
-        SQL Server keeps per-partition counts in ``sys.partitions``; other ODBC
-        sources have no portable equivalent, so they report nothing.
+        SQL Server keeps per-partition counts in ``sys.partitions`` and Oracle
+        keeps ``ALL_TABLES.NUM_ROWS`` (as of the last statistics gather, so it
+        is NULL on a never-analysed table); other ODBC sources have no portable
+        equivalent, so they report nothing.
         """
         if not tables:
             return {}
         estimates: dict[str, int | None] = dict.fromkeys(tables)
+        if self._oracle:
+            return await self._oracle_row_estimates(tables, estimates)
         if not self._mssql:
             return estimates
         placeholders = ", ".join("?" for _ in tables)
@@ -611,6 +924,29 @@ class ODBCAdapter(DatabaseAdapter):
             name, count = str(values[0]), values[1]
             if name in estimates and count is not None:
                 estimates[name] = int(count)
+        return estimates
+
+    async def _oracle_row_estimates(
+        self, tables: list[str], estimates: dict[str, int | None]
+    ) -> dict[str, int | None]:
+        """Fill ``estimates`` from ``ALL_TABLES.NUM_ROWS``.
+
+        Table names are folded for the lookup and mapped back to the caller's
+        spelling, so a caller asking for ``users`` gets an answer even though
+        Oracle stores ``USERS``.
+        """
+        by_folded = {self.dialect.fold_identifier(name): name for name in tables}
+        placeholders = ", ".join("?" for _ in by_folded)
+        rows, _ = await self._execute(
+            _ORACLE_ROW_ESTIMATES_SQL.format(placeholders=placeholders),
+            [self._schema, *by_folded],
+        )
+        for row in rows:
+            values = list(row.values())
+            name, count = str(values[0]), values[1]
+            original = by_folded.get(name)
+            if original is not None and count is not None:
+                estimates[original] = int(count)
         return estimates
 
     async def select_by_id(

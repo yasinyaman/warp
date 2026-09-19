@@ -7,6 +7,7 @@ filter values and path ids without guessing from the shape of the text).
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, time
 from typing import Any
 from uuid import UUID
@@ -86,7 +87,20 @@ DB_TYPE_MAPPING: dict[str, Any] = {
     "nclob": str,
     "long": str,
     "raw": bytes,
+    "long raw": bytes,
+    "bfile": bytes,
+    "binary_float": float,
+    "binary_double": float,
+    "rowid": str,
+    "urowid": str,
+    "timestamp with local time zone": datetime,
 }
+
+# Oracle reports declared precision inside the type name itself
+# (``TIMESTAMP(6)``, ``TIMESTAMP(6) WITH TIME ZONE``, ``INTERVAL DAY(2) TO
+# SECOND(6)``), unlike every other engine here, which keeps precision in
+# separate catalog columns.
+_TYPE_PRECISION_RE = re.compile(r"\(\s*\d+(?:\s*,\s*\d+)?\s*\)")
 
 # Coarse classification used for value coercion at the API boundary.
 KIND_BY_PYTHON_TYPE: dict[Any, str] = {
@@ -126,6 +140,15 @@ def python_type_for(db_type: str, udt_name: str | None = None, full_type: str | 
     lowered = db_type.lower()
     if lowered in DB_TYPE_MAPPING:
         return DB_TYPE_MAPPING[lowered]
+
+    # Oracle bakes precision into the type name, so retry without it.
+    if "(" in lowered:
+        bare = _TYPE_PRECISION_RE.sub("", lowered).strip()
+        if bare in DB_TYPE_MAPPING:
+            return DB_TYPE_MAPPING[bare]
+        # INTERVAL DAY(2) TO SECOND(6), INTERVAL YEAR(4) TO MONTH
+        if bare.startswith("interval "):
+            return str
 
     if udt_name:
         udt = udt_name.lower()

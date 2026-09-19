@@ -123,16 +123,13 @@ class SampleReader:
 
                 stats = ColumnStats(column_name=col_name)
                 if rows:
-                    stats.distinct_count = (
-                        int(rows[0]["distinct_count"])
-                        if rows[0].get("distinct_count") is not None
-                        else None
-                    )
-                    stats.null_count = (
-                        int(rows[0]["null_count"])
-                        if rows[0].get("null_count") is not None
-                        else None
-                    )
+                    # Read by position: some drivers upper-case result names
+                    # (Oracle returns DISTINCT_COUNT for `as distinct_count`),
+                    # and the query selects exactly these two, in this order.
+                    values = list(rows[0].values())
+                    distinct, nulls = (values + [None, None])[:2]
+                    stats.distinct_count = int(distinct) if distinct is not None else None
+                    stats.null_count = int(nulls) if nulls is not None else None
 
                 result[col_name] = stats
 
