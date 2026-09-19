@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from warp.domain.errors import DatabaseNotConfiguredError
 from warp.domain.samples import DEFAULT_PII_PATTERNS
@@ -152,6 +152,28 @@ class MaskingConfig(BaseModel):
         for rules in self.by_role.values():
             used |= set(rules.values())
         return used
+
+    @model_validator(mode="after")
+    def _hash_needs_a_key(self) -> "MaskingConfig":
+        """Refuse a `hash` rule with no key, where the configuration is read.
+
+        Checked here rather than where masking is applied, so it does not
+        depend on the environment or on `auto_discover_tables` being on. An
+        unkeyed digest of enumerable data is reversible, and the two ways of
+        carrying on — skipping the rule, or hashing unkeyed — would both
+        return readable PII while reporting that it was masked.
+
+        Raises:
+            ValueError: Naming the setting that is missing.
+        """
+        if self.enabled and "hash" in self.strategies and not self.hash_secret:
+            raise ValueError(
+                "masking uses the 'hash' strategy but masking.hash_secret is not set. "
+                "An unkeyed digest of an email or a national id is reversible by "
+                "enumeration, so there is no safe default. Set masking.hash_secret, "
+                "or use redact/partial/last4/null."
+            )
+        return self
 
 
 class AuditConfig(BaseModel):
@@ -368,16 +390,12 @@ def validate_production_config(
             "authentication or remove the row filters."
         )
 
+    # A *missing* key is refused when the configuration is parsed, by
+    # MaskingConfig itself. What is left for production is whether the key that
+    # is there is strong enough to be worth having.
     if cfg.masking.enabled and "hash" in cfg.masking.strategies:
         secret = cfg.masking.hash_secret or ""
-        if not secret:
-            violations.append(
-                "masking rules use the 'hash' strategy with no masking.hash_secret: "
-                "an unkeyed digest of an email or a national id is reversible by "
-                "enumeration, so the column would not actually be masked. Set "
-                "masking.hash_secret, or use redact/partial/last4/null."
-            )
-        elif len(secret) < MIN_HASH_SECRET_LENGTH:
+        if secret and len(secret) < MIN_HASH_SECRET_LENGTH:
             violations.append(
                 f"masking.hash_secret is shorter than {MIN_HASH_SECRET_LENGTH} "
                 f"characters: a guessable key is the same exposure as no key. "

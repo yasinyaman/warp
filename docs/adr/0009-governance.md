@@ -116,10 +116,13 @@ problem into an outage.
 
 ## Consequences
 
-- Masking configured with a `hash` rule and no `masking.hash_secret` refuses
-  startup, in every environment rather than only production — an unusable
-  strategy is a configuration error wherever it is found. Production
-  additionally refuses a secret short enough to be guessed.
+- Masking configured with a `hash` rule and no `masking.hash_secret` is
+  refused by `MaskingConfig` itself, so it fails where the configuration is
+  read rather than where masking is applied. That matters because the
+  application point sits behind `auto_discover_tables`: validating there would
+  have made the refusal depend on an unrelated feature flag and on the
+  environment. Production additionally refuses a secret short enough to be
+  guessed, which is a question about strength rather than presence.
 - Row rules mean nothing without authentication, so `auth.enabled: false` with
   `row_filters` configured refuses startup in production. The same hazard
   exists for a data path listed in `auth.public_paths`, which the README warns

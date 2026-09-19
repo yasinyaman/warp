@@ -270,11 +270,13 @@ Two things to know:
 - **A mask has to fit the column.** The text strategies need a text column and
   `null` needs a nullable one, or the response could not carry the result.
   Anything that does not fit is reported at startup, naming the column.
-- **`hash` refuses to run without a key.** Masking configured with a `hash`
-  rule and no `masking.hash_secret` fails startup rather than falling back to
-  an unkeyed digest or quietly skipping the rule — both would return readable
-  PII while reporting that it was masked. In production a secret shorter than
-  32 characters is also refused.
+- **`hash` refuses to load without a key.** Masking configured with a `hash`
+  rule and no `masking.hash_secret` fails when the configuration is *read*,
+  whatever the environment and whether or not table discovery is on. Neither
+  way of carrying on is available: falling back to an unkeyed digest is the
+  same exposure under a safer name, and skipping the rule returns readable PII
+  while reporting that it was masked. In production a secret shorter than 32
+  characters is refused too.
 
 ### Audit trail
 

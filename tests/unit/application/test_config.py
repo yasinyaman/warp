@@ -462,22 +462,36 @@ class TestHashMaskingNeedsAKey:
             setattr(s.settings.masking, name, value)
         return s
 
-    def test_hash_without_a_secret_is_a_violation(self):
-        from warp.application.config import validate_production_config
+    def test_hash_without_a_secret_will_not_parse(self):
+        """Refused where the configuration is read, not where it is applied.
 
-        settings = self._with_masking(rules={"email": "hash"})
-        violations = validate_production_config(settings, "production", ["https://a"])
-        assert any("hash_secret" in v for v in violations)
+        Checking it inside `_masking_for` made the refusal depend on
+        `auto_discover_tables` being on and on the environment being
+        production; a misconfiguration is neither.
+        """
+        from pydantic import ValidationError
 
-    def test_hash_hidden_in_by_role_is_a_violation_too(self):
+        from warp.application.config import MaskingConfig
+
+        with pytest.raises(ValidationError, match="hash_secret"):
+            MaskingConfig(enabled=True, rules={"email": "hash"})
+
+    def test_hash_hidden_in_by_role_will_not_parse_either(self):
         """`by_role` is the source that gets forgotten."""
-        from warp.application.config import validate_production_config
+        from pydantic import ValidationError
 
-        settings = self._with_masking(
-            rules={"email": "redact"}, by_role={"support": {"phone": "hash"}}
-        )
-        violations = validate_production_config(settings, "production", ["https://a"])
-        assert any("hash_secret" in v for v in violations)
+        from warp.application.config import MaskingConfig
+
+        with pytest.raises(ValidationError, match="hash_secret"):
+            MaskingConfig(
+                enabled=True, rules={"email": "redact"}, by_role={"support": {"phone": "hash"}}
+            )
+
+    def test_a_hash_rule_is_fine_while_masking_is_off(self):
+        """Nothing is masked, so nothing needs a key."""
+        from warp.application.config import MaskingConfig
+
+        assert MaskingConfig(enabled=False, rules={"email": "hash"}).hash_secret is None
 
     def test_hash_with_a_secret_is_fine(self):
         from warp.application.config import validate_production_config
