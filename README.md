@@ -407,12 +407,26 @@ Warp auto-generates these for each discovered table:
 
 ```bash
 GET    /api/v1/{table}        # List records (paginated, filtered, sorted)
-GET    /api/v1/{table}/{id}   # Get single record
+GET    /api/v1/{table}/{key}  # Get single record
 POST   /api/v1/{table}        # Create record
-PUT    /api/v1/{table}/{id}   # Update record
-PATCH  /api/v1/{table}/{id}   # Partial update record
-DELETE /api/v1/{table}/{id}   # Delete record
+PUT    /api/v1/{table}/{key}  # Update record
+PATCH  /api/v1/{table}/{key}  # Partial update record
+DELETE /api/v1/{table}/{key}  # Delete record
 ```
+
+`{key}` is **one path segment per primary-key column, named after the column**,
+and the arity is fixed at startup from the schema — a call with the wrong
+number of segments matches no route at all:
+
+```bash
+GET    /api/v1/users/42             # PRIMARY KEY (id)          -> /{id}
+GET    /api/v1/orders/1001          # PRIMARY KEY (order_id)    -> /{order_id}
+DELETE /api/v1/order_lines/5/2      # PRIMARY KEY (order_id, line_no)
+```
+
+A table **with no primary key gets no key-addressed routes**: only the list and
+create endpoints are generated for it. It used to receive routes built on a
+fabricated `id` column, which reached the database and failed there.
 
 Every table is always reachable under `/api/v1/{db_name}/{table}`. With a
 single configured database the bare `/api/v1/{table}` form is kept as an alias
@@ -624,7 +638,14 @@ This ensures user edits survive across schema changes and LLM re-analysis.
 
 ## OpenAPI Enrichment
 
-After catalog analysis and approval, Warp automatically enriches the OpenAPI spec (`/openapi.json`) with all catalog metadata. This makes the API self-documenting for both humans and LLMs. Only **approved** catalogs are published; the context is refreshed after analyze/approve/delete, and several databases are merged into one `x-llm-context` (`{"databases": [...]}`).
+Warp enriches the OpenAPI spec (`/openapi.json`) with catalog metadata, which makes the API self-documenting for both humans and LLMs. The context is refreshed after analyze/approve/delete, and several databases are merged into one `x-llm-context` (`{"databases": [...]}`).
+
+The extension has two halves and they arrive at different times:
+
+- **Structure is published from the first startup**, with no catalog and no LLM pass at all. Column types, the whole composite primary key, foreign keys with their targets and nullability come from the engine's own catalog — exactly, and for nothing. A consumer can see that `musteri_id` points at another table without waiting for a model.
+- **Descriptions, human names and semantic types** need a model and a reviewer, so they appear only once a catalog is **approved**. A draft publishes none of them.
+
+The structural stand-in is deliberately **not** marked approved and carries **no** semantic types, so nothing that gates on review can be satisfied by it — masking in particular reads only an approved catalog and keys on semantic types.
 
 Real sample values are **not** written into the spec unless `catalog.openapi_include_examples: true` (they may contain personal data), and `/openapi.json` is served through the auth manager — see the production checklist below.
 

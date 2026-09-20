@@ -24,12 +24,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   restrict nothing.
 - **Column masking, keyed by the catalog's semantic types** rather than by
   column name, so a newly labelled PII column is masked as soon as it is
-  discovered. Strategies: `partial`, `last4`, `hash` (stable but not
-  reversible), `redact`, `null`; a `NULL` stays `NULL`. Per-role overrides and
+  discovered. Strategies: `partial`, `last4`, `hash` (a keyed pseudonym — see
+  below), `redact`, `null`; a `NULL` stays `NULL`. Per-role overrides and
   exempt roles are supported. Applied to both row-carrying exits — CRUD
   responses and `/export` in all three formats. Only an *approved* catalog is
   used, and a mask that could not produce a value the response can carry (text
   on a numeric column, `null` on `NOT NULL`) is reported at startup.
+- **`hash` is a keyed pseudonym, and it refuses to run without a key.** The
+  strategy exists so the same value masks the same way in every row and every
+  export, which is what keeps a masked column joinable — and that stability is
+  exactly what makes an unkeyed digest reversible for an enumerable domain. A
+  national id or an email has a small enough space to walk offline. It is now
+  `BLAKE2b` keyed with `masking.hash_secret` (`WARP_MASKING_HASH_SECRET`),
+  truncated to 128 bits. A `hash` rule with no secret fails where the
+  configuration is *read*, in `rules` and in `by_role` alike, so the strategy
+  can never quietly fall back to an unkeyed digest or to no masking at all; a
+  secret shorter than 32 characters is a production violation. The key is an
+  operator's to hold and to keep away from the exports — rotating it breaks
+  correlation with older ones, which is the price of the stability.
+- **Schema structure is published without waiting for the catalog.**
+  `x-llm-context` used to be built entirely from the catalog, so a database
+  with no approved one published nothing — including the half that was never
+  the model's to say. Column types, the whole primary key, foreign keys with
+  their targets and nullability come from the engine's own catalog, exactly
+  and for nothing; only descriptions, human names and semantic types need a
+  model and a reviewer. Enrichment now falls back to a structural catalog
+  built from the schema already cached at startup, so a consumer can see that
+  `urun_id` points at `urunler` on day one. The stand-in is deliberately left
+  unapproved and carries no semantic types, so nothing that gates on review —
+  masking above all — can be satisfied by it.
 - **An audit trail.** One append-only event per data-touching request —
   actor, tenant, roles, action, database, table, row count, status, request id
   — recording **whether a row filter applied and which columns were masked**,
@@ -47,6 +70,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built during authentication never reached a route before.
 
 ### Fixed
+
+- **A row is addressed by its whole primary key, not by its first column.**
+  `TableSchema.pk_column` answered the *first* column of a composite key and
+  every key-addressed statement was built from that one column alone, with no
+  row limit — so `DELETE /siparis_satirlari/5` emitted
+  `DELETE FROM "siparis_satirlari" WHERE "siparis_id" = $1` and removed **every
+  line of order 5**, answering `204` as if it had removed one. `UPDATE` did the
+  same. On an ERP schema that is most of the line-item tables. Discovery was
+  already correct — `primary_key` has always carried the full key — so the key
+  was only ever lost on the way out; it now travels through the
+  `DatabaseGateway` port, the three adapters and the query builder, which emits
+  `a = $1 AND b = $2`. An empty key raises rather than producing a statement
+  with no `WHERE` at all.
+
+  Two changes are visible to clients. Key-addressed routes carry **one path
+  segment per key column, named after the column** — `/{siparis_id}/{satir_no}`
+  — so a single-key table keeps the same URL shape but its path *parameter* is
+  now the real column name instead of `id`, which is also what a spec reader
+  and a generated MCP tool see. And a table with **no primary key registers no
+  key-addressed routes at all**; it used to get routes built on a fabricated
+  `id` column, which reached the database and failed there.
 
 - `MockDatabaseAdapter.select` in the test suite ignored its `filters`
   argument, so every route test that exercised `filter[column][op]` only
