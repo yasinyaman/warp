@@ -171,3 +171,69 @@ async def test_an_undeclared_number_cannot_round_trip(oracle_gateway: DatabaseGa
 
     for name in ("bare_number", "exact_number"):
         await oracle_gateway.execute_query(f"DROP TABLE {name}")
+
+
+@pytest.fixture
+async def order_lines(oracle_gateway: DatabaseGateway):
+    """A composite primary key, which on an ERP schema most line tables have.
+
+    Oracle has no `DROP TABLE IF EXISTS` and no multi-row `VALUES` list, so:
+    the PL/SQL drop conftest already uses (-942 is "table does not exist"),
+    and `INSERT ALL`.
+    """
+    drop = (
+        "BEGIN EXECUTE IMMEDIATE 'DROP TABLE siparis_satirlari CASCADE CONSTRAINTS'; "
+        "EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;"
+    )
+    await oracle_gateway.execute_query(drop)
+    await oracle_gateway.execute_query(
+        "CREATE TABLE siparis_satirlari ("
+        "siparis_id NUMBER NOT NULL, satir_no NUMBER NOT NULL, "
+        "urun VARCHAR2(50) NOT NULL, adet NUMBER NOT NULL, "
+        "PRIMARY KEY (siparis_id, satir_no))"
+    )
+    await oracle_gateway.execute_query(
+        "INSERT ALL "
+        "INTO siparis_satirlari VALUES (5, 1, 'a', 1) "
+        "INTO siparis_satirlari VALUES (5, 2, 'b', 2) "
+        "INTO siparis_satirlari VALUES (5, 3, 'c', 3) "
+        "INTO siparis_satirlari VALUES (6, 1, 'd', 4) "
+        "SELECT * FROM dual"
+    )
+    yield oracle_gateway
+    await oracle_gateway.execute_query(drop)
+
+
+async def test_introspection_reports_the_whole_key(order_lines: DatabaseGateway) -> None:
+    """In declared order, upper-cased — a set would not catch a reversed key."""
+    schema = await order_lines.get_table_schema("siparis_satirlari")
+    assert schema["primary_key"] == ["SIPARIS_ID", "SATIR_NO"]
+
+
+async def test_deleting_one_line_leaves_the_others(order_lines: DatabaseGateway) -> None:
+    """The regression on the engine whose writes take the re-select path.
+
+    Before the fix the key collapsed to its first column, so this was
+    `DELETE ... WHERE siparis_id = 5` with no row limit: all three lines of
+    order 5, reported as one.
+    """
+    key = {"siparis_id": 5, "satir_no": 2}
+    assert (await order_lines.select_by_id("siparis_satirlari", key))["URUN"] == "b"
+    assert await order_lines.delete("siparis_satirlari", key) is True
+    assert await order_lines.delete("siparis_satirlari", key) is False
+
+    rows, total = await order_lines.select("siparis_satirlari", sort=[("satir_no", "asc")])
+    assert total == 3, "only the one line may go"
+    assert sorted(r["SATIR_NO"] for r in rows if r["SIPARIS_ID"] == 5) == [1, 3]
+    assert [r["URUN"] for r in rows if r["SIPARIS_ID"] == 6] == ["d"]
+
+
+async def test_an_update_addresses_one_line(order_lines: DatabaseGateway) -> None:
+    """Oracle re-selects after a write, so the key has to survive that too."""
+    row = await order_lines.update(
+        "siparis_satirlari", {"siparis_id": 5, "satir_no": 3}, {"adet": 99}
+    )
+    assert row is not None and row["ADET"] == 99
+
+    rows, _ = await order_lines.select("siparis_satirlari")
+    assert sorted(r["ADET"] for r in rows if r["SIPARIS_ID"] == 5) == [1, 2, 99]
