@@ -202,31 +202,53 @@ def test_export_arrow_over_postgres(ledger_client: TestClient) -> None:
     assert items[0]["amount"] == "10.25" and items[0]["raw"] == "AQI="
 
 
+@pytest.fixture(params=list(BACKENDS))
+def lines_backend(request: pytest.FixtureRequest):
+    """The backend's (gateway, config) pair.
+
+    Sync on purpose: `getfixturevalue` on an async fixture works from a sync
+    one, and fails from inside an async one with `Runner.run() cannot be
+    called from a running event loop`. `client` above resolves its backend the
+    same way, for the same reason.
+    """
+    gateway_fixture, config_fixture = BACKENDS[request.param]
+    return request.getfixturevalue(gateway_fixture), request.getfixturevalue(config_fixture)
+
+
 @pytest.fixture
-async def order_lines(pg_gateway):
-    """A composite primary key, which on an ERP schema most line tables have."""
-    await pg_gateway.execute_query("DROP TABLE IF EXISTS siparis_satirlari")
-    await pg_gateway.execute_query(
+async def order_lines(lines_backend):
+    """A composite primary key, which on an ERP schema most line tables have.
+
+    Run on every backend, because key addressing is the one thing the dialects
+    build differently: PostgreSQL pages with LIMIT/OFFSET and SQL Server with
+    OFFSET/FETCH, and each assembles its own `a = ? AND b = ?`. The DDL here
+    is deliberately portable — `VARCHAR(50)` rather than `TEXT`, which SQL
+    Server deprecated — so one fixture serves both.
+    """
+    gateway, config = lines_backend
+
+    await gateway.execute_query("DROP TABLE IF EXISTS siparis_satirlari")
+    await gateway.execute_query(
         "CREATE TABLE siparis_satirlari ("
-        "siparis_id BIGINT NOT NULL, satir_no INT NOT NULL, urun TEXT NOT NULL, "
+        "siparis_id BIGINT NOT NULL, satir_no INT NOT NULL, urun VARCHAR(50) NOT NULL, "
         "adet INT NOT NULL, PRIMARY KEY (siparis_id, satir_no))"
     )
-    await pg_gateway.execute_query(
+    await gateway.execute_query(
         "INSERT INTO siparis_satirlari (siparis_id, satir_no, urun, adet) VALUES "
         "(5, 1, 'a', 1), (5, 2, 'b', 2), (5, 3, 'c', 3), (6, 1, 'd', 4)"
     )
-    yield
-    await pg_gateway.execute_query("DROP TABLE IF EXISTS siparis_satirlari")
+    yield config
+    await gateway.execute_query("DROP TABLE IF EXISTS siparis_satirlari")
 
 
 @pytest.fixture
-def lines_client(order_lines, postgres_config, tmp_path):
-    app = _make_app(postgres_config, tmp_path)
+def lines_client(order_lines, tmp_path):
+    app = _make_app(order_lines, tmp_path)
     with TestClient(app) as c:
         yield c
 
 
-def test_the_whole_key_reaches_postgres(lines_client: TestClient) -> None:
+def test_the_whole_key_reaches_the_database(lines_client: TestClient) -> None:
     """The regression, against a real engine rather than a fake gateway.
 
     Before the fix the key collapsed to its first column, so this DELETE was
