@@ -200,3 +200,65 @@ def test_export_arrow_over_postgres(ledger_client: TestClient) -> None:
     # JSON export of the same rows keeps decimals as text and bytes as base64.
     items = ledger_client.get("/api/v1/ledger/export?sort=id:asc").json()["items"]
     assert items[0]["amount"] == "10.25" and items[0]["raw"] == "AQI="
+
+
+@pytest.fixture
+async def order_lines(pg_gateway):
+    """A composite primary key, which on an ERP schema most line tables have."""
+    await pg_gateway.execute_query("DROP TABLE IF EXISTS siparis_satirlari")
+    await pg_gateway.execute_query(
+        "CREATE TABLE siparis_satirlari ("
+        "siparis_id BIGINT NOT NULL, satir_no INT NOT NULL, urun TEXT NOT NULL, "
+        "adet INT NOT NULL, PRIMARY KEY (siparis_id, satir_no))"
+    )
+    await pg_gateway.execute_query(
+        "INSERT INTO siparis_satirlari (siparis_id, satir_no, urun, adet) VALUES "
+        "(5, 1, 'a', 1), (5, 2, 'b', 2), (5, 3, 'c', 3), (6, 1, 'd', 4)"
+    )
+    yield
+    await pg_gateway.execute_query("DROP TABLE IF EXISTS siparis_satirlari")
+
+
+@pytest.fixture
+def lines_client(order_lines, postgres_config, tmp_path):
+    app = _make_app(postgres_config, tmp_path)
+    with TestClient(app) as c:
+        yield c
+
+
+def test_the_whole_key_reaches_postgres(lines_client: TestClient) -> None:
+    """The regression, against a real engine rather than a fake gateway.
+
+    Before the fix the key collapsed to its first column, so this DELETE was
+    `WHERE siparis_id = 5` with no LIMIT: all three lines of order 5, answered
+    204. The unit test pins the SQL; this one pins what the database did with
+    it, which is the half that actually lost the rows.
+    """
+    assert lines_client.get("/api/v1/siparis_satirlari/5/2").json()["urun"] == "b"
+
+    assert lines_client.delete("/api/v1/siparis_satirlari/5/2").status_code == 204
+
+    remaining = lines_client.get("/api/v1/siparis_satirlari?sort=satir_no:asc").json()["items"]
+    left = sorted(r["satir_no"] for r in remaining if r["siparis_id"] == 5)
+    assert left == [1, 3], "the rest of the order must still be there"
+    assert any(r["siparis_id"] == 6 for r in remaining), "and so must the other order"
+
+
+def test_an_update_addresses_one_line(lines_client: TestClient) -> None:
+    r = lines_client.put("/api/v1/siparis_satirlari/5/3", json={"adet": 99})
+    assert r.status_code == 200 and r.json()["adet"] == 99
+
+    rows = lines_client.get("/api/v1/siparis_satirlari").json()["items"]
+    assert sorted(r["adet"] for r in rows if r["siparis_id"] == 5) == [1, 2, 99]
+
+
+def test_the_schema_endpoint_reports_both_key_columns(lines_client: TestClient) -> None:
+    table = lines_client.get("/api/v1/siparis_satirlari/schema").json()
+    assert table["primary_key"] == ["siparis_id", "satir_no"]
+
+
+def test_the_path_is_named_after_the_key_columns(lines_client: TestClient) -> None:
+    """What a spec reader — and a generated MCP tool — sees for the arity."""
+    paths = lines_client.get("/openapi.json").json()["paths"]
+    assert "/api/v1/siparis_satirlari/{siparis_id}/{satir_no}" in paths
+    assert "/api/v1/siparis_satirlari/{id}" not in paths

@@ -22,13 +22,13 @@ async def test_crud_round_trip(pg_gateway: DatabaseGateway) -> None:
     created = await pg_gateway.insert("users", {"username": "dave", "zip": "007"})
     assert created["id"] == 4 and created["zip"] == "007"
 
-    same = await pg_gateway.update("users", "id", 4, {"username": "dave"})
+    same = await pg_gateway.update("users", {"id": 4}, {"username": "dave"})
     assert same is not None and same["username"] == "dave"
-    assert await pg_gateway.update("users", "id", 999, {"username": "x"}) is None
+    assert await pg_gateway.update("users", {"id": 999}, {"username": "x"}) is None
 
-    assert (await pg_gateway.select_by_id("users", "id", 4))["zip"] == "007"
-    assert await pg_gateway.delete("users", "id", 4) is True
-    assert await pg_gateway.delete("users", "id", 4) is False
+    assert (await pg_gateway.select_by_id("users", {"id": 4}))["zip"] == "007"
+    assert await pg_gateway.delete("users", {"id": 4}) is True
+    assert await pg_gateway.delete("users", {"id": 4}) is False
 
 
 async def test_filters_are_typed_not_guessed(pg_gateway: DatabaseGateway) -> None:

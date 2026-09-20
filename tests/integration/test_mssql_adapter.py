@@ -32,13 +32,13 @@ async def test_crud_round_trip_with_output(mssql_gateway: DatabaseGateway) -> No
     created = await mssql_gateway.insert("users", {"username": "dave", "zip": "007"})
     assert created["id"] == 4 and created["zip"] == "007" and created["active"] is True
 
-    same = await mssql_gateway.update("users", "id", 4, {"username": "dave"})
+    same = await mssql_gateway.update("users", {"id": 4}, {"username": "dave"})
     assert same is not None and same["username"] == "dave"
-    assert await mssql_gateway.update("users", "id", 999, {"username": "x"}) is None
+    assert await mssql_gateway.update("users", {"id": 999}, {"username": "x"}) is None
 
-    assert (await mssql_gateway.select_by_id("users", "id", 4))["zip"] == "007"
-    assert await mssql_gateway.delete("users", "id", 4) is True
-    assert await mssql_gateway.delete("users", "id", 4) is False
+    assert (await mssql_gateway.select_by_id("users", {"id": 4}))["zip"] == "007"
+    assert await mssql_gateway.delete("users", {"id": 4}) is True
+    assert await mssql_gateway.delete("users", {"id": 4}) is False
 
 
 async def test_typed_filters_and_pagination(mssql_gateway: DatabaseGateway) -> None:
@@ -116,11 +116,11 @@ async def test_writes_fall_back_when_the_table_has_triggers(
     )
     created = await mssql_gateway.insert("users", {"username": "erin", "zip": "111"})
     assert created["username"] == "erin" and created["id"] == 4
-    updated = await mssql_gateway.update("users", "id", created["id"], {"zip": "222"})
+    updated = await mssql_gateway.update("users", {"id": created["id"]}, {"zip": "222"})
     assert updated is not None and updated["zip"] == "222"
-    assert await mssql_gateway.update("users", "id", 999, {"zip": "x"}) is None
-    assert await mssql_gateway.delete("users", "id", created["id"]) is True
-    assert await mssql_gateway.delete("users", "id", created["id"]) is False
+    assert await mssql_gateway.update("users", {"id": 999}, {"zip": "x"}) is None
+    assert await mssql_gateway.delete("users", {"id": created["id"]}) is True
+    assert await mssql_gateway.delete("users", {"id": created["id"]}) is False
     rows, total = await mssql_gateway.select("users")
     assert total == 3
 

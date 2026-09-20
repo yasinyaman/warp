@@ -41,13 +41,13 @@ async def test_crud_round_trip_refetches(oracle_gateway: DatabaseGateway) -> Non
     created = await oracle_gateway.insert("users", {"username": "dave", "zip": "007"})
     assert created["USERNAME"] == "dave" and created["ZIP"] == "007"
 
-    same = await oracle_gateway.update("users", "id", created["ID"], {"username": "dave2"})
+    same = await oracle_gateway.update("users", {"id": created["ID"]}, {"username": "dave2"})
     assert same is not None and same["USERNAME"] == "dave2"
-    assert await oracle_gateway.update("users", "id", 999, {"username": "x"}) is None
+    assert await oracle_gateway.update("users", {"id": 999}, {"username": "x"}) is None
 
-    assert (await oracle_gateway.select_by_id("users", "id", created["ID"]))["ZIP"] == "007"
-    assert await oracle_gateway.delete("users", "id", created["ID"]) is True
-    assert await oracle_gateway.delete("users", "id", created["ID"]) is False
+    assert (await oracle_gateway.select_by_id("users", {"id": created["ID"]}))["ZIP"] == "007"
+    assert await oracle_gateway.delete("users", {"id": created["ID"]}) is True
+    assert await oracle_gateway.delete("users", {"id": created["ID"]}) is False
 
 
 async def test_typed_filters_and_pagination(oracle_gateway: DatabaseGateway) -> None:
