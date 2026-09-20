@@ -258,7 +258,20 @@ def test_the_schema_endpoint_reports_both_key_columns(lines_client: TestClient) 
 
 
 def test_the_path_is_named_after_the_key_columns(lines_client: TestClient) -> None:
-    """What a spec reader — and a generated MCP tool — sees for the arity."""
-    paths = lines_client.get("/openapi.json").json()["paths"]
-    assert "/api/v1/siparis_satirlari/{siparis_id}/{satir_no}" in paths
-    assert "/api/v1/siparis_satirlari/{id}" not in paths
+    """What a spec reader — and a generated MCP tool — sees for the arity.
+
+    Only the db-scoped registration is documented; the unprefixed alias is
+    `include_in_schema=False` so one operation is not listed twice (app.py).
+    Matched by suffix for that reason, not by the whole path.
+    """
+    paths = [p for p in lines_client.get("/openapi.json").json()["paths"] if "siparis" in p]
+
+    keyed = [p for p in paths if p.endswith("/siparis_satirlari/{siparis_id}/{satir_no}")]
+    assert len(keyed) == 1, paths
+    assert sorted(lines_client.get("/openapi.json").json()["paths"][keyed[0]]) == [
+        "delete",
+        "get",
+        "patch",
+        "put",
+    ]
+    assert not [p for p in paths if p.endswith("{id}")], "no fabricated single id"
