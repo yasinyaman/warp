@@ -11,28 +11,24 @@
       
       
       
-        <link rel="prev" href="../architecture/">
-      
-      
-        <link rel="next" href="0001-layered-architecture/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>Overview - Warp Engine</title>
+        <title>9. Row security, column masking and the audit trail - Warp Engine</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#architecture-decision-records" class="md-skip">
+        <a href="#9-row-security-column-masking-and-the-audit-trail" class="md-skip">
           Skip to content
         </a>
       
@@ -94,7 +90,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="Warp Engine" class="md-header__button md-logo" aria-label="Warp Engine" data-md-component="logo">
+    <a href="../.." title="Warp Engine" class="md-header__button md-logo" aria-label="Warp Engine" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -114,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Overview
+              9. Row security, column masking and the audit trail
             
           </span>
         </div>
@@ -230,7 +226,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="Warp Engine" class="md-nav__button md-logo" aria-label="Warp Engine" data-md-component="logo">
+    <a href="../.." title="Warp Engine" class="md-nav__button md-logo" aria-label="Warp Engine" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -260,7 +256,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -287,7 +283,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../deployment/" class="md-nav__link">
+      <a href="../../deployment/" class="md-nav__link">
         
   
   
@@ -314,7 +310,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -338,8 +334,6 @@
       
   
   
-    
-  
   
   
     
@@ -352,11 +346,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -377,7 +371,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -392,19 +386,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
         
   
   
@@ -420,7 +405,6 @@
   
 
       </a>
-      
     </li>
   
 
@@ -433,7 +417,7 @@
   
   
     <li class="md-nav__item">
-      <a href="0001-layered-architecture/" class="md-nav__link">
+      <a href="../0001-layered-architecture/" class="md-nav__link">
         
   
   
@@ -461,7 +445,7 @@
   
   
     <li class="md-nav__item">
-      <a href="0002-fail-safe-production-config/" class="md-nav__link">
+      <a href="../0002-fail-safe-production-config/" class="md-nav__link">
         
   
   
@@ -489,7 +473,7 @@
   
   
     <li class="md-nav__item">
-      <a href="0003-dependency-management/" class="md-nav__link">
+      <a href="../0003-dependency-management/" class="md-nav__link">
         
   
   
@@ -517,7 +501,7 @@
   
   
     <li class="md-nav__item">
-      <a href="0004-llm-sample-data-privacy/" class="md-nav__link">
+      <a href="../0004-llm-sample-data-privacy/" class="md-nav__link">
         
   
   
@@ -545,7 +529,7 @@
   
   
     <li class="md-nav__item">
-      <a href="0005-ci-quality-gates/" class="md-nav__link">
+      <a href="../0005-ci-quality-gates/" class="md-nav__link">
         
   
   
@@ -573,7 +557,7 @@
   
   
     <li class="md-nav__item">
-      <a href="0006-distribution-name/" class="md-nav__link">
+      <a href="../0006-distribution-name/" class="md-nav__link">
         
   
   
@@ -601,7 +585,7 @@
   
   
     <li class="md-nav__item">
-      <a href="0007-hexagonal-architecture/" class="md-nav__link">
+      <a href="../0007-hexagonal-architecture/" class="md-nav__link">
         
   
   
@@ -629,7 +613,7 @@
   
   
     <li class="md-nav__item">
-      <a href="0008-dialect-abstraction-and-odbc-adapter/" class="md-nav__link">
+      <a href="../0008-dialect-abstraction-and-odbc-adapter/" class="md-nav__link">
         
   
   
@@ -664,7 +648,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../reference/" class="md-nav__link">
+      <a href="../../reference/" class="md-nav__link">
         
   
   
@@ -704,6 +688,108 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#identity-reaches-the-handler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Identity reaches the handler
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#row-level-security-is-a-filter-not-a-check" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Row-level security is a filter, not a check
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#masking-is-keyed-on-meaning-not-on-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Masking is keyed on meaning, not on names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hash-is-a-pseudonym-and-it-is-keyed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        hash is a pseudonym, and it is keyed
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-audit-trail-records-restriction-not-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The audit trail records restriction, not data
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -722,65 +808,128 @@
   
 
 
-<h1 id="architecture-decision-records">Architecture Decision Records<a class="headerlink" href="#architecture-decision-records" title="Permanent link">&para;</a></h1>
-<p>These ADRs capture significant architectural and process decisions, following
-the lightweight format popularized by Michael Nygard.</p>
-<table>
-<thead>
-<tr>
-<th>#</th>
-<th>Title</th>
-<th>Status</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a href="0001-layered-architecture/">0001</a></td>
-<td>Layered architecture enforced by import-linter</td>
-<td>Superseded by 0007</td>
-</tr>
-<tr>
-<td><a href="0002-fail-safe-production-config/">0002</a></td>
-<td>Fail-safe production configuration validation</td>
-<td>Accepted</td>
-</tr>
-<tr>
-<td><a href="0003-dependency-management/">0003</a></td>
-<td>Dependency management: ranges + hashed lockfile</td>
-<td>Accepted</td>
-</tr>
-<tr>
-<td><a href="0004-llm-sample-data-privacy/">0004</a></td>
-<td>LLM sample-data privacy (cloud opt-in + PII masking)</td>
-<td>Accepted</td>
-</tr>
-<tr>
-<td><a href="0005-ci-quality-gates/">0005</a></td>
-<td>CI quality gates: pragmatic, then strict</td>
-<td>Accepted</td>
-</tr>
-<tr>
-<td><a href="0006-distribution-name/">0006</a></td>
-<td>Distribution name vs. the import package</td>
-<td>Accepted</td>
-</tr>
-<tr>
-<td><a href="0007-hexagonal-architecture/">0007</a></td>
-<td>Hexagonal architecture (ports &amp; adapters)</td>
-<td>Accepted</td>
-</tr>
-<tr>
-<td><a href="0008-dialect-abstraction-and-odbc-adapter/">0008</a></td>
-<td>Dialect abstraction and the ODBC (SQL Server) adapter</td>
-<td>Accepted</td>
-</tr>
-<tr>
-<td><a href="0009-governance/">0009</a></td>
-<td>Row security, column masking and the audit trail</td>
-<td>Accepted</td>
-</tr>
-</tbody>
-</table>
+<h1 id="9-row-security-column-masking-and-the-audit-trail">9. Row security, column masking and the audit trail<a class="headerlink" href="#9-row-security-column-masking-and-the-audit-trail" title="Permanent link">&para;</a></h1>
+<ul>
+<li>Status: Accepted</li>
+<li>Date: 2026-09-19</li>
+</ul>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p>Warp turns a database into an API with very little configuration, which is the
+point — and the risk. The three questions an operator in a regulated setting
+(KVKK, BDDK) has to answer about such an API are:</p>
+<ol>
+<li>Can a caller read rows that are not theirs?</li>
+<li>Can a caller read column values they should not see?</li>
+<li>Can anyone show, afterwards, what a given caller actually saw?</li>
+</ol>
+<p>Before this change the answers were "yes", "yes" and "no". Permissions existed,
+but only as coarse verbs (<code>read</code>, <code>create</code>, …) with no notion of <em>which</em> rows or
+<em>which</em> columns, and nothing was recorded beyond ordinary request logs.</p>
+<p>An adjacent constraint shaped the design: the identity built during
+authentication never reached a route. Every router registers auth as
+<code>dependencies=[Depends(auth.require(...))]</code>, and FastAPI discards what such a
+dependency returns, so the <code>AuthenticatedUser</code> was constructed and thrown away.</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
+<h3 id="identity-reaches-the-handler">Identity reaches the handler<a class="headerlink" href="#identity-reaches-the-handler" title="Permanent link">&para;</a></h3>
+<p><code>permission_checker</code> records the caller on <code>request.state</code> before returning it,
+and <code>caller_of</code> / <code>policy_of</code> / <code>roles_of</code> read it back. Nothing else changes —
+no route signature had to move. <code>None</code> means "nobody was identified" (auth off,
+or a public path) and is never treated as "permitted".</p>
+<h3 id="row-level-security-is-a-filter-not-a-check">Row-level security is a filter, not a check<a class="headerlink" href="#row-level-security-is-a-filter-not-a-check" title="Permanent link">&para;</a></h3>
+<p>An API key carries <code>tenant</code>, <code>roles</code> and per-table <code>row_filters</code>, written in the
+same vocabulary as user filters so they can simply be ANDed onto a query. Two
+enforcement paths, because there are two kinds of access:</p>
+<ul>
+<li><strong>Reads with a <code>WHERE</code> clause</strong> (list, count, export, stream) push the
+  conditions into SQL. The database never returns a row the caller may not see,
+  and the caller's own filters can only narrow further — policy conditions are
+  appended last.</li>
+<li><strong>Reads and writes addressed by primary key</strong> have no <code>WHERE</code> to push into,
+  so the row is fetched and matched in memory. A row outside the policy is
+  reported as <strong>404, not 403</strong>: telling a caller that a record exists but is
+  not theirs is itself a disclosure.</li>
+</ul>
+<p>Writes are checked in both directions. A caller cannot create a row into a
+scope they cannot read, cannot move a row there with an update, and cannot omit
+the scope column and let a database default decide it.</p>
+<p>Raw SQL is denied to any key with row rules, even one holding <code>all</code>. Conditions
+cannot be pushed into a statement the caller wrote, and one <code>SELECT</code> would make
+the rules irrelevant.</p>
+<h3 id="masking-is-keyed-on-meaning-not-on-names">Masking is keyed on meaning, not on names<a class="headerlink" href="#masking-is-keyed-on-meaning-not-on-names" title="Permanent link">&para;</a></h3>
+<p>Masking rules attach to the catalog's <strong>semantic types</strong> (<code>email</code>, <code>phone</code>,
+<code>address</code>, …), not to column names. This is the whole reason the LLM catalog
+earns its place here: when it labels a newly discovered <code>contact_email</code>, that
+column is masked from that moment, rather than leaking until somebody remembers
+to write a rule for it.</p>
+<p>Only an <strong>approved</strong> catalog is used. A draft's labels have not been reviewed,
+and masking the wrong columns is as damaging as masking none.</p>
+<p>A mask must produce a value the response can still carry, so the text
+strategies require a text column and <code>null</code> requires a nullable one. Anything
+that does not fit is reported at startup, naming the column, rather than
+failing response validation on the first row that reaches it.</p>
+<h3 id="hash-is-a-pseudonym-and-it-is-keyed"><code>hash</code> is a pseudonym, and it is keyed<a class="headerlink" href="#hash-is-a-pseudonym-and-it-is-keyed" title="Permanent link">&para;</a></h3>
+<p>Four of the five strategies destroy the value. <code>hash</code> does not: it exists
+because none of the others preserves equality across rows, and a masked column
+that can still be joined on is a real analytics capability. The output is
+therefore a <strong>pseudonym</strong>, and the word matters — under KVKK a pseudonym is
+still personal data, so an export of <code>hash</code>-masked rows has not been
+anonymised and cannot be treated as if it had.</p>
+<p>It is keyed for a reason that is not a matter of taste. An unkeyed digest of
+enumerable data is not a mask: an email address falls to a wordlist, and a
+TCKN is eleven digits with a check rule, so the valid space is about a billion
+and a laptop walks all of it. Widening the digest does nothing about that —
+the attack is enumeration, not collision. The key is what moves the attack
+from "anyone holding the exported file" to "anyone holding the key", which is
+the standard pseudonymisation posture: keep the key apart from the data.</p>
+<p>Two consequences an operator has to accept. Rotating or losing the key breaks
+correlation with anything exported earlier — that is the cost of stability,
+and it is the right trade, because a key that changed per process would make
+the strategy useless for the one thing it is for. And a <code>hash</code> rule with no
+key refuses startup. The two tempting alternatives are both worse: skipping
+the rule leaves a PII column unmasked while the configuration says otherwise,
+and falling back to an unkeyed digest reintroduces the defect under a name
+that sounds safe. A masking layer must not return a readable value while
+reporting that it masked it.</p>
+<h3 id="the-audit-trail-records-restriction-not-data">The audit trail records restriction, not data<a class="headerlink" href="#the-audit-trail-records-restriction-not-data" title="Permanent link">&para;</a></h3>
+<p>One event per data-touching request: who, when, which database and table, which
+action, how many rows, the request id — and, crucially, <strong>whether a row filter
+applied and which columns were masked</strong>. An audit log that cannot distinguish
+"read the table" from "read their own tenant, with the email column masked"
+cannot answer the only question it is ever asked.</p>
+<p>What an event never carries is the data: no row values, no filter literals, no
+SQL parameters. Filter <em>column names</em> are recorded; the values compared against
+them are not. An audit trail that quotes the data it audits becomes a second
+copy of that data, in a file with weaker access controls and longer retention
+than the database it came from.</p>
+<p>Sinks must never raise. An audit sink that can fail a request turns a logging
+problem into an outage.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Masking configured with a <code>hash</code> rule and no <code>masking.hash_secret</code> is
+  refused by <code>MaskingConfig</code> itself, so it fails where the configuration is
+  read rather than where masking is applied. That matters because the
+  application point sits behind <code>auto_discover_tables</code>: validating there would
+  have made the refusal depend on an unrelated feature flag and on the
+  environment. Production additionally refuses a secret short enough to be
+  guessed, which is a question about strength rather than presence.</li>
+<li>Row rules mean nothing without authentication, so <code>auth.enabled: false</code> with
+  <code>row_filters</code> configured refuses startup in production. The same hazard
+  exists for a data path listed in <code>auth.public_paths</code>, which the README warns
+  about but cannot detect generically.</li>
+<li>The <code>CRUDOperations</code> instance is shared across requests, so the policy is
+  bound per request through <code>with_policy</code> rather than stored on the instance —
+  a cached instance carrying one tenant's rules is precisely the bug this
+  feature exists to prevent.</li>
+<li>Masking and auditing travel together as a <code>Governance</code> bundle: every route
+  that withholds something should also record that it did.</li>
+<li>The audit sink is built in the composition root and reaches the HTTP layer
+  through the <code>Container</code>, because an inbound adapter may not import an
+  outbound one (ADR-0007).</li>
+<li>Writing this exposed a gap in the test harness: <code>MockDatabaseAdapter.select</code>
+  ignored its <code>filters</code> argument, so every route test that exercised
+  <code>filter[column][op]</code> only proved the request did not error. It now filters as
+  SQL would — which is what lets a test notice a <em>missing</em> condition.</li>
+</ul>
 
 
 
@@ -836,10 +985,10 @@ the lightweight format popularized by Michael Nygard.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.top", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

@@ -2796,7 +2796,7 @@ else ANSI double quotes).</p>
 
 
 <h2 id="warp.adapters.outbound.db.identifiers.sanitize_identifier" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">sanitize_identifier</span><span class="p">(</span><span class="n">name</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">sanitize_identifier</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">extra_chars</span><span class="o">=</span><span class="s1">''</span><span class="p">)</span></code>
 
 <a href="#warp.adapters.outbound.db.identifiers.sanitize_identifier" class="headerlink" title="Permanent link">&para;</a></h2>
 
@@ -2831,6 +2831,26 @@ else ANSI double quotes).</p>
             </td>
             <td>
                 <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>extra_chars</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Characters this engine additionally allows after the first
+one. Oracle passes <code>"$#"</code>, because they are legal there and the
+data dictionary generates them (an identity column's sequence is
+named <code>ISEQ$$_73346</code>). The double quote is never allowed for any
+engine, which is what keeps a quoted identifier unescapable.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;&#39;</code>
             </td>
           </tr>
       </tbody>
@@ -2876,9 +2896,9 @@ else ANSI double quotes).</p>
             <td>
               <div class="doc-md-description">
                 <p>If the identifier contains anything other than ASCII
-letters, digits, and underscores (and does not start with a digit).
-This is what prevents identifier/SQL injection through dynamic
-table and column names.</p>
+letters, digits, underscores and <code>extra_chars</code> (and does not
+start with a digit). This is what prevents identifier/SQL injection
+through dynamic table and column names.</p>
               </div>
             </td>
           </tr>
@@ -3141,7 +3161,7 @@ value without a placeholder.</p>
 
 
 <h3 id="warp.application.ports.database.DatabaseGateway.delete" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">delete</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="n">id_column</span><span class="p">,</span> <span class="n">id_value</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">delete</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span></code>
 
   <span class="doc doc-labels">
       <small class="doc doc-label doc-label-async"><code>async</code></small>
@@ -3319,7 +3339,7 @@ analyzed) or that does not exist.</p>
 
 
 <h3 id="warp.application.ports.database.DatabaseGateway.select_by_id" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">select_by_id</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="n">id_column</span><span class="p">,</span> <span class="n">id_value</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">select_by_id</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
   <span class="doc doc-labels">
       <small class="doc doc-label doc-label-async"><code>async</code></small>
@@ -3359,7 +3379,7 @@ analyzed) or that does not exist.</p>
 
 
 <h3 id="warp.application.ports.database.DatabaseGateway.update" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">update</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="n">id_column</span><span class="p">,</span> <span class="n">id_value</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">update</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span></code>
 
   <span class="doc doc-labels">
       <small class="doc doc-label doc-label-async"><code>async</code></small>
@@ -4923,14 +4943,17 @@ only practical way to send long <code>in</code> lists.</p>
 
 
 <h3 id="warp.adapters.inbound.http.routes.export.TableExport.plan" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">plan</span><span class="p">(</span><span class="n">fields</span><span class="p">,</span> <span class="n">filters</span><span class="p">,</span> <span class="n">sort</span><span class="p">,</span> <span class="n">limit</span><span class="p">,</span> <span class="n">fmt</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">plan</span><span class="p">(</span><span class="n">fields</span><span class="p">,</span> <span class="n">filters</span><span class="p">,</span> <span class="n">sort</span><span class="p">,</span> <span class="n">limit</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">EMPTY_POLICY</span><span class="p">,</span> <span class="n">roles</span><span class="o">=</span><span class="p">())</span></code>
 
 <a href="#warp.adapters.inbound.http.routes.export.TableExport.plan" class="headerlink" title="Permanent link">&para;</a></h3>
 
 
     <div class="doc doc-contents ">
 
-        <p>Validate the projection and apply the row cap.</p>
+        <p>Validate the projection, apply the row policy and the row cap.</p>
+<p>An export reads far more rows than a list call, so it is the last place
+the caller's row rules may be forgotten. They are ANDed on here, after
+the caller's own filters, so the two cannot be confused.</p>
 
 
     </div>
@@ -4941,7 +4964,7 @@ only practical way to send long <code>in</code> lists.</p>
 
 
 <h3 id="warp.adapters.inbound.http.routes.export.TableExport.plan_from_body" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">plan_from_body</span><span class="p">(</span><span class="n">body</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">plan_from_body</span><span class="p">(</span><span class="n">body</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">EMPTY_POLICY</span><span class="p">,</span> <span class="n">roles</span><span class="o">=</span><span class="p">())</span></code>
 
 <a href="#warp.adapters.inbound.http.routes.export.TableExport.plan_from_body" class="headerlink" title="Permanent link">&para;</a></h3>
 
@@ -4959,7 +4982,7 @@ only practical way to send long <code>in</code> lists.</p>
 
 
 <h3 id="warp.adapters.inbound.http.routes.export.TableExport.plan_from_query" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">plan_from_query</span><span class="p">(</span><span class="n">query_params</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="n">sort</span><span class="p">,</span> <span class="n">limit</span><span class="p">,</span> <span class="n">fmt</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">plan_from_query</span><span class="p">(</span><span class="n">query_params</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="n">sort</span><span class="p">,</span> <span class="n">limit</span><span class="p">,</span> <span class="n">fmt</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">EMPTY_POLICY</span><span class="p">,</span> <span class="n">roles</span><span class="o">=</span><span class="p">())</span></code>
 
 <a href="#warp.adapters.inbound.http.routes.export.TableExport.plan_from_query" class="headerlink" title="Permanent link">&para;</a></h3>
 
@@ -5004,7 +5027,7 @@ only practical way to send long <code>in</code> lists.</p>
 
 
 <h2 id="warp.adapters.inbound.http.routes.export.create_export_router" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">create_export_router</span><span class="p">(</span><span class="n">table_schema</span><span class="p">,</span> <span class="n">gateway</span><span class="p">,</span> <span class="n">export</span><span class="p">,</span> <span class="n">auth_manager</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">db_name</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">create_export_router</span><span class="p">(</span><span class="n">table_schema</span><span class="p">,</span> <span class="n">gateway</span><span class="p">,</span> <span class="n">export</span><span class="p">,</span> <span class="n">auth_manager</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">db_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">governance</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
 <a href="#warp.adapters.inbound.http.routes.export.create_export_router" class="headerlink" title="Permanent link">&para;</a></h2>
 
@@ -5085,6 +5108,22 @@ captured by <code>GET /{table}/{id}</code>.</p>
             <td>
               <div class="doc-md-description">
                 <p>When enabled, both routes need the <code>read</code> permission.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>governance</code>
+            </td>
+            <td>
+                  <code><span title="warp.adapters.inbound.http.governance.Governance">Governance</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Column masking and the audit sink.</p>
               </div>
             </td>
             <td>

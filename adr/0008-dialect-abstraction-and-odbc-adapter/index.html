@@ -886,6 +886,18 @@ door to other data sources (Oracle, DB2, …) through the same code path.</p>
 <ul>
 <li>Adding an engine is now one <code>Dialect</code> entry plus, when the driver's
   execution model differs, one adapter; the SQL helpers need no changes.</li>
+<li><strong>Oracle (added later) proved the claim, and found three gaps in it.</strong> The
+  first <code>Dialect</code> split engine differences along axes that happened to
+  coincide for PostgreSQL, MySQL and SQL Server, so three of them had to
+  become fields of their own before a fourth engine fitted:
+  <code>sample_style</code> (Oracle paginates with <code>OFFSET ... FETCH</code> like SQL Server but
+  has no <code>SELECT TOP (n)</code>), <code>unsorted_pagination_filler</code> (Oracle needs no
+  <code>ORDER BY</code> before the row-limiting clause, and rejects SQL Server's
+  <code>ORDER BY (SELECT NULL)</code> because a <code>SELECT</code> without <code>FROM</code> is invalid), and
+  <code>identifier_case</code> (Oracle folds unquoted identifiers to upper case, so
+  quoting <code>users</code> does not find a table stored as <code>USERS</code>). Adding Oracle
+  itself was then one <code>Dialect</code> entry, one introspection profile on the
+  existing <code>ODBCAdapter</code>, and its integration tests.</li>
 <li><code>ColumnSchema.is_auto_generated</code> gives create models and required-column
   checks one definition of "the database fills this in" (auto-increment,
   serial, identity, computed). PostgreSQL identity columns are now recognised
