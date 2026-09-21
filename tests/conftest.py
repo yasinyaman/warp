@@ -5,7 +5,7 @@ Pytest configuration and shared fixtures.
 import asyncio
 import os
 import sys
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from typing import Any
 
 import pytest
@@ -130,8 +130,20 @@ class MockDatabaseAdapter:
         pagination: dict = None,
         sort: list = None,
     ) -> tuple:
-        """Mock select."""
-        records = self._tables.get(table, [])
+        """Mock select: filters, then counts, then paginates — as SQL would.
+
+        Applying the filters for real is what lets a test detect a *missing*
+        condition (a forgotten row-security rule shows up as an extra row);
+        a mock that returned every row regardless would pass either way.
+        """
+        records = [
+            record
+            for record in self._tables.get(table, [])
+            if all(
+                _mock_filter_match(record.get(column), operator, value)
+                for column, operator, value in (filters or [])
+            )
+        ]
         total = len(records)
 
         # Apply pagination
@@ -179,30 +191,37 @@ class MockDatabaseAdapter:
         for start in range(0, len(rows), batch_size):
             yield rows[start : start + batch_size]
 
-    async def select_by_id(
-        self, table: str, id_column: str, id_value: Any, columns: list[str] = None
-    ):
-        """Mock select by ID."""
-        records = self._tables.get(table, [])
-        for record in records:
-            if record.get(id_column) == id_value:
+    @staticmethod
+    def _matches(record: dict, key: Mapping[str, Any]) -> bool:
+        """Every key column, not just the first.
+
+        Matching on one column of a composite key is exactly the defect this
+        fake has to be able to catch: a delete addressed to one line would
+        take every line of the order with it.
+        """
+        return all(record.get(column) == value for column, value in key.items())
+
+    async def select_by_id(self, table: str, key: Mapping[str, Any], columns: list[str] = None):
+        """Mock select by key."""
+        for record in self._tables.get(table, []):
+            if self._matches(record, key):
                 return record
         return None
 
-    async def update(self, table: str, id_column: str, id_value: Any, data: dict):
+    async def update(self, table: str, key: Mapping[str, Any], data: dict):
         """Mock update."""
         records = self._tables.get(table, [])
         for i, record in enumerate(records):
-            if record.get(id_column) == id_value:
+            if self._matches(record, key):
                 self._tables[table][i] = {**record, **data}
                 return self._tables[table][i]
         return None
 
-    async def delete(self, table: str, id_column: str, id_value: Any) -> bool:
+    async def delete(self, table: str, key: Mapping[str, Any]) -> bool:
         """Mock delete."""
         records = self._tables.get(table, [])
         for i, record in enumerate(records):
-            if record.get(id_column) == id_value:
+            if self._matches(record, key):
                 self._tables[table].pop(i)
                 return True
         return False

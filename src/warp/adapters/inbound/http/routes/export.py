@@ -14,8 +14,8 @@ only practical way to send long ``in`` lists.
 import base64
 import json
 import logging
-from collections.abc import AsyncIterator, Mapping
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Literal
@@ -26,10 +26,21 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from warp.adapters.inbound.http.arrow_export import arrow_available, arrow_ipc_stream
-from warp.adapters.inbound.http.auth import AuthManager, Permission
+from warp.adapters.inbound.http.auth import (
+    AuthManager,
+    Permission,
+    caller_of,
+    policy_of,
+    roles_of,
+)
+from warp.adapters.inbound.http.governance import NO_GOVERNANCE, Governance
+from warp.adapters.inbound.http.request_context import request_id_of
 from warp.application.config import ExportConfig
 from warp.application.ports.database import DatabaseGateway
+from warp.domain.audit import AuditEvent
 from warp.domain.filtering import parse_filter_conditions, parse_filters_from_request
+from warp.domain.masking import NO_MASKING, CatalogMasking, mask_rows
+from warp.domain.row_policy import EMPTY_POLICY, RowPolicy
 from warp.domain.schema import TableSchema
 from warp.domain.sorting import parse_sort_from_request
 from warp.domain.sql_types import type_kind
@@ -81,6 +92,8 @@ class ExportPlan:
     limit: int | None
     capped: bool
     format: str
+    #: column -> strategy, applied to every batch before it is encoded.
+    masks: Mapping[str, str] = field(default_factory=dict)
 
 
 def _json_default(value: Any) -> Any:
@@ -142,6 +155,7 @@ class TableExport:
     table_schema: TableSchema
     gateway: DatabaseGateway
     export: ExportConfig
+    masking: CatalogMasking = field(default_factory=lambda: NO_MASKING)
 
     def __post_init__(self) -> None:
         """Cache the column names/kinds used to validate every request."""
@@ -158,13 +172,22 @@ class TableExport:
         sort: list[tuple[str, str]],
         limit: int | None,
         fmt: str,
+        policy: RowPolicy = EMPTY_POLICY,
+        roles: Sequence[str] = (),
     ) -> ExportPlan:
-        """Validate the projection and apply the row cap."""
+        """Validate the projection, apply the row policy and the row cap.
+
+        An export reads far more rows than a list call, so it is the last place
+        the caller's row rules may be forgotten. They are ANDed on here, after
+        the caller's own filters, so the two cannot be confused.
+        """
         invalid = sorted(set(fields or []) - set(self.column_names))
         if invalid:
             raise HTTPException(status_code=400, detail=f"Invalid fields: {', '.join(invalid)}")
         effective, capped = effective_limit(limit, self.export.max_rows)
-        return ExportPlan(fields or None, filters, sort, effective, capped, fmt)
+        restricted = policy.apply(self.table_name, filters)
+        masks = self.masking.masks_for(self.table_name, roles)
+        return ExportPlan(fields or None, restricted, sort, effective, capped, fmt, masks)
 
     def plan_from_query(
         self,
@@ -173,6 +196,8 @@ class TableExport:
         sort: str | None,
         limit: int | None,
         fmt: str,
+        policy: RowPolicy = EMPTY_POLICY,
+        roles: Sequence[str] = (),
     ) -> ExportPlan:
         """Plan a ``GET`` export from list-style query parameters."""
         try:
@@ -182,9 +207,14 @@ class TableExport:
             sort_fields = parse_sort_from_request(sort, self.column_names)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        return self.plan(_split_fields(fields), filters, sort_fields, limit, fmt)
+        return self.plan(_split_fields(fields), filters, sort_fields, limit, fmt, policy, roles)
 
-    def plan_from_body(self, body: ExportRequest) -> ExportPlan:
+    def plan_from_body(
+        self,
+        body: ExportRequest,
+        policy: RowPolicy = EMPTY_POLICY,
+        roles: Sequence[str] = (),
+    ) -> ExportPlan:
         """Plan a ``POST`` export from its JSON body."""
         try:
             filters = parse_filter_conditions(
@@ -196,7 +226,7 @@ class TableExport:
             sort_fields = parse_sort_from_request(sort_spec, self.column_names)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        return self.plan(body.fields, filters, sort_fields, body.limit, body.format)
+        return self.plan(body.fields, filters, sort_fields, body.limit, body.format, policy, roles)
 
     def body_for(self, item: ExportPlan) -> AsyncIterator[bytes]:
         """The encoded byte stream for a plan (rows are not read until iterated)."""
@@ -214,6 +244,10 @@ class TableExport:
             limit=item.limit,
             statement_timeout_ms=self.export.statement_timeout_ms,
         )
+        if item.masks:
+            # Applied to the batches, so JSON, NDJSON and Arrow all get
+            # masked rows rather than each encoder having to remember.
+            batches = _masked_batches(batches, item.masks, self.masking.hash_key)
         if item.format == "arrow":
             return arrow_ipc_stream(batches, self.table_schema, item.columns)
         if item.format == "ndjson":
@@ -228,6 +262,16 @@ class TableExport:
         return StreamingResponse(
             self.body_for(item), media_type=MEDIA_TYPES[item.format], headers=headers
         )
+
+
+async def _masked_batches(
+    batches: AsyncIterator[list[dict[str, Any]]],
+    masks: Mapping[str, str],
+    hash_key: bytes | None = None,
+) -> AsyncIterator[list[dict[str, Any]]]:
+    """Mask every row on its way out, one batch at a time."""
+    async for batch in batches:
+        yield mask_rows(batch, masks, hash_key)
 
 
 def _read_dependencies(auth_manager: AuthManager | None) -> list[Any]:
@@ -249,6 +293,7 @@ def create_export_router(
     export: ExportConfig,
     auth_manager: AuthManager | None = None,
     db_name: str | None = None,
+    governance: Governance | None = None,
 ) -> APIRouter:
     """Build the export router for one table (prefix ``/{table}``).
 
@@ -260,6 +305,7 @@ def create_export_router(
         gateway: Streams the rows.
         export: Export settings (enabled, caps, batch size, timeout).
         auth_manager: When enabled, both routes need the ``read`` permission.
+        governance: Column masking and the audit sink.
         db_name: Prefix for the OpenAPI tag when several databases are mounted.
 
     Returns:
@@ -276,7 +322,32 @@ def create_export_router(
         _add_disabled_routes(router, table_name, deps)
         return router
 
-    handler = TableExport(table_schema, gateway, export)
+    rules = governance or NO_GOVERNANCE
+    handler = TableExport(table_schema, gateway, export, rules.masking)
+
+    def _record(request: Request, plan: ExportPlan) -> None:
+        """Record the export before the first byte is streamed.
+
+        Before, not after: a stream the caller abandons half way still
+        disclosed whatever had already been sent, and an event written
+        only on clean completion would miss exactly that case.
+        """
+        caller = caller_of(request)
+        rules.audit.record(
+            AuditEvent(
+                action="export",
+                database=db_name or "default",
+                table=table_name,
+                actor=caller.name if caller else None,
+                tenant=caller.tenant if caller else None,
+                roles=tuple(caller.roles) if caller else (),
+                request_id=request_id_of(request),
+                row_count=plan.limit,
+                row_filtered=policy_of(request).covers(table_name),
+                masked_columns=tuple(sorted(plan.masks)),
+                filtered_columns=tuple(f[0] for f in plan.filters),
+            )
+        )
 
     @router.get(
         "/export",
@@ -296,9 +367,17 @@ def create_export_router(
         limit: int | None = Query(default=None, ge=1, description="Maximum rows"),
         format: ExportFormat = Query(default="json"),  # noqa: A002 - API parameter name
     ) -> StreamingResponse:
-        return handler.respond(
-            handler.plan_from_query(request.query_params, fields, sort, limit, format)
+        plan = handler.plan_from_query(
+            request.query_params,
+            fields,
+            sort,
+            limit,
+            format,
+            policy_of(request),
+            roles_of(request),
         )
+        _record(request, plan)
+        return handler.respond(plan)
 
     @router.post(
         "/export",
@@ -307,7 +386,7 @@ def create_export_router(
         dependencies=deps,
         response_class=StreamingResponse,
     )
-    async def export_post(body: ExportRequest) -> StreamingResponse:
-        return handler.respond(handler.plan_from_body(body))
+    async def export_post(request: Request, body: ExportRequest) -> StreamingResponse:
+        return handler.respond(handler.plan_from_body(body, policy_of(request), roles_of(request)))
 
     return router

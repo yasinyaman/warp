@@ -71,13 +71,26 @@ class TableSchema(BaseModel):
     indexes: list[IndexSchema] = Field(default_factory=list)
 
     @property
-    def pk_column(self) -> str | None:
-        """Get the primary key column name (first one if composite)."""
+    def key_columns(self) -> tuple[str, ...]:
+        """Every column of the primary key, in order, or empty when there is none.
+
+        A composite key used to be collapsed to its first column, which meant a
+        request addressed to one row reached every row sharing that column's
+        value. On an ERP schema — order lines, invoice lines, stock movements —
+        that is most of the line-item tables, and `DELETE` acted on all of
+        them. The whole key travels now, and a table without one gets no
+        by-key routes at all rather than a fabricated ``id``.
+        """
         if isinstance(self.primary_key, str):
-            return self.primary_key
-        elif isinstance(self.primary_key, list) and self.primary_key:
-            return self.primary_key[0]
-        return None
+            return (self.primary_key,) if self.primary_key else ()
+        if isinstance(self.primary_key, list):
+            return tuple(column for column in self.primary_key if column)
+        return ()
+
+    @property
+    def has_key(self) -> bool:
+        """Whether a single row can be addressed at all."""
+        return bool(self.key_columns)
 
     @property
     def has_composite_pk(self) -> bool:
@@ -102,7 +115,7 @@ class TableSchema(BaseModel):
             for col in self.columns
             if not col.nullable
             and col.default is None
-            and col.name != self.pk_column
+            and col.name not in self.key_columns
             and not col.is_auto_generated
         ]
 

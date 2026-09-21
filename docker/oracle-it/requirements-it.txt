@@ -1,0 +1,16 @@
+pytest
+pytest-asyncio
+pyodbc
+aioodbc
+pydantic
+pyyaml
+python-dotenv
+fastapi
+uvicorn
+asyncpg
+aiomysql
+pymysql
+httpx2
+testcontainers
+docker
+httpx

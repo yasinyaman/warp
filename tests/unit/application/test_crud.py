@@ -54,7 +54,7 @@ class TestCRUDOperations:
     @pytest.mark.asyncio
     async def test_get_by_id_found(self, crud):
         """Test get_by_id when record exists."""
-        record = await crud.get_by_id(1)
+        record = await crud.get_by_id({"id": 1})
 
         assert record is not None
         assert record["id"] == 1
@@ -62,7 +62,7 @@ class TestCRUDOperations:
     @pytest.mark.asyncio
     async def test_get_by_id_not_found(self, crud):
         """Test get_by_id when record doesn't exist."""
-        record = await crud.get_by_id(9999)
+        record = await crud.get_by_id({"id": 9999})
 
         assert record is None
 
@@ -82,7 +82,7 @@ class TestCRUDOperations:
         """Test updating a record."""
         data = {"status": "inactive"}
 
-        record = await crud.update(1, data)
+        record = await crud.update({"id": 1}, data)
 
         assert record is not None
         assert record["status"] == "inactive"
@@ -90,14 +90,14 @@ class TestCRUDOperations:
     @pytest.mark.asyncio
     async def test_update_not_found(self, crud):
         """Test updating non-existent record."""
-        record = await crud.update(9999, {"status": "inactive"})
+        record = await crud.update({"id": 9999}, {"status": "inactive"})
 
         assert record is None
 
     @pytest.mark.asyncio
     async def test_update_empty_data(self, crud):
         """Test update with empty data returns existing record."""
-        record = await crud.update(1, {})
+        record = await crud.update({"id": 1}, {})
 
         assert record is not None
         assert record["id"] == 1
@@ -106,35 +106,35 @@ class TestCRUDOperations:
     async def test_delete(self, crud):
         """Test deleting a record."""
         # First verify it exists
-        exists_before = await crud.exists(1)
+        exists_before = await crud.exists({"id": 1})
         assert exists_before is True
 
         # Delete
-        deleted = await crud.delete(1)
+        deleted = await crud.delete({"id": 1})
         assert deleted is True
 
         # Verify deleted
-        exists_after = await crud.exists(1)
+        exists_after = await crud.exists({"id": 1})
         assert exists_after is False
 
     @pytest.mark.asyncio
     async def test_delete_not_found(self, crud):
         """Test deleting non-existent record."""
-        deleted = await crud.delete(9999)
+        deleted = await crud.delete({"id": 9999})
 
         assert deleted is False
 
     @pytest.mark.asyncio
     async def test_exists_true(self, crud):
         """Test exists returns True for existing record."""
-        exists = await crud.exists(1)
+        exists = await crud.exists({"id": 1})
 
         assert exists is True
 
     @pytest.mark.asyncio
     async def test_exists_false(self, crud):
         """Test exists returns False for non-existent record."""
-        exists = await crud.exists(9999)
+        exists = await crud.exists({"id": 9999})
 
         assert exists is False
 
@@ -189,7 +189,7 @@ class TestCRUDWithColumns:
     @pytest.mark.asyncio
     async def test_get_by_id_with_columns(self, crud):
         """Test get_by_id with specific columns."""
-        record = await crud.get_by_id(1, columns=["id", "name"])
+        record = await crud.get_by_id({"id": 1}, columns=["id", "name"])
 
         assert record is not None
 

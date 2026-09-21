@@ -8,8 +8,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from warp.adapters.inbound.http.auth import AuthManager
+from warp.adapters.inbound.http.governance import Governance
+from warp.adapters.inbound.http.request_context import add_request_id_middleware
 from warp.adapters.inbound.http.routes.crud import RouterFactory
+from warp.application.config import ApiKeyConfig, AuthConfig
 from warp.application.services.schema_discovery import SchemaAnalyzer
+from warp.domain.masking import CatalogMasking, MaskingPolicy
 from warp.domain.schema import ColumnSchema, TableSchema
 
 SCHEMA = TableSchema(
@@ -182,3 +187,563 @@ class TestInputValidation:
     def test_configured_max_limit_above_1000(self, big_limit_client):
         assert big_limit_client.get("/api/v1/users?limit=2000").status_code == 200
         assert big_limit_client.get("/api/v1/users?limit=6000").status_code == 422
+
+
+TENANT_SCHEMA = TableSchema(
+    table_name="orders",
+    columns=[
+        ColumnSchema(name="id", type="integer", nullable=False, extra="auto_increment"),
+        ColumnSchema(name="tenant_id", type="varchar", nullable=False),
+        ColumnSchema(name="note", type="varchar", nullable=True),
+    ],
+    primary_key="id",
+)
+
+
+@pytest.fixture
+def tenant_client(mock_db):
+    """A CRUD app behind auth, with one key scoped to tenant 'acme'."""
+    mock_db.add_mock_table(
+        "orders",
+        {"table_name": "orders", "primary_key": "id"},
+        [
+            {"id": 1, "tenant_id": "acme", "note": "ours"},
+            {"id": 2, "tenant_id": "other", "note": "theirs"},
+        ],
+    )
+    auth = AuthManager(
+        AuthConfig(
+            enabled=True,
+            api_keys=[
+                ApiKeyConfig(
+                    key="acme-key",
+                    name="acme",
+                    permissions=["all"],
+                    tenant="acme",
+                    row_filters={"orders": [{"column": "tenant_id", "value": "${tenant}"}]},
+                ),
+                ApiKeyConfig(key="root-key", name="root", permissions=["all"]),
+            ],
+        )
+    )
+    factory = RouterFactory(db=mock_db, schema_analyzer=SchemaAnalyzer(mock_db), auth_manager=auth)
+    app = FastAPI()
+    app.include_router(factory.create_router(TENANT_SCHEMA), prefix="/api/v1")
+    return TestClient(app)
+
+
+ACME = {"X-API-Key": "acme-key"}
+ROOT = {"X-API-Key": "root-key"}
+
+
+class TestRowSecurityOverHttp:
+    """The rules have to survive the whole request, not just the service call."""
+
+    def test_the_list_is_scoped_to_the_callers_tenant(self, tenant_client):
+        body = tenant_client.get("/api/v1/orders", headers=ACME).json()
+        assert body["total"] == 1
+        assert [item["id"] for item in body["items"]] == [1]
+
+    def test_an_unrestricted_key_sees_every_row(self, tenant_client):
+        assert tenant_client.get("/api/v1/orders", headers=ROOT).json()["total"] == 2
+
+    def test_another_tenants_row_is_a_404(self, tenant_client):
+        assert tenant_client.get("/api/v1/orders/2", headers=ACME).status_code == 404
+        assert tenant_client.get("/api/v1/orders/1", headers=ACME).status_code == 200
+        assert tenant_client.get("/api/v1/orders/2", headers=ROOT).status_code == 200
+
+    def test_a_query_filter_cannot_reach_across_tenants(self, tenant_client):
+        body = tenant_client.get("/api/v1/orders?filter[tenant_id]=other", headers=ACME).json()
+        assert body["total"] == 0
+
+    def test_writing_to_another_tenants_row_is_a_404(self, tenant_client):
+        assert (
+            tenant_client.patch(
+                "/api/v1/orders/2", json={"note": "hijacked"}, headers=ACME
+            ).status_code
+            == 404
+        )
+        assert tenant_client.delete("/api/v1/orders/2", headers=ACME).status_code == 404
+
+    def test_creating_into_another_tenant_is_refused(self, tenant_client):
+        response = tenant_client.post(
+            "/api/v1/orders", json={"tenant_id": "other", "note": "smuggled"}, headers=ACME
+        )
+        assert response.status_code == 400
+        assert "access scope" in response.text
+
+    def test_creating_into_your_own_tenant_works(self, tenant_client):
+        response = tenant_client.post(
+            "/api/v1/orders", json={"tenant_id": "acme", "note": "mine"}, headers=ACME
+        )
+        assert response.status_code == 201
+
+    def test_one_callers_policy_does_not_leak_into_the_next_request(self, tenant_client):
+        # The CRUD instance is shared across requests; the policy must not be.
+        assert tenant_client.get("/api/v1/orders", headers=ACME).json()["total"] == 1
+        assert tenant_client.get("/api/v1/orders", headers=ROOT).json()["total"] == 2
+        assert tenant_client.get("/api/v1/orders", headers=ACME).json()["total"] == 1
+
+
+PII_SCHEMA = TableSchema(
+    table_name="people",
+    columns=[
+        ColumnSchema(name="id", type="integer", nullable=False, extra="auto_increment"),
+        ColumnSchema(name="email", type="varchar", nullable=False),
+        ColumnSchema(name="name", type="varchar", nullable=True),
+    ],
+    primary_key="id",
+)
+
+MASKING = CatalogMasking(
+    policy=MaskingPolicy(
+        rules={"email": "partial"},
+        by_role={"support": {"email": "redact"}},
+        exempt_roles=("admin",),
+    ),
+    semantic_types={"people": {"email": "email", "id": "id"}},
+)
+
+
+@pytest.fixture
+def masked_client(mock_db):
+    mock_db.add_mock_table(
+        "people",
+        {"table_name": "people", "primary_key": "id"},
+        [{"id": 1, "email": "alice@example.com", "name": "Alice"}],
+    )
+    auth = AuthManager(
+        AuthConfig(
+            enabled=True,
+            api_keys=[
+                ApiKeyConfig(key="plain-key", name="plain", permissions=["all"]),
+                ApiKeyConfig(
+                    key="support-key", name="support", permissions=["all"], roles=["support"]
+                ),
+                ApiKeyConfig(key="admin-key", name="admin", permissions=["all"], roles=["admin"]),
+            ],
+        )
+    )
+    factory = RouterFactory(
+        db=mock_db,
+        schema_analyzer=SchemaAnalyzer(mock_db),
+        auth_manager=auth,
+        governance=Governance(masking=MASKING),
+    )
+    app = FastAPI()
+    app.include_router(factory.create_router(PII_SCHEMA), prefix="/api/v1")
+    return TestClient(app)
+
+
+class TestMaskingOverHttp:
+    def test_the_list_is_masked(self, masked_client):
+        item = masked_client.get("/api/v1/people", headers={"X-API-Key": "plain-key"}).json()[
+            "items"
+        ][0]
+        assert item["email"] == "a***@example.com"
+        # Only the labelled column changes.
+        assert item["name"] == "Alice"
+
+    def test_a_single_record_is_masked(self, masked_client):
+        body = masked_client.get("/api/v1/people/1", headers={"X-API-Key": "plain-key"}).json()
+        assert body["email"] == "a***@example.com"
+
+    def test_a_role_override_applies(self, masked_client):
+        body = masked_client.get("/api/v1/people/1", headers={"X-API-Key": "support-key"}).json()
+        assert body["email"] == "***"
+
+    def test_an_exempt_role_sees_the_real_value(self, masked_client):
+        body = masked_client.get("/api/v1/people/1", headers={"X-API-Key": "admin-key"}).json()
+        assert body["email"] == "alice@example.com"
+
+    def test_masking_does_not_break_response_validation(self, masked_client):
+        # A text mask on a text column keeps the field's type.
+        assert (
+            masked_client.get("/api/v1/people/1", headers={"X-API-Key": "plain-key"}).status_code
+            == 200
+        )
+
+    def test_one_callers_roles_do_not_leak_into_the_next_request(self, masked_client):
+        assert (
+            masked_client.get("/api/v1/people/1", headers={"X-API-Key": "admin-key"}).json()[
+                "email"
+            ]
+            == "alice@example.com"
+        )
+        assert (
+            masked_client.get("/api/v1/people/1", headers={"X-API-Key": "plain-key"}).json()[
+                "email"
+            ]
+            == "a***@example.com"
+        )
+
+
+class RecordingSink:
+    """Collects events so a test can assert what was recorded."""
+
+    def __init__(self) -> None:
+        self.events: list = []
+
+    def record(self, event) -> None:
+        self.events.append(event)
+
+
+@pytest.fixture
+def audited(mock_db):
+    """CRUD behind auth, with a tenant-scoped key, masking and an audit sink."""
+    mock_db.add_mock_table(
+        "people",
+        {"table_name": "people", "primary_key": "id"},
+        [
+            {"id": 1, "email": "alice@example.com", "name": "Alice"},
+            {"id": 2, "email": "bob@example.com", "name": "Bob"},
+        ],
+    )
+    sink = RecordingSink()
+    auth = AuthManager(
+        AuthConfig(
+            enabled=True,
+            api_keys=[
+                ApiKeyConfig(
+                    key="scoped-key",
+                    name="scoped",
+                    permissions=["all"],
+                    tenant="acme",
+                    row_filters={"people": [{"column": "name", "value": "Alice"}]},
+                ),
+                # `admin` is exempt from masking, so this key really is
+                # unrestricted: no row filter and no masked column.
+                ApiKeyConfig(key="root-key", name="root", permissions=["all"], roles=["admin"]),
+            ],
+        )
+    )
+    factory = RouterFactory(
+        db=mock_db,
+        schema_analyzer=SchemaAnalyzer(mock_db),
+        auth_manager=auth,
+        db_name="shop",
+        governance=Governance(masking=MASKING, audit=sink),
+    )
+    app = FastAPI()
+    add_request_id_middleware(app)
+    app.include_router(factory.create_router(PII_SCHEMA), prefix="/api/v1")
+    return TestClient(app), sink
+
+
+class TestAuditTrail:
+    def test_a_read_is_recorded_with_who_and_what(self, audited):
+        client, sink = audited
+        client.get("/api/v1/people", headers={"X-API-Key": "root-key"})
+        event = sink.events[-1]
+        assert event.action == "read"
+        assert event.database == "shop"
+        assert event.table == "people"
+        assert event.actor == "root"
+        assert event.row_count == 2
+        assert event.status == 200
+
+    def test_it_records_that_the_caller_was_restricted(self, audited):
+        # The difference between "read the table" and "read their slice of it,
+        # with a column masked" is the whole reason to keep this log.
+        client, sink = audited
+        client.get("/api/v1/people", headers={"X-API-Key": "scoped-key"})
+        event = sink.events[-1]
+        assert event.row_filtered is True
+        assert event.masked_columns == ("email",)
+        assert event.restricted is True
+        assert event.tenant == "acme"
+        assert event.row_count == 1
+
+    def test_an_unrestricted_caller_is_recorded_as_unrestricted(self, audited):
+        client, sink = audited
+        client.get("/api/v1/people", headers={"X-API-Key": "root-key"})
+        assert sink.events[-1].row_filtered is False
+        assert sink.events[-1].restricted is False
+
+    def test_filter_columns_are_recorded_but_never_their_values(self, audited):
+        client, sink = audited
+        client.get("/api/v1/people?filter[name]=Alice", headers={"X-API-Key": "root-key"})
+        event = sink.events[-1]
+        assert "name" in event.filtered_columns
+        assert "Alice" not in str(event.as_dict())
+
+    def test_a_probe_for_a_row_the_caller_cannot_see_is_recorded(self, audited):
+        client, sink = audited
+        client.get("/api/v1/people/2", headers={"X-API-Key": "scoped-key"})
+        event = sink.events[-1]
+        assert event.status == 404
+        assert event.row_count == 0
+        assert event.actor == "scoped"
+
+    def test_writes_are_recorded(self, audited):
+        client, sink = audited
+        client.post(
+            "/api/v1/people",
+            json={"email": "carol@example.com", "name": "Carol"},
+            headers={"X-API-Key": "root-key"},
+        )
+        created = sink.events[-1]
+        assert created.action == "create" and created.is_write and created.status == 201
+
+        client.delete("/api/v1/people/1", headers={"X-API-Key": "root-key"})
+        deleted = sink.events[-1]
+        assert deleted.action == "delete" and deleted.status == 204
+
+    def test_a_refused_write_is_recorded_too(self, audited):
+        client, sink = audited
+        client.post(
+            "/api/v1/people",
+            json={"email": "x@example.com", "name": "Bob"},
+            headers={"X-API-Key": "scoped-key"},
+        )
+        assert sink.events[-1].status == 400
+        assert sink.events[-1].action == "create"
+
+    def test_every_event_carries_the_requests_id(self, audited):
+        client, sink = audited
+        response = client.get("/api/v1/people", headers={"X-API-Key": "root-key"})
+        assert response.headers["X-Request-ID"]
+        assert sink.events[-1].request_id == response.headers["X-Request-ID"]
+
+    def test_a_caller_supplied_request_id_is_honoured(self, audited):
+        client, sink = audited
+        client.get(
+            "/api/v1/people",
+            headers={"X-API-Key": "root-key", "X-Request-ID": "trace-abc-123"},
+        )
+        assert sink.events[-1].request_id == "trace-abc-123"
+
+    def test_a_hostile_request_id_is_replaced(self, audited):
+        # It is echoed in a header and written to the log, so it must not
+        # carry arbitrary caller-controlled text.
+        client, sink = audited
+        client.get(
+            "/api/v1/people",
+            headers={"X-API-Key": "root-key", "X-Request-ID": "a b\nInjected: yes"},
+        )
+        assert sink.events[-1].request_id != "a b\nInjected: yes"
+        assert sink.events[-1].request_id.isalnum()
+
+
+HASH_KEY = b"an-export-key-of-sufficient-length!!"
+
+HASHED = CatalogMasking(
+    policy=MaskingPolicy(rules={"email": "hash"}, hash_key=HASH_KEY),
+    semantic_types={"people": {"email": "email", "id": "id"}},
+)
+
+
+@pytest.fixture
+def hashing_client(mock_db):
+    """Two rows sharing an address, so correlation is observable."""
+    mock_db.add_mock_table(
+        "people",
+        {"table_name": "people", "primary_key": "id"},
+        [
+            {"id": 1, "email": "alice@example.com", "name": "Alice"},
+            {"id": 2, "email": "alice@example.com", "name": "Alice again"},
+            {"id": 3, "email": "bob@example.com", "name": "Bob"},
+        ],
+    )
+    factory = RouterFactory(
+        db=mock_db,
+        schema_analyzer=SchemaAnalyzer(mock_db),
+        governance=Governance(masking=HASHED),
+    )
+    app = FastAPI()
+    app.include_router(factory.create_router(PII_SCHEMA), prefix="/api/v1")
+    return TestClient(app)
+
+
+class TestHashMaskingOverHttp:
+    """The key has to reach `mask_value` through the route, which is only
+    exercised here — the domain tests call it directly."""
+
+    def test_the_same_value_masks_the_same_way_in_two_rows(self, hashing_client):
+        items = hashing_client.get("/api/v1/people").json()["items"]
+        by_id = {row["id"]: row["email"] for row in items}
+
+        assert by_id[1] == by_id[2], "the point of `hash` is that it correlates"
+        assert by_id[1] != by_id[3]
+        assert "alice" not in by_id[1]
+
+    def test_the_digest_is_the_keyed_one(self, hashing_client):
+        """Pins the route to the same derivation the domain tests pin."""
+        from warp.domain.masking import mask_value
+
+        body = hashing_client.get("/api/v1/people/1").json()
+        assert body["email"] == mask_value("alice@example.com", "hash", HASH_KEY)
+
+    def test_a_route_without_the_key_would_refuse_rather_than_leak(self, mock_db):
+        """If the key ever stopped being threaded, this is what happens.
+
+        Loudly, not silently — the failure mode a masking layer must not have
+        is returning the raw value while reporting that it masked it.
+        """
+        from warp.domain.masking import MaskingError, mask_row
+
+        with pytest.raises(MaskingError, match="hash_secret"):
+            mask_row({"email": "alice@example.com"}, {"email": "hash"})
+
+
+class TestMaskingStartupRefusesAnUnkeyedHash:
+    """`_masking_for` is the composition seam, and the refusal belongs there.
+
+    Checked before the catalog is loaded: a `hash` rule with no key is a
+    misconfiguration whether or not this particular database happens to have
+    an approved catalog, and an operator should hear about it either way.
+    """
+
+    def _settings(self, **masking):
+        from warp.application.config import Settings
+
+        settings = Settings().settings
+        settings.masking.enabled = True
+        for name, value in masking.items():
+            setattr(settings.masking, name, value)
+        return settings
+
+    def test_a_hash_rule_without_a_secret_refuses(self):
+        from warp.adapters.inbound.http.app import _masking_for
+
+        with pytest.raises(ValueError, match="hash_secret"):
+            _masking_for(None, self._settings(rules={"email": "hash"}), "db", PII_SCHEMA)
+
+    def test_it_refuses_even_with_no_catalog_to_load(self):
+        """The container is never touched, so `None` here is the assertion."""
+        from warp.adapters.inbound.http.app import _masking_for
+
+        with pytest.raises(ValueError, match="hash_secret"):
+            _masking_for(
+                None,
+                self._settings(by_role={"support": {"phone": "hash"}}),
+                "db",
+                PII_SCHEMA,
+            )
+
+    def test_other_strategies_start_normally(self):
+        from warp.adapters.inbound.http.app import _masking_for
+
+        settings = self._settings(rules={"email": "partial"})
+        # No catalog, so this returns NO_MASKING rather than raising.
+        assert _masking_for(_NoCatalog(), settings, "db", PII_SCHEMA).is_empty
+
+
+class _NoCatalog:
+    """A container whose repository has nothing to give."""
+
+    class repository:  # noqa: N801 - mimics the container's attribute shape
+        @staticmethod
+        def load(_name):
+            raise FileNotFoundError("no catalog")
+
+
+LINES_SCHEMA = TableSchema(
+    table_name="siparis_satirlari",
+    columns=[
+        ColumnSchema(name="siparis_id", type="integer", nullable=False),
+        ColumnSchema(name="satir_no", type="integer", nullable=False),
+        ColumnSchema(name="urun", type="varchar", nullable=False),
+        ColumnSchema(name="miktar", type="integer", nullable=True),
+    ],
+    primary_key=["siparis_id", "satir_no"],
+)
+
+LOG_SCHEMA = TableSchema(
+    table_name="islem_log",
+    columns=[
+        ColumnSchema(name="mesaj", type="varchar", nullable=True),
+        ColumnSchema(name="zaman", type="timestamp", nullable=True),
+    ],
+    primary_key=None,
+)
+
+
+@pytest.fixture
+def lines_client(mock_db):
+    """One order with three lines — enough to see a delete overreach."""
+    mock_db.add_mock_table(
+        "siparis_satirlari",
+        {"table_name": "siparis_satirlari", "primary_key": ["siparis_id", "satir_no"]},
+        [
+            {"siparis_id": 5, "satir_no": 1, "urun": "kalem", "miktar": 10},
+            {"siparis_id": 5, "satir_no": 2, "urun": "defter", "miktar": 3},
+            {"siparis_id": 5, "satir_no": 3, "urun": "silgi", "miktar": 7},
+            {"siparis_id": 6, "satir_no": 1, "urun": "cetvel", "miktar": 1},
+        ],
+    )
+    factory = RouterFactory(db=mock_db, schema_analyzer=SchemaAnalyzer(mock_db))
+    app = FastAPI()
+    app.include_router(factory.create_router(LINES_SCHEMA), prefix="/api/v1")
+    return TestClient(app)
+
+
+class TestCompositeKeys:
+    """A key addressed by one of its columns reaches every row sharing it.
+
+    On an ERP schema that is most of the line-item tables — order lines,
+    invoice lines, stock movements — and the statement carried no LIMIT, so a
+    delete aimed at one line took the whole order with it and reported one row
+    affected.
+    """
+
+    def test_a_line_is_addressed_by_its_whole_key(self, lines_client):
+        body = lines_client.get("/api/v1/siparis_satirlari/5/2").json()
+        assert body["urun"] == "defter"
+
+    def test_deleting_one_line_leaves_the_others(self, lines_client):
+        """The regression test. Before the fix this emptied the order."""
+        assert lines_client.delete("/api/v1/siparis_satirlari/5/2").status_code == 204
+
+        remaining = lines_client.get("/api/v1/siparis_satirlari").json()["items"]
+        left = sorted(r["satir_no"] for r in remaining if r["siparis_id"] == 5)
+        assert left == [1, 3], "the rest of the order must still be there"
+        # And the neighbouring order is untouched.
+        assert any(r["siparis_id"] == 6 for r in remaining)
+
+    def test_updating_one_line_leaves_the_others(self, lines_client):
+        lines_client.patch("/api/v1/siparis_satirlari/5/2", json={"miktar": 99})
+
+        rows = lines_client.get("/api/v1/siparis_satirlari").json()["items"]
+        by_line = {(r["siparis_id"], r["satir_no"]): r["miktar"] for r in rows}
+        assert by_line[(5, 2)] == 99
+        assert by_line[(5, 1)] == 10 and by_line[(5, 3)] == 7
+
+    def test_a_partial_key_is_not_a_route(self, lines_client):
+        """`/5` addresses nothing: the path needs every key column."""
+        assert lines_client.get("/api/v1/siparis_satirlari/5").status_code == 404
+
+    def test_the_path_names_the_key_columns(self, lines_client):
+        """Which is what a spec reader — or a generated MCP tool — sees."""
+        paths = lines_client.get("/openapi.json").json()["paths"]
+        assert "/api/v1/siparis_satirlari/{siparis_id}/{satir_no}" in paths
+
+    def test_a_missing_line_names_both_columns(self, lines_client):
+        detail = lines_client.get("/api/v1/siparis_satirlari/5/99").json()["detail"]
+        assert "siparis_id=5" in detail and "satir_no=99" in detail
+
+    def test_the_key_columns_are_typed(self, lines_client):
+        """`/5/abc` is a 422, not a database round trip with a string."""
+        assert lines_client.get("/api/v1/siparis_satirlari/5/abc").status_code == 422
+
+
+class TestTablesWithoutAKey:
+    """A fabricated ``id`` used to reach the database and fail there."""
+
+    @pytest.fixture
+    def log_client(self, mock_db):
+        mock_db.add_mock_table(
+            "islem_log", {"table_name": "islem_log"}, [{"mesaj": "x", "zaman": None}]
+        )
+        factory = RouterFactory(db=mock_db, schema_analyzer=SchemaAnalyzer(mock_db))
+        app = FastAPI()
+        app.include_router(factory.create_router(LOG_SCHEMA), prefix="/api/v1")
+        return TestClient(app)
+
+    def test_the_list_still_works(self, log_client):
+        assert log_client.get("/api/v1/islem_log").json()["items"][0]["mesaj"] == "x"
+
+    def test_no_by_key_routes_are_registered(self, log_client):
+        paths = log_client.get("/openapi.json").json()["paths"]
+        assert "/api/v1/islem_log" in paths
+        assert not [p for p in paths if p.startswith("/api/v1/islem_log/")]

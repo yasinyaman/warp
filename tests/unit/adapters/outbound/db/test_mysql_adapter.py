@@ -307,14 +307,14 @@ async def test_select_count_none() -> None:
 async def test_select_by_id() -> None:
     cur = FakeCursor(fetchone={"id": 9})
     adapter = make_adapter(cur)
-    assert await adapter.select_by_id("users", "id", 9, columns=["id"]) == {"id": 9}
+    assert await adapter.select_by_id("users", {"id": 9}, columns=["id"]) == {"id": 9}
 
 
 @pytest.mark.asyncio
 async def test_update_success() -> None:
     cur = FakeCursor(fetchone={"id": 1, "name": "new"}, rowcount=1)
     adapter = make_adapter(cur)
-    result = await adapter.update("users", "id", 1, {"name": "new"})
+    result = await adapter.update("users", {"id": 1}, {"name": "new"})
     assert result == {"id": 1, "name": "new"}
 
 
@@ -322,7 +322,7 @@ async def test_update_success() -> None:
 async def test_update_no_rows() -> None:
     cur = FakeCursor(rowcount=0)
     adapter = make_adapter(cur)
-    assert await adapter.update("users", "id", 1, {"name": "x"}) is None
+    assert await adapter.update("users", {"id": 1}, {"name": "x"}) is None
 
 
 @pytest.mark.asyncio
@@ -331,28 +331,28 @@ async def test_update_unchanged_values_returns_row() -> None:
     new values equal the current ones, so the record is returned, not None."""
     cur = FakeCursor(fetchone={"id": 1, "name": "same"}, rowcount=1)
     adapter = make_adapter(cur)
-    assert await adapter.update("users", "id", 1, {"name": "same"}) == {"id": 1, "name": "same"}
+    assert await adapter.update("users", {"id": 1}, {"name": "same"}) == {"id": 1, "name": "same"}
 
 
 @pytest.mark.asyncio
 async def test_update_empty_data_delegates() -> None:
     cur = FakeCursor(fetchone={"id": 1})
     adapter = make_adapter(cur)
-    assert await adapter.update("users", "id", 1, {}) == {"id": 1}
+    assert await adapter.update("users", {"id": 1}, {}) == {"id": 1}
 
 
 @pytest.mark.asyncio
 async def test_delete_true() -> None:
     cur = FakeCursor(rowcount=1)
     adapter = make_adapter(cur)
-    assert await adapter.delete("users", "id", 1) is True
+    assert await adapter.delete("users", {"id": 1}) is True
 
 
 @pytest.mark.asyncio
 async def test_delete_false() -> None:
     cur = FakeCursor(rowcount=0)
     adapter = make_adapter(cur)
-    assert await adapter.delete("users", "id", 1) is False
+    assert await adapter.delete("users", {"id": 1}) is False
 
 
 @pytest.mark.asyncio

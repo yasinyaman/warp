@@ -12,11 +12,13 @@ from fastapi.testclient import TestClient
 
 from tests.conftest import MockDatabaseAdapter
 from warp.adapters.inbound.http.auth import AuthManager
+from warp.adapters.inbound.http.governance import Governance
 from warp.adapters.inbound.http.routes import export as export_module
 from warp.adapters.inbound.http.routes.crud import RouterFactory
 from warp.adapters.inbound.http.routes.export import create_export_router, effective_limit
 from warp.application.config import ApiKeyConfig, AuthConfig, ExportConfig
 from warp.application.services.schema_discovery import SchemaAnalyzer
+from warp.domain.masking import CatalogMasking, MaskingPolicy
 from warp.domain.schema import ColumnSchema, TableSchema
 
 PRODUCTS = TableSchema(
@@ -57,10 +59,18 @@ def _app(
     auth_manager: AuthManager | None = None,
     with_crud: bool = True,
     db: MockDatabaseAdapter | None = None,
+    masking: CatalogMasking | None = None,
 ) -> FastAPI:
     db = db or _db()
     app = FastAPI()
-    router = create_export_router(PRODUCTS, db, export or ExportConfig(), auth_manager)
+    router = create_export_router(
+        PRODUCTS,
+        db,
+        export or ExportConfig(),
+        auth_manager,
+        None,
+        Governance(masking=masking) if masking else None,
+    )
     app.include_router(router, prefix="/api/v1")
     if with_crud:
         factory = RouterFactory(db=db, schema_analyzer=SchemaAnalyzer(db))
@@ -304,3 +314,159 @@ def test_export_route_precedes_crud_get_by_id(client):
     # swallowed by GET /products/{id}; CRUD id parsing is still in place.
     assert client.get("/api/v1/products/export").status_code == 200
     assert client.get("/api/v1/products/abc").status_code == 422
+
+
+class TestExportRowSecurity:
+    """An export reads far more rows than a list call, so it must be scoped too."""
+
+    def _client(self) -> TestClient:
+        auth = AuthManager(
+            AuthConfig(
+                enabled=True,
+                api_keys=[
+                    ApiKeyConfig(
+                        key="odd-key",
+                        name="odd",
+                        permissions=["all"],
+                        # `active` is True for the odd-numbered rows.
+                        row_filters={"products": [{"column": "active", "value": True}]},
+                    ),
+                    ApiKeyConfig(key="root-key", name="root", permissions=["all"]),
+                ],
+            )
+        )
+        return TestClient(_app(auth_manager=auth, with_crud=False))
+
+    def test_get_export_is_scoped(self):
+        client = self._client()
+        restricted = client.get("/api/v1/products/export", headers={"X-API-Key": "odd-key"})
+        assert restricted.status_code == 200
+        assert restricted.json()["row_count"] == 3
+
+        unrestricted = client.get("/api/v1/products/export", headers={"X-API-Key": "root-key"})
+        assert unrestricted.json()["row_count"] == 5
+
+    def test_post_export_is_scoped(self):
+        client = self._client()
+        restricted = client.post(
+            "/api/v1/products/export", json={}, headers={"X-API-Key": "odd-key"}
+        )
+        assert restricted.status_code == 200
+        assert restricted.json()["row_count"] == 3
+
+    def test_a_body_filter_cannot_reach_past_the_policy(self):
+        client = self._client()
+        response = client.post(
+            "/api/v1/products/export",
+            json={"filters": [{"column": "active", "op": "eq", "value": False}]},
+            headers={"X-API-Key": "odd-key"},
+        )
+        # Both conditions are ANDed, so asking for the other half yields none.
+        assert response.json()["row_count"] == 0
+
+    def test_ndjson_is_scoped_as_well(self):
+        client = self._client()
+        response = client.get(
+            "/api/v1/products/export?format=ndjson", headers={"X-API-Key": "odd-key"}
+        )
+        lines = [line for line in response.text.splitlines() if line.strip()]
+        assert len(lines) == 3
+
+    def test_the_policy_survives_a_projection(self):
+        # Excluding the policy column from `fields` must not drop the condition:
+        # it lives in the WHERE clause, not the SELECT list.
+        client = self._client()
+        response = client.get(
+            "/api/v1/products/export?fields=id,name", headers={"X-API-Key": "odd-key"}
+        )
+        body = response.json()
+        assert body["row_count"] == 3
+        assert set(body["items"][0]) == {"id", "name"}
+
+
+class TestExportMasking:
+    """An export is the bulk path, so a forgotten mask leaks the whole table."""
+
+    def _client(self) -> TestClient:
+        auth = AuthManager(
+            AuthConfig(
+                enabled=True,
+                api_keys=[
+                    ApiKeyConfig(key="plain-key", name="plain", permissions=["all"]),
+                    ApiKeyConfig(
+                        key="admin-key", name="admin", permissions=["all"], roles=["admin"]
+                    ),
+                ],
+            )
+        )
+        masking = CatalogMasking(
+            policy=MaskingPolicy(rules={"name": "redact"}, exempt_roles=("admin",)),
+            semantic_types={"products": {"name": "name"}},
+        )
+        return TestClient(_app(auth_manager=auth, with_crud=False, masking=masking))
+
+    def test_json_export_is_masked(self):
+        items = (
+            self._client()
+            .get("/api/v1/products/export", headers={"X-API-Key": "plain-key"})
+            .json()["items"]
+        )
+        assert {item["name"] for item in items} == {"***"}
+        # Unlabelled columns are untouched.
+        assert items[0]["id"] == 1
+
+    def test_ndjson_export_is_masked(self):
+        text = (
+            self._client()
+            .get("/api/v1/products/export?format=ndjson", headers={"X-API-Key": "plain-key"})
+            .text
+        )
+        assert '"name": "***"' in text or '"name":"***"' in text
+        assert "product 1" not in text
+
+    def test_arrow_export_is_masked(self):
+        pa = pytest.importorskip("pyarrow")
+        response = self._client().get(
+            "/api/v1/products/export?format=arrow", headers={"X-API-Key": "plain-key"}
+        )
+        assert response.status_code == 200
+        table = pa.ipc.open_stream(response.content).read_all()
+        assert set(table.column("name").to_pylist()) == {"***"}
+
+    def test_an_exempt_role_exports_the_real_values(self):
+        items = (
+            self._client()
+            .get("/api/v1/products/export", headers={"X-API-Key": "admin-key"})
+            .json()["items"]
+        )
+        assert "product 1" in {item["name"] for item in items}
+
+
+class TestHashMaskingOnTheExportPath:
+    """The streaming path threads the key separately from CRUD, so it needs
+    its own case — `_masked_batches` is where it would go missing."""
+
+    KEY = b"an-export-key-of-sufficient-length!!"
+
+    def _client(self) -> TestClient:
+        masking = CatalogMasking(
+            policy=MaskingPolicy(rules={"name": "hash"}, hash_key=self.KEY),
+            semantic_types={"products": {"name": "name"}},
+        )
+        return TestClient(_app(with_crud=False, masking=masking))
+
+    def test_the_streamed_rows_carry_the_keyed_digest(self):
+        from warp.domain.masking import mask_value
+
+        items = self._client().get("/api/v1/products/export").json()["items"]
+
+        assert items[0]["name"] == mask_value("product 1", "hash", self.KEY)
+        assert "product" not in items[0]["name"]
+
+    def test_ndjson_takes_the_same_path(self):
+        from warp.domain.masking import mask_value
+
+        text = self._client().get("/api/v1/products/export?format=ndjson").text
+
+        assert mask_value("product 1", "hash", self.KEY) in text
+        assert "product 1" not in text

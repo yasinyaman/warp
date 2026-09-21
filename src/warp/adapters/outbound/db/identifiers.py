@@ -20,23 +20,42 @@ if TYPE_CHECKING:
 # always satisfy this, while injection payloads do not.
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# Per-engine additions to that alphabet, cached by the characters allowed.
+_EXTENDED_RES: dict[str, re.Pattern[str]] = {}
 
-def sanitize_identifier(name: str) -> str:
+
+def _identifier_re(extra: str) -> re.Pattern[str]:
+    if not extra:
+        return _IDENTIFIER_RE
+    cached = _EXTENDED_RES.get(extra)
+    if cached is None:
+        escaped = re.escape(extra)
+        cached = re.compile(rf"^[A-Za-z_][A-Za-z0-9_{escaped}]*$")
+        _EXTENDED_RES[extra] = cached
+    return cached
+
+
+def sanitize_identifier(name: str, extra_chars: str = "") -> str:
     """Validate a SQL identifier (table/column name).
 
     Args:
         name: The identifier to validate.
+        extra_chars: Characters this engine additionally allows after the first
+            one. Oracle passes ``"$#"``, because they are legal there and the
+            data dictionary generates them (an identity column's sequence is
+            named ``ISEQ$$_73346``). The double quote is never allowed for any
+            engine, which is what keeps a quoted identifier unescapable.
 
     Returns:
         The identifier unchanged when it is safe.
 
     Raises:
         ValueError: If the identifier contains anything other than ASCII
-            letters, digits, and underscores (and does not start with a digit).
-            This is what prevents identifier/SQL injection through dynamic
-            table and column names.
+            letters, digits, underscores and ``extra_chars`` (and does not
+            start with a digit). This is what prevents identifier/SQL injection
+            through dynamic table and column names.
     """
-    if not isinstance(name, str) or not _IDENTIFIER_RE.match(name):
+    if not isinstance(name, str) or not _identifier_re(extra_chars).match(name):
         raise ValueError(f"Invalid SQL identifier: {name!r}")
     return name
 

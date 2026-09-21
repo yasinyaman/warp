@@ -1,10 +1,17 @@
 """Tests for API-key authentication, RBAC, and public paths."""
 
+from types import SimpleNamespace
+
 import pytest
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 
-from warp.adapters.inbound.http.auth import AuthenticatedUser, AuthManager, Permission
+from warp.adapters.inbound.http.auth import (
+    AuthenticatedUser,
+    AuthManager,
+    Permission,
+    caller_of,
+)
 from warp.application.config import ApiKeyConfig, AuthConfig
 
 
@@ -130,3 +137,110 @@ class TestPublicPathBoundary:
         # "/health" is public; "/healthz"-style lookalikes are not.
         assert client.get("/health").status_code == 200
         assert client.get("/items").status_code == 401
+
+
+def _identity_client(enabled=True):
+    """An app whose routes report the caller recorded for the request."""
+    manager = AuthManager(_auth_config(enabled))
+    app = FastAPI()
+
+    @app.get("/health")
+    async def health(request: Request):
+        caller = caller_of(request)
+        return {"caller": caller.name if caller else None}
+
+    @app.get("/items", dependencies=[Depends(manager.require(Permission.READ))])
+    async def list_items(request: Request):
+        caller = caller_of(request)
+        return {"caller": caller.name if caller else None}
+
+    @app.delete(
+        "/items/{item_id}",
+        dependencies=[Depends(manager.require_any([Permission.DELETE, Permission.ALL]))],
+    )
+    async def delete_item(item_id: int, request: Request):
+        caller = caller_of(request)
+        return {"caller": caller.name if caller else None}
+
+    return TestClient(app)
+
+
+class TestCallerIdentityReachesHandlers:
+    """Routes register auth as `dependencies=[...]`, whose return FastAPI drops.
+
+    Without recording the caller on the request, nothing downstream could know
+    who was asking — which is what row filtering and masking need.
+    """
+
+    def test_the_caller_is_available_to_the_handler(self):
+        client = _identity_client()
+        response = client.get("/items", headers={"X-API-Key": "reader-key"})
+        assert response.status_code == 200
+        assert response.json() == {"caller": "reader"}
+
+    def test_require_any_records_the_caller_too(self):
+        client = _identity_client()
+        response = client.delete("/items/1", headers={"X-API-Key": "admin-key"})
+        assert response.status_code == 200
+        assert response.json() == {"caller": "admin"}
+
+    def test_an_unauthenticated_request_is_unknown_not_permitted(self):
+        # Auth off: the handler must see None and decide for itself, rather
+        # than being handed something that looks like a permitted user.
+        client = _identity_client(enabled=False)
+        assert client.get("/items").json() == {"caller": None}
+
+    def test_a_public_path_has_no_caller(self):
+        client = _identity_client()
+        assert client.get("/health", headers={"X-API-Key": "reader-key"}).json() == {"caller": None}
+
+    def test_a_rejected_request_never_reaches_the_handler(self):
+        client = _identity_client()
+        assert client.get("/items").status_code == 401
+        assert client.get("/items", headers={"X-API-Key": "nope"}).status_code == 401
+
+    def test_a_caller_without_the_permission_is_refused(self):
+        client = _identity_client()
+        assert client.delete("/items/1", headers={"X-API-Key": "reader-key"}).status_code == 403
+
+    def test_caller_of_on_a_request_that_never_passed_through_auth(self):
+        # getattr-with-default, so an unauthenticated path cannot raise.
+        assert caller_of(SimpleNamespace(state=SimpleNamespace())) is None
+
+
+class TestRowRulesAndRawSql:
+    """Raw SQL cannot have row conditions pushed into it, so it is denied."""
+
+    def _user(self, **overrides) -> AuthenticatedUser:
+        config = ApiKeyConfig(
+            key="k",
+            name="acme-reader",
+            permissions=["all"],
+            tenant="acme",
+            row_filters={"orders": [{"column": "tenant_id", "value": "${tenant}"}]},
+            **overrides,
+        )
+        return AuthenticatedUser(config)
+
+    def test_a_restricted_caller_cannot_run_raw_sql_even_with_all(self):
+        user = self._user()
+        assert user.has_row_rules
+        assert user.has_permission(Permission.READ)
+        # `all` would otherwise grant it; one SELECT would make the rules moot.
+        assert not user.has_permission(Permission.QUERY)
+
+    def test_an_unrestricted_caller_still_can(self):
+        user = AuthenticatedUser(ApiKeyConfig(key="k", name="admin", permissions=["all"]))
+        assert not user.has_row_rules
+        assert user.has_permission(Permission.QUERY)
+
+    def test_the_policy_is_built_from_the_keys_tenant(self):
+        assert self._user().row_policy.conditions_for("orders") == [("tenant_id", "eq", "acme")]
+
+    def test_roles_and_tenant_are_carried(self):
+        user = self._user(roles=["analyst"])
+        assert user.tenant == "acme"
+        assert user.roles == ["analyst"]
+
+    def test_the_plaintext_key_is_still_not_retained(self):
+        assert "k" not in vars(self._user()).values()

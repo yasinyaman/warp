@@ -200,3 +200,100 @@ def test_export_arrow_over_postgres(ledger_client: TestClient) -> None:
     # JSON export of the same rows keeps decimals as text and bytes as base64.
     items = ledger_client.get("/api/v1/ledger/export?sort=id:asc").json()["items"]
     assert items[0]["amount"] == "10.25" and items[0]["raw"] == "AQI="
+
+
+@pytest.fixture(params=list(BACKENDS))
+def lines_backend(request: pytest.FixtureRequest):
+    """The backend's (gateway, config) pair.
+
+    Sync on purpose: `getfixturevalue` on an async fixture works from a sync
+    one, and fails from inside an async one with `Runner.run() cannot be
+    called from a running event loop`. `client` above resolves its backend the
+    same way, for the same reason.
+    """
+    gateway_fixture, config_fixture = BACKENDS[request.param]
+    return request.getfixturevalue(gateway_fixture), request.getfixturevalue(config_fixture)
+
+
+@pytest.fixture
+async def order_lines(lines_backend):
+    """A composite primary key, which on an ERP schema most line tables have.
+
+    Run on every backend, because key addressing is the one thing the dialects
+    build differently: PostgreSQL pages with LIMIT/OFFSET and SQL Server with
+    OFFSET/FETCH, and each assembles its own `a = ? AND b = ?`. The DDL here
+    is deliberately portable — `VARCHAR(50)` rather than `TEXT`, which SQL
+    Server deprecated — so one fixture serves both.
+    """
+    gateway, config = lines_backend
+
+    await gateway.execute_query("DROP TABLE IF EXISTS siparis_satirlari")
+    await gateway.execute_query(
+        "CREATE TABLE siparis_satirlari ("
+        "siparis_id BIGINT NOT NULL, satir_no INT NOT NULL, urun VARCHAR(50) NOT NULL, "
+        "adet INT NOT NULL, PRIMARY KEY (siparis_id, satir_no))"
+    )
+    await gateway.execute_query(
+        "INSERT INTO siparis_satirlari (siparis_id, satir_no, urun, adet) VALUES "
+        "(5, 1, 'a', 1), (5, 2, 'b', 2), (5, 3, 'c', 3), (6, 1, 'd', 4)"
+    )
+    yield config
+    await gateway.execute_query("DROP TABLE IF EXISTS siparis_satirlari")
+
+
+@pytest.fixture
+def lines_client(order_lines, tmp_path):
+    app = _make_app(order_lines, tmp_path)
+    with TestClient(app) as c:
+        yield c
+
+
+def test_the_whole_key_reaches_the_database(lines_client: TestClient) -> None:
+    """The regression, against a real engine rather than a fake gateway.
+
+    Before the fix the key collapsed to its first column, so this DELETE was
+    `WHERE siparis_id = 5` with no LIMIT: all three lines of order 5, answered
+    204. The unit test pins the SQL; this one pins what the database did with
+    it, which is the half that actually lost the rows.
+    """
+    assert lines_client.get("/api/v1/siparis_satirlari/5/2").json()["urun"] == "b"
+
+    assert lines_client.delete("/api/v1/siparis_satirlari/5/2").status_code == 204
+
+    remaining = lines_client.get("/api/v1/siparis_satirlari?sort=satir_no:asc").json()["items"]
+    left = sorted(r["satir_no"] for r in remaining if r["siparis_id"] == 5)
+    assert left == [1, 3], "the rest of the order must still be there"
+    assert any(r["siparis_id"] == 6 for r in remaining), "and so must the other order"
+
+
+def test_an_update_addresses_one_line(lines_client: TestClient) -> None:
+    r = lines_client.put("/api/v1/siparis_satirlari/5/3", json={"adet": 99})
+    assert r.status_code == 200 and r.json()["adet"] == 99
+
+    rows = lines_client.get("/api/v1/siparis_satirlari").json()["items"]
+    assert sorted(r["adet"] for r in rows if r["siparis_id"] == 5) == [1, 2, 99]
+
+
+def test_the_schema_endpoint_reports_both_key_columns(lines_client: TestClient) -> None:
+    table = lines_client.get("/api/v1/siparis_satirlari/schema").json()
+    assert table["primary_key"] == ["siparis_id", "satir_no"]
+
+
+def test_the_path_is_named_after_the_key_columns(lines_client: TestClient) -> None:
+    """What a spec reader — and a generated MCP tool — sees for the arity.
+
+    Only the db-scoped registration is documented; the unprefixed alias is
+    `include_in_schema=False` so one operation is not listed twice (app.py).
+    Matched by suffix for that reason, not by the whole path.
+    """
+    paths = [p for p in lines_client.get("/openapi.json").json()["paths"] if "siparis" in p]
+
+    keyed = [p for p in paths if p.endswith("/siparis_satirlari/{siparis_id}/{satir_no}")]
+    assert len(keyed) == 1, paths
+    assert sorted(lines_client.get("/openapi.json").json()["paths"][keyed[0]]) == [
+        "delete",
+        "get",
+        "patch",
+        "put",
+    ]
+    assert not [p for p in paths if p.endswith("{id}")], "no fabricated single id"

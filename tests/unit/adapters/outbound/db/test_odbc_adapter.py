@@ -9,6 +9,7 @@ exercised for real.
 
 from __future__ import annotations
 
+import logging
 import struct
 import sys
 import types
@@ -105,6 +106,9 @@ class FakeCursor:
 
     async def fetchall(self) -> list[tuple[Any, ...]]:
         return list(self._rows)
+
+    async def fetchone(self) -> tuple[Any, ...] | None:
+        return self._rows.pop(0) if self._rows else None
 
     async def fetchmany(self, size: int) -> list[tuple[Any, ...]]:
         batch, self._rows = self._rows[:size], self._rows[size:]
@@ -880,8 +884,8 @@ class TestSelect:
     async def test_select_by_id(self):
         cur = FakeCursor([ResultSet(["id"], [(1,)]), ResultSet(["id"], [])])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.select_by_id("users", "id", 1, ["id"]) == {"id": 1}
-        assert await adapter.select_by_id("users", "id", 2) is None
+        assert await adapter.select_by_id("users", {"id": 1}, ["id"]) == {"id": 1}
+        assert await adapter.select_by_id("users", {"id": 2}) is None
         assert cur.executed[0] == ("SELECT [id] FROM [users] WHERE [id] = ?", [1])
 
 
@@ -890,8 +894,8 @@ class TestUpdate:
     async def test_mssql_output(self):
         cur = FakeCursor([ResultSet(["id", "name"], [(1, "z")]), ResultSet(["id", "name"], [])])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.update("users", "id", 1, {"name": "z"}) == {"id": 1, "name": "z"}
-        assert await adapter.update("users", "id", 2, {"name": "z"}) is None
+        assert await adapter.update("users", {"id": 1}, {"name": "z"}) == {"id": 1, "name": "z"}
+        assert await adapter.update("users", {"id": 2}, {"name": "z"}) is None
         assert cur.executed[0] == (
             "UPDATE [users] SET [name] = ? OUTPUT INSERTED.* WHERE [id] = ?",
             ["z", 1],
@@ -901,7 +905,7 @@ class TestUpdate:
     async def test_empty_data_reads_the_row(self):
         cur = FakeCursor([ResultSet(["id"], [(1,)])])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.update("users", "id", 1, {}) == {"id": 1}
+        assert await adapter.update("users", {"id": 1}, {}) == {"id": 1}
         assert cur.executed[0][0].startswith("SELECT")
 
     @pytest.mark.asyncio
@@ -915,15 +919,15 @@ class TestUpdate:
             ]
         )
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.update("users", "id", 1, {"name": "z"}) == {"id": 1, "name": "z"}
+        assert await adapter.update("users", {"id": 1}, {"name": "z"}) == {"id": 1, "name": "z"}
         assert cur.executed[1] == ("UPDATE [users] SET [name] = ? WHERE [id] = ?", ["z", 1])
-        assert await adapter.update("users", "id", 9, {"name": "z"}) is None
+        assert await adapter.update("users", {"id": 9}, {"name": "z"}) is None
 
     @pytest.mark.asyncio
     async def test_generic_unknown_rowcount_rereads(self):
         cur = FakeCursor([ResultSet(rowcount=-1), ResultSet(["ID"], [])])
         adapter = make_adapter(GENERIC_CONFIG, cur)
-        assert await adapter.update("T", "ID", 1, {"NAME": "z"}) is None
+        assert await adapter.update("T", {"ID": 1}, {"NAME": "z"}) is None
         assert cur.executed[0] == ('UPDATE "T" SET "NAME" = ? WHERE "ID" = ?', ["z", 1])
         assert cur.executed[1][0] == 'SELECT * FROM "T" WHERE "ID" = ?'
 
@@ -933,25 +937,25 @@ class TestDelete:
     async def test_mssql_output(self):
         cur = FakeCursor([ResultSet(["id"], [(1,)]), ResultSet(["id"], [])])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.delete("users", "id", 1) is True
-        assert await adapter.delete("users", "id", 2) is False
+        assert await adapter.delete("users", {"id": 1}) is True
+        assert await adapter.delete("users", {"id": 2}) is False
         assert cur.executed[0] == ("DELETE FROM [users] OUTPUT DELETED.[id] WHERE [id] = ?", [1])
 
     @pytest.mark.asyncio
     async def test_mssql_trigger_fallback_uses_rowcount(self):
         cur = FakeCursor([TRIGGER_ERROR, ResultSet(rowcount=1), ResultSet(rowcount=0)])
         adapter = make_adapter(MSSQL_CONFIG, cur)
-        assert await adapter.delete("users", "id", 1) is True
+        assert await adapter.delete("users", {"id": 1}) is True
         assert cur.executed[1] == ("DELETE FROM [users] WHERE [id] = ?", [1])
-        assert await adapter.delete("users", "id", 2) is False
+        assert await adapter.delete("users", {"id": 2}) is False
 
     @pytest.mark.asyncio
     async def test_generic_checks_existence_first(self):
         cur = FakeCursor([ResultSet(["ID"], []), ResultSet(["ID"], [(1,)]), ResultSet(rowcount=-1)])
         adapter = make_adapter(GENERIC_CONFIG, cur)
-        assert await adapter.delete("T", "ID", 9) is False
+        assert await adapter.delete("T", {"ID": 9}) is False
         assert len(cur.executed) == 1
-        assert await adapter.delete("T", "ID", 1) is True
+        assert await adapter.delete("T", {"ID": 1}) is True
         assert cur.executed[-1] == ('DELETE FROM "T" WHERE "ID" = ?', [1])
 
 
@@ -1031,3 +1035,404 @@ class TestRowEstimates:
         adapter = make_adapter({**MSSQL_CONFIG, "type": "odbc"}, cur)
         assert await adapter.row_estimates(["users"]) == {"users": None}
         assert cur.executed == []
+
+
+# --- Oracle profile -----------------------------------------------------------------
+
+ORACLE_CONFIG: dict[str, Any] = {
+    "name": "ora",
+    "type": "oracle",
+    "host": "ora.example",
+    "port": 1521,
+    "database": "FREEPDB1",
+    "username": "app",
+    "password": "s3cret",
+    "options": {"driver": "Oracle 23 ODBC driver", "schema": "hr"},
+}
+
+
+class TestOracleProfile:
+    def test_schema_is_upper_cased_from_config(self):
+        adapter = make_adapter(ORACLE_CONFIG, FakeCursor())
+        # ALL_TABLES.OWNER is upper case, so the bound :schema must be too.
+        assert adapter._schema == "HR"
+        assert adapter._oracle is True
+        assert adapter._mssql is False
+        assert adapter._resolve_schema is False
+
+    async def test_schema_resolves_from_the_session_when_unset(self):
+        config = {**ORACLE_CONFIG, "options": {"driver": "d"}}
+        adapter = ODBCAdapter(config)
+        assert adapter._resolve_schema is True
+        cursor = FakeCursor([ResultSet(["username"], [("APP",)])])
+        adapter._pool = FakePool(cursor)
+
+        await adapter._adopt_session_schema()
+
+        assert adapter._schema == "APP"
+        assert "FROM DUAL" in cursor.executed[0][0]
+
+    async def test_a_failed_session_lookup_keeps_the_configured_schema(self):
+        config = {**ORACLE_CONFIG, "options": {"driver": "d"}}
+        adapter = ODBCAdapter(config)
+        before = adapter._schema
+        adapter._pool = FakePool(FakeCursor([RuntimeError("ORA-01017")]))
+
+        await adapter._adopt_session_schema()
+
+        assert adapter._schema == before
+
+    async def test_get_tables_reads_all_tables(self):
+        cursor = FakeCursor([ResultSet(["table_name"], [("ORDERS",), ("USERS",)])])
+        adapter = make_adapter(ORACLE_CONFIG, cursor)
+
+        assert await adapter.get_tables() == ["ORDERS", "USERS"]
+        sql, params = cursor.executed[0]
+        assert "ALL_TABLES" in sql
+        assert params == ["HR"]
+
+    async def test_table_schema(self):
+        cursor = FakeCursor(
+            [
+                ResultSet(
+                    [
+                        "column_name",
+                        "data_type",
+                        "nullable",
+                        "column_default",
+                        "max_length",
+                        "numeric_precision",
+                        "numeric_scale",
+                        "is_identity",
+                        "is_virtual",
+                    ],
+                    [
+                        ("ID", "NUMBER", "N", None, None, 10, 0, "YES", "NO"),
+                        ("EMAIL", "VARCHAR2", "Y", None, 255, None, None, "NO", "NO"),
+                        ("TOTAL", "NUMBER", "Y", None, None, None, None, "NO", "YES"),
+                    ],
+                ),
+                ResultSet(["column_name"], [("ID",)]),
+                ResultSet(
+                    ["column_name", "foreign_table", "foreign_column", "constraint_name"],
+                    [("ORG_ID", "ORGS", "ID", "FK_U_ORG")],
+                ),
+                ResultSet(
+                    ["index_name", "column_name", "uniqueness"],
+                    [("IX_EMAIL", "EMAIL", "UNIQUE"), ("IX_NAME", "NAME", "NONUNIQUE")],
+                ),
+            ]
+        )
+        adapter = make_adapter(ORACLE_CONFIG, cursor)
+
+        schema = await adapter.get_table_schema("users")
+
+        assert schema["table_name"] == "users"
+        assert schema["primary_key"] == "ID"
+        ident, email, total = schema["columns"]
+        assert ident["extra"] == "identity"
+        assert ident["nullable"] is False
+        assert ident["full_type"] == "number(10,0)"
+        assert email["nullable"] is True
+        assert email["full_type"] == "varchar2(255)"
+        # A NUMBER with no declared precision stays bare: nothing to size it with.
+        assert total["full_type"] == "number"
+        assert total["extra"] == "computed"
+        assert schema["foreign_keys"] == [
+            {
+                "column": "ORG_ID",
+                "references_table": "ORGS",
+                "references_column": "ID",
+                "constraint_name": "FK_U_ORG",
+            }
+        ]
+        assert schema["indexes"] == [
+            {"name": "IX_EMAIL", "columns": ["EMAIL"], "unique": True},
+            {"name": "IX_NAME", "columns": ["NAME"], "unique": False},
+        ]
+        # Every catalog query is scoped by the folded owner and table name.
+        for _sql, params in cursor.executed:
+            assert params == ["HR", "USERS"]
+
+    async def test_columns_fall_back_to_the_pre_12c_view(self):
+        cursor = FakeCursor(
+            [
+                RuntimeError('ORA-00904: "IDENTITY_COLUMN": invalid identifier'),
+                ResultSet(
+                    [
+                        "column_name",
+                        "data_type",
+                        "nullable",
+                        "column_default",
+                        "max_length",
+                        "numeric_precision",
+                        "numeric_scale",
+                        "is_identity",
+                        "is_virtual",
+                    ],
+                    [("ID", "NUMBER", "N", None, None, 10, 0, "NO", "NO")],
+                ),
+                ResultSet(["column_name"], [("ID",)]),
+                ResultSet(
+                    ["column_name", "foreign_table", "foreign_column", "constraint_name"], []
+                ),
+                ResultSet(["index_name", "column_name", "uniqueness"], []),
+            ]
+        )
+        adapter = make_adapter(ORACLE_CONFIG, cursor)
+
+        schema = await adapter.get_table_schema("users")
+
+        assert [c["name"] for c in schema["columns"]] == ["ID"]
+        assert schema["columns"][0]["extra"] is None
+        assert "ALL_TAB_COLUMNS" in cursor.executed[1][0]
+
+    async def test_another_oracle_error_is_not_swallowed(self):
+        cursor = FakeCursor([RuntimeError("ORA-00942: table or view does not exist")])
+        adapter = make_adapter(ORACLE_CONFIG, cursor)
+
+        with pytest.raises(RuntimeError, match="ORA-00942"):
+            await adapter.get_table_schema("users")
+
+    async def test_row_estimates_map_back_to_the_callers_spelling(self):
+        cursor = FakeCursor(
+            [ResultSet(["table_name", "row_count"], [("USERS", 1500), ("ORDERS", None)])]
+        )
+        adapter = make_adapter(ORACLE_CONFIG, cursor)
+
+        # NUM_ROWS is NULL until the table has been analysed.
+        assert await adapter.row_estimates(["users", "orders", "missing"]) == {
+            "users": 1500,
+            "orders": None,
+            "missing": None,
+        }
+        _sql, params = cursor.executed[0]
+        assert params == ["HR", "USERS", "ORDERS", "MISSING"]
+
+    async def test_row_estimates_shortcut_on_no_tables(self):
+        adapter = make_adapter(ORACLE_CONFIG, FakeCursor())
+        assert await adapter.row_estimates([]) == {}
+
+
+class TestOracleConnectionString:
+    """Oracle's driver takes an Easy Connect DBQ, not SQL Server's SERVER/DATABASE."""
+
+    def test_dbq_is_host_port_service(self):
+        dsn = build_connection_string(ORACLE_CONFIG)
+        assert "DBQ=ora.example:1521/FREEPDB1" in dsn
+        # SERVER=host,port reaches Oracle as ORA-12162.
+        assert "SERVER=" not in dsn and "DATABASE=" not in dsn
+        assert "UID=app" in dsn and "PWD=s3cret" in dsn
+
+    def test_without_a_port(self):
+        config = {**ORACLE_CONFIG, "port": None}
+        assert "DBQ=ora.example/FREEPDB1" in build_connection_string(config)
+
+    def test_without_a_service(self):
+        config = {**ORACLE_CONFIG, "database": ""}
+        assert "DBQ=ora.example:1521;" in build_connection_string(config)
+
+    def test_oracle_gets_no_sql_server_encryption_options(self):
+        dsn = build_connection_string(ORACLE_CONFIG)
+        assert "Encrypt=" not in dsn and "TrustServerCertificate=" not in dsn
+
+    def test_a_verbatim_connection_string_still_wins(self):
+        config = {**ORACLE_CONFIG, "options": {"connection_string": "DSN=ora"}}
+        assert build_connection_string(config).startswith("DSN=ora;UID=app;")
+
+
+class TestOracleCatalogNumbers:
+    """Oracle reports lengths and precisions as NUMBER, so pyodbc yields floats."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"), [(50.0, 50), (10, 10), ("7", 7), (None, None), (True, None)]
+    )
+    def test_as_int(self, raw, expected):
+        assert odbc_module._as_int(raw) == expected
+
+    async def test_a_float_length_does_not_leak_into_the_type_name(self):
+        cursor = FakeCursor(
+            [
+                ResultSet(
+                    [
+                        "column_name",
+                        "data_type",
+                        "nullable",
+                        "column_default",
+                        "max_length",
+                        "numeric_precision",
+                        "numeric_scale",
+                        "is_identity",
+                        "is_virtual",
+                    ],
+                    [
+                        ("USERNAME", "VARCHAR2", "N", None, 50.0, None, None, "NO", "NO"),
+                        ("TOTAL", "NUMBER", "Y", None, None, 10.0, 2.0, "NO", "NO"),
+                    ],
+                ),
+                ResultSet(["column_name"], []),
+                ResultSet(
+                    ["column_name", "foreign_table", "foreign_column", "constraint_name"], []
+                ),
+                ResultSet(["index_name", "column_name", "uniqueness"], []),
+            ]
+        )
+        schema = await make_adapter(ORACLE_CONFIG, cursor).get_table_schema("users")
+        username, total = schema["columns"]
+        assert username["full_type"] == "varchar2(50)"
+        assert username["max_length"] == 50
+        assert total["full_type"] == "number(10,2)"
+        # pa.decimal128 will not take a float.
+        assert (total["precision"], total["scale"]) == (10, 2)
+
+
+class TestOracleIdentityInsert:
+    """Oracle has no RETURNING here, so the generated key comes from the sequence."""
+
+    async def test_the_new_row_is_refetched_by_the_sequence_value(self):
+        cursor = FakeCursor(
+            [
+                ResultSet(  # identity lookup
+                    ["column_name", "sequence_name"], [("ID", "ISEQ$$_73346")]
+                ),
+                NO_RESULT,  # the INSERT
+                ResultSet(["CURRVAL"], [(7,)]),  # CURRVAL, same connection
+                ResultSet(  # _primary_key -> get_table_schema
+                    [
+                        "column_name",
+                        "data_type",
+                        "nullable",
+                        "column_default",
+                        "max_length",
+                        "numeric_precision",
+                        "numeric_scale",
+                        "is_identity",
+                        "is_virtual",
+                    ],
+                    [("ID", "NUMBER", "N", None, None, None, None, "YES", "NO")],
+                ),
+                ResultSet(["column_name"], [("ID",)]),
+                ResultSet(
+                    ["column_name", "foreign_table", "foreign_column", "constraint_name"], []
+                ),
+                ResultSet(["index_name", "column_name", "uniqueness"], []),
+                ResultSet(["ID", "USERNAME"], [(7, "dave")]),  # the re-select
+            ]
+        )
+        adapter = make_adapter(ORACLE_CONFIG, cursor)
+
+        created = await adapter.insert("users", {"username": "dave"})
+
+        assert created == {"ID": 7, "USERNAME": "dave"}
+        # The sequence name contains '$', which only Oracle's identifier rules allow.
+        assert any('"ISEQ$$_73346".CURRVAL' in sql for sql, _ in cursor.executed)
+
+    async def test_a_table_without_an_identity_column_falls_back_to_the_given_key(self):
+        cursor = FakeCursor(
+            [
+                ResultSet(["column_name", "sequence_name"], []),  # no identity
+                NO_RESULT,  # the INSERT
+                ResultSet(  # _primary_key
+                    [
+                        "column_name",
+                        "data_type",
+                        "nullable",
+                        "column_default",
+                        "max_length",
+                        "numeric_precision",
+                        "numeric_scale",
+                        "is_identity",
+                        "is_virtual",
+                    ],
+                    [("ID", "NUMBER", "N", None, None, None, None, "NO", "NO")],
+                ),
+                ResultSet(["column_name"], [("ID",)]),
+                ResultSet(
+                    ["column_name", "foreign_table", "foreign_column", "constraint_name"], []
+                ),
+                ResultSet(["index_name", "column_name", "uniqueness"], []),
+                ResultSet(["ID", "USERNAME"], [(3, "erin")]),
+            ]
+        )
+        adapter = make_adapter(ORACLE_CONFIG, cursor)
+
+        created = await adapter.insert("users", {"ID": 3, "username": "erin"})
+
+        assert created == {"ID": 3, "USERNAME": "erin"}
+        assert not any("CURRVAL" in sql for sql, _ in cursor.executed)
+
+    async def test_the_sequence_lookup_is_cached(self):
+        cursor = FakeCursor([ResultSet(["column_name", "sequence_name"], [("ID", "S1")])])
+        adapter = make_adapter(ORACLE_CONFIG, cursor)
+        assert await adapter._oracle_identity_sequence("users") == "S1"
+        assert await adapter._oracle_identity_sequence("users") == "S1"
+        assert len(cursor.executed) == 1
+
+
+class TestOracleInexactNumbers:
+    """An undeclared NUMBER cannot round-trip, and the fix belongs in the DDL."""
+
+    def _columns(self, *specs):
+        return ResultSet(
+            [
+                "column_name",
+                "data_type",
+                "nullable",
+                "column_default",
+                "max_length",
+                "numeric_precision",
+                "numeric_scale",
+                "is_identity",
+                "is_virtual",
+            ],
+            [
+                (name, dtype, "Y", None, None, precision, scale, "NO", "NO")
+                for name, dtype, precision, scale in specs
+            ],
+        )
+
+    def _cursor(self, *specs):
+        return FakeCursor(
+            [
+                self._columns(*specs),
+                ResultSet(["column_name"], []),
+                ResultSet(
+                    ["column_name", "foreign_table", "foreign_column", "constraint_name"], []
+                ),
+                ResultSet(["index_name", "column_name", "uniqueness"], []),
+            ]
+        )
+
+    async def test_an_undeclared_number_is_flagged(self):
+        cursor = self._cursor(("ID", "NUMBER", None, None), ("TOTAL", "NUMBER", 10, 2))
+        schema = await make_adapter(ORACLE_CONFIG, cursor).get_table_schema("users")
+        flags = {c["name"]: c["inexact"] for c in schema["columns"]}
+        assert flags == {"ID": True, "TOTAL": False}
+
+    async def test_a_declared_precision_is_exact(self):
+        # Proven against a real Oracle: NUMBER(38) arrives as an exact Decimal
+        # while a bare NUMBER arrives as an IEEE double.
+        cursor = self._cursor(("BIG_ID", "NUMBER", 38, 0))
+        schema = await make_adapter(ORACLE_CONFIG, cursor).get_table_schema("t")
+        assert schema["columns"][0]["inexact"] is False
+
+    async def test_other_numeric_types_are_not_flagged(self):
+        cursor = self._cursor(("F", "BINARY_DOUBLE", None, None), ("S", "VARCHAR2", None, None))
+        schema = await make_adapter(ORACLE_CONFIG, cursor).get_table_schema("t")
+        assert not any(c["inexact"] for c in schema["columns"])
+
+    async def test_the_warning_names_the_column_and_the_fix(self, caplog):
+        cursor = self._cursor(("ID", "NUMBER", None, None))
+        with caplog.at_level(logging.WARNING):
+            await make_adapter(ORACLE_CONFIG, cursor).get_table_schema("users")
+        assert "ID" in caplog.text
+        assert "2^53" in caplog.text
+        assert "NUMBER(38)" in caplog.text
+
+    async def test_it_warns_once_per_table_not_once_per_query(self, caplog):
+        adapter = make_adapter(ORACLE_CONFIG, self._cursor(("ID", "NUMBER", None, None)))
+        with caplog.at_level(logging.WARNING):
+            await adapter.get_table_schema("users")
+            adapter._pool = FakePool(self._cursor(("ID", "NUMBER", None, None)))
+            await adapter.get_table_schema("users")
+        assert caplog.text.count("NUMBER without a precision") == 1

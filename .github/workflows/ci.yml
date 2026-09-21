@@ -39,7 +39,7 @@ jobs:
         run: pytest --cov=src/warp --cov-report=term-missing
 
   integration:
-    name: integration (PostgreSQL + MySQL + SQL Server via testcontainers)
+    name: integration (PostgreSQL + MySQL + SQL Server + Oracle via testcontainers)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -63,12 +63,37 @@ jobs:
           sudo apt-get update
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18
           odbcinst -q -d -n "ODBC Driver 18 for SQL Server"
+      - name: Install Oracle Instant Client ODBC driver
+        run: |
+          sudo apt-get install -y libaio1t64 unzip
+          # libaio.so.1 is what Instant Client links against; Ubuntu 24.04
+          # ships the t64 rebuild under a different soname.
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 \
+            /usr/lib/x86_64-linux-gnu/libaio.so.1 || true
+          base="https://download.oracle.com/otn_software/linux/instantclient/2360000"
+          curl -sSLo /tmp/ic-basic.zip "$base/instantclient-basiclite-linux.x64-23.6.0.24.10.zip"
+          curl -sSLo /tmp/ic-odbc.zip  "$base/instantclient-odbc-linux.x64-23.6.0.24.10.zip"
+          sudo mkdir -p /opt/oracle
+          sudo unzip -q -o /tmp/ic-basic.zip -d /opt/oracle
+          sudo unzip -q -o /tmp/ic-odbc.zip -d /opt/oracle
+          ic_dir=$(find /opt/oracle -maxdepth 1 -name 'instantclient_*' | head -1)
+          echo "$ic_dir" | sudo tee /etc/ld.so.conf.d/oracle-instantclient.conf >/dev/null
+          sudo ldconfig
+          sudo tee -a /etc/odbcinst.ini >/dev/null <<EOF
+
+          [Oracle 23 ODBC driver]
+          Description = Oracle ODBC driver for Oracle 23
+          Driver = $ic_dir/libsqora.so.23.1
+          FileUsage = 1
+          EOF
+          odbcinst -q -d -n "Oracle 23 ODBC driver"
       - name: Run integration tests against real databases
-        # The SQL Server container/driver must work here; the suite only
-        # auto-skips SQL Server on developer machines without them.
+        # The SQL Server and Oracle containers/drivers must work here; the
+        # suite only auto-skips them on developer machines without them.
         run: pytest tests/integration -m integration
         env:
           WARP_REQUIRE_MSSQL: "1"
+          WARP_REQUIRE_ORACLE: "1"
 
   quality:
     name: lint, format & types

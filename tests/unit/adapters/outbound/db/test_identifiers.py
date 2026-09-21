@@ -97,3 +97,36 @@ class TestQuoteIdentifierDialects:
         assert reader._quote_identifier("users") == "[users]"
         with pytest.raises(ValueError):
             reader._quote_identifier("a]b")
+
+
+class TestDialectExtraChars:
+    """Oracle's legal identifier alphabet is wider, and its data dictionary uses it."""
+
+    def test_oracle_allows_dollar_and_hash(self):
+        # An identity column's sequence is generated as ISEQ$$_73346.
+        assert sanitize_identifier("ISEQ$$_73346", "$#") == "ISEQ$$_73346"
+        assert sanitize_identifier("SYS#TAB", "$#") == "SYS#TAB"
+
+    def test_those_characters_stay_rejected_by_default(self):
+        for name in ("ISEQ$$_73346", "SYS#TAB"):
+            with pytest.raises(ValueError):
+                sanitize_identifier(name)
+
+    def test_the_first_character_is_still_a_letter_or_underscore(self):
+        with pytest.raises(ValueError):
+            sanitize_identifier("$leading", "$#")
+        with pytest.raises(ValueError):
+            sanitize_identifier("1abc", "$#")
+
+    @pytest.mark.parametrize("name", ['a"b', "a;b", "a b", "a'b", "a--b", "a/*b*/"])
+    def test_widening_never_admits_anything_that_could_escape_the_quotes(self, name):
+        # The double quote in particular: it is the only character that could
+        # terminate a quoted identifier, and no engine may allow it.
+        with pytest.raises(ValueError):
+            sanitize_identifier(name, "$#")
+
+    def test_the_compiled_pattern_is_cached_per_alphabet(self):
+        from warp.adapters.outbound.db.identifiers import _identifier_re
+
+        assert _identifier_re("$#") is _identifier_re("$#")
+        assert _identifier_re("") is not _identifier_re("$#")

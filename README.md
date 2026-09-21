@@ -14,7 +14,7 @@ Warp connects to your database, discovers tables and columns, and generates a fu
 - **Raw Queries** - Secure raw SQL execution with command whitelist
 - **Typed Schema** - `GET /schema` reports column types, primary keys and planner row estimates (no `COUNT(*)`)
 - **Streaming Export** - `GET|POST /{table}/export` streams rows from a server-side cursor as JSON, NDJSON or Arrow IPC
-- **Multi-DB Support** - PostgreSQL, MySQL and SQL Server (plus any ODBC data source, best effort)
+- **Multi-DB Support** - PostgreSQL, MySQL, SQL Server and Oracle (plus any ODBC data source, best effort)
 - **Authentication** - API key authentication with role-based access control
 - **Catalog Intelligence** - LLM-powered schema analysis with semantic types and descriptions
 - **Multi-Language** - Catalog descriptions in multiple languages with auto-translation
@@ -38,6 +38,9 @@ docker-compose up -d
 # Also start SQL Server (profile `mssql`; set MSSQL_PASS in .env first)
 docker compose --profile mssql up -d
 
+# Or Oracle (profile `oracle`; set ORACLE_PASS in .env first)
+docker compose --profile oracle up -d
+
 # API: http://localhost:8000
 # Docs: http://localhost:8000/docs
 # Adminer: http://localhost:8080
@@ -46,7 +49,7 @@ docker compose --profile mssql up -d
 ### Using pip
 
 ```bash
-pip install -e ".[dev,llm,odbc]"   # drop `odbc` if you do not need SQL Server / ODBC
+pip install -e ".[dev,llm,odbc]"   # drop `odbc` if you do not need SQL Server / Oracle / ODBC
 ```
 
 #### Reproducible installs (pinned + hashed)
@@ -178,6 +181,189 @@ on macOS or the `msodbcsql18` package from
 [packages.microsoft.com](https://learn.microsoft.com/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server)
 on Linux.
 
+### Row-level security
+
+An API key may carry mandatory row conditions. They are ANDed onto every read
+of that table and enforced on writes; a caller cannot widen, drop or override
+them with query parameters.
+
+```yaml
+auth:
+  enabled: true
+  api_keys:
+    - key: ${ACME_KEY}
+      name: acme
+      tenant: acme
+      permissions: [read, create, update, delete]
+      row_filters:
+        orders:
+          - column: tenant_id
+            value: ${tenant}        # or ${username}, or a literal
+        audit_log:
+          - column: severity
+            operator: in
+            value: [info, warning]
+```
+
+What this guarantees, and what it does not:
+
+- **List, export and stream** push the conditions into the `WHERE` clause, so
+  the database never returns a row the caller may not see.
+- **Reads and writes by primary key** have no `WHERE` to push into, so the row
+  is matched in memory. A row outside the policy is reported as **404, not
+  403** — saying "this exists but is not yours" is itself a disclosure.
+- **Writes cannot escape the scope.** Creating a row into another tenant, or
+  moving one there with an update, is a 400. Omitting the scope column on
+  create is refused too, so a database default cannot decide it.
+- **Raw SQL is denied** to any key with row rules, even one holding `all`:
+  conditions cannot be pushed into a statement the caller wrote, and one
+  `SELECT` would make the rules irrelevant.
+- **A restricted key needs authentication to mean anything.** With
+  `auth.enabled: false` nobody is identified and the rules apply to nothing;
+  in production that combination refuses startup. The same applies to a data
+  path listed in `auth.public_paths` — do not put one there.
+
+### Column masking
+
+Masking rules attach to the catalog's **semantic types**, not to column names.
+That is the whole point: when the catalog labels a newly discovered
+`contact_email` as `email`, it is masked from that moment, instead of leaking
+until somebody remembers to write a rule for it.
+
+```yaml
+masking:
+  enabled: true
+  rules:                    # semantic type -> strategy
+    email: partial          # a***@example.com
+    phone: last4            # ***6789
+    address: redact         # ***
+  by_role:                  # a role's rules replace `rules` entirely
+    support:
+      email: redact
+  exempt_roles: [admin]     # sees raw values
+  hash_secret: ${WARP_MASKING_HASH_SECRET}   # only needed by `hash`
+```
+
+Strategies: `partial`, `last4`, `hash`, `redact` and `null`. A `NULL` value
+stays `NULL` — masking one would invent the appearance of data.
+
+`hash` produces a **keyed pseudonym**: the same value masks the same way in
+every row, so it can still be joined on, and anyone holding the key can
+re-derive the original. That is pseudonymisation, not anonymisation — keep the
+key apart from anything it masks. It is keyed because an unkeyed digest of
+enumerable data is not a mask at all: an email falls to a wordlist and an
+11-digit national id to a loop, whatever the digest length. Rotating or losing
+the key breaks correlation with data exported earlier, which is the price of
+stability and the right trade.
+
+Applied to both paths that carry rows: CRUD responses, and `/export` in all
+three formats (JSON, NDJSON and Arrow). `/schema` returns no sample values, and
+catalog samples have their own `analysis.mask_pii_samples`.
+
+Two things to know:
+
+- **Masking needs an approved catalog.** Rules key on semantic types, and only
+  the catalog knows which column carries which. A draft is ignored — its labels
+  have not been reviewed, and masking the wrong columns is as damaging as
+  masking none. With masking enabled and no approved catalog, Warp logs that
+  nothing will be masked rather than failing quietly.
+- **A mask has to fit the column.** The text strategies need a text column and
+  `null` needs a nullable one, or the response could not carry the result.
+  Anything that does not fit is reported at startup, naming the column.
+- **`hash` refuses to load without a key.** Masking configured with a `hash`
+  rule and no `masking.hash_secret` fails when the configuration is *read*,
+  whatever the environment and whether or not table discovery is on. Neither
+  way of carrying on is available: falling back to an unkeyed digest is the
+  same exposure under a safer name, and skipping the rule returns readable PII
+  while reporting that it was masked. In production a secret shorter than 32
+  characters is refused too.
+
+### Audit trail
+
+One append-only event per data-touching request.
+
+```yaml
+audit:
+  enabled: true
+  file: /var/log/warp/audit.jsonl   # optional; events always go to `warp.audit`
+```
+
+Each line is one JSON object:
+
+```json
+{"event": "data_access", "at": "2026-09-19T09:00:00Z", "action": "read",
+ "database": "shop", "table": "orders", "actor": "acme-reader",
+ "tenant": "acme", "roles": ["support"], "request_id": "9f2c...",
+ "status": 200, "row_count": 42, "row_filtered": true,
+ "masked_columns": ["email"], "filtered_columns": ["status"],
+ "restricted": true, "is_write": false}
+```
+
+`row_filtered` and `masked_columns` are the point: a log that cannot tell
+"read the table" from "read their own tenant, with the email column masked"
+cannot answer the only question it is ever asked afterwards.
+
+**What it never contains:** row values, filter literals or SQL parameters.
+Filter *column names* are recorded; the values are not. An audit log that
+quotes the data it audits becomes a second copy of that data, in a file that
+usually has weaker access controls and a longer retention than the database.
+
+Every response carries `X-Request-ID` (a caller-supplied one is honoured), and
+the same id appears on the event, so an audit line and the application logs for
+the same request can be joined.
+
+### Oracle
+
+`type: oracle` connects through the same ODBC adapter with an Oracle profile:
+schema discovery from `ALL_TAB_COLS` / `ALL_CONSTRAINTS` / `ALL_INDEXES`
+(falling back to `ALL_TAB_COLUMNS` on pre-12c servers, which have no
+`IDENTITY_COLUMN`), `FETCH FIRST` sampling, `OFFSET … FETCH` pagination,
+comments from `ALL_TAB_COMMENTS` / `ALL_COL_COMMENTS` and row counts from
+`ALL_TABLES.NUM_ROWS`.
+
+```yaml
+databases:
+  - name: oracle_db
+    type: oracle
+    host: ${ORACLE_HOST:localhost}
+    port: ${ORACLE_PORT:1521}
+    database: ${ORACLE_SERVICE:FREEPDB1}   # the service name, not a schema
+    username: ${ORACLE_USER:warp}
+    password: ${ORACLE_PASS:}
+    options:
+      driver: Oracle 23 ODBC driver       # required: the installed driver's name
+      # schema: HR                        # default: the connecting user
+```
+
+Two Oracle-specific behaviours worth knowing:
+
+- **The schema is the connecting user**, not `database` (which is a service
+  name). Warp resolves it with `SELECT USER FROM DUAL` unless `options.schema`
+  names one.
+- **Identifiers are folded to upper case** before quoting, because Oracle
+  stores unquoted names that way — a table created as `users` is `USERS`, and
+  that is the name Warp reports and accepts.
+
+**One fidelity limit, and its fix.** A column declared as bare `NUMBER`, with
+no precision, is handed over by the ODBC driver as an IEEE double — so an id
+above 2^53 arrives already rounded, and no layer above the driver can recover
+it. Warp detects these columns during introspection, marks them `inexact` in
+the typed schema and warns once per table. The remedy is in the DDL:
+`NUMBER(38)` makes the driver return an exact `Decimal`.
+
+```text
+WARP.accounts: ID declared as NUMBER without a precision. The ODBC driver
+returns these as floating point, so values above 2^53 lose precision before
+Warp sees them. Declare a precision (e.g. NUMBER(38)) to get exact values.
+```
+
+Requirements: the `odbc` extra plus Oracle's Instant Client ODBC driver
+([Instant Client downloads](https://www.oracle.com/database/technologies/instant-client/downloads.html)),
+registered in `odbcinst.ini`. For a local server,
+`docker compose --profile oracle up -d` starts `gvenzl/oracle-free`, which —
+unlike the SQL Server image — has arm64 builds and so runs natively on Apple
+Silicon.
+
 `type: odbc` is a best-effort generic profile for other ODBC data sources:
 `options.driver` (or `options.connection_string`) is required, quoting is ANSI,
 placeholders are `?`, schema discovery goes through the ODBC catalog functions
@@ -221,12 +407,26 @@ Warp auto-generates these for each discovered table:
 
 ```bash
 GET    /api/v1/{table}        # List records (paginated, filtered, sorted)
-GET    /api/v1/{table}/{id}   # Get single record
+GET    /api/v1/{table}/{key}  # Get single record
 POST   /api/v1/{table}        # Create record
-PUT    /api/v1/{table}/{id}   # Update record
-PATCH  /api/v1/{table}/{id}   # Partial update record
-DELETE /api/v1/{table}/{id}   # Delete record
+PUT    /api/v1/{table}/{key}  # Update record
+PATCH  /api/v1/{table}/{key}  # Partial update record
+DELETE /api/v1/{table}/{key}  # Delete record
 ```
+
+`{key}` is **one path segment per primary-key column, named after the column**,
+and the arity is fixed at startup from the schema — a call with the wrong
+number of segments matches no route at all:
+
+```bash
+GET    /api/v1/users/42             # PRIMARY KEY (id)          -> /{id}
+GET    /api/v1/orders/1001          # PRIMARY KEY (order_id)    -> /{order_id}
+DELETE /api/v1/order_lines/5/2      # PRIMARY KEY (order_id, line_no)
+```
+
+A table **with no primary key gets no key-addressed routes**: only the list and
+create endpoints are generated for it. It used to receive routes built on a
+fabricated `id` column, which reached the database and failed there.
 
 Every table is always reachable under `/api/v1/{db_name}/{table}`. With a
 single configured database the bare `/api/v1/{table}` form is kept as an alias
@@ -438,7 +638,14 @@ This ensures user edits survive across schema changes and LLM re-analysis.
 
 ## OpenAPI Enrichment
 
-After catalog analysis and approval, Warp automatically enriches the OpenAPI spec (`/openapi.json`) with all catalog metadata. This makes the API self-documenting for both humans and LLMs. Only **approved** catalogs are published; the context is refreshed after analyze/approve/delete, and several databases are merged into one `x-llm-context` (`{"databases": [...]}`).
+Warp enriches the OpenAPI spec (`/openapi.json`) with catalog metadata, which makes the API self-documenting for both humans and LLMs. The context is refreshed after analyze/approve/delete, and several databases are merged into one `x-llm-context` (`{"databases": [...]}`).
+
+The extension has two halves and they arrive at different times:
+
+- **Structure is published from the first startup**, with no catalog and no LLM pass at all. Column types, the whole composite primary key, foreign keys with their targets and nullability come from the engine's own catalog — exactly, and for nothing. A consumer can see that `musteri_id` points at another table without waiting for a model.
+- **Descriptions, human names and semantic types** need a model and a reviewer, so they appear only once a catalog is **approved**. A draft publishes none of them.
+
+The structural stand-in is deliberately **not** marked approved and carries **no** semantic types, so nothing that gates on review can be satisfied by it — masking in particular reads only an approved catalog and keys on semantic types.
 
 Real sample values are **not** written into the spec unless `catalog.openapi_include_examples: true` (they may contain personal data), and `/openapi.json` is served through the auth manager — see the production checklist below.
 
@@ -532,7 +739,7 @@ src/warp/
 │   ├── inbound/http/           # FastAPI app + lifespan, auth, routes/{crud,catalog,query}
 │   ├── inbound/cli/            # warp-catalog commands
 │   └── outbound/
-│       ├── db/                 # PostgreSQL/MySQL/ODBC (SQL Server) gateways, Dialect table,
+│       ├── db/                 # PostgreSQL/MySQL/ODBC (SQL Server, Oracle) gateways, Dialect table,
 │       │                       #   SafeQueryBuilder, identifiers, named params, comment/sample readers
 │       ├── llm/                # OpenAI/Anthropic/Gemini/Ollama providers + LLMClient
 │       ├── catalog_store/      # file-based CatalogRepository
@@ -601,6 +808,11 @@ docker-compose up -d --build
 | `MSSQL_DB` | `master` | SQL Server database name |
 | `MSSQL_USER` | `sa` | SQL Server user |
 | `MSSQL_PASS` | - | SQL Server password (required by the `mssql` compose profile) |
+| `ORACLE_HOST` | `localhost` | Oracle host (optional `oracle` entry / compose profile) |
+| `ORACLE_PORT` | `1521` | Oracle listener port |
+| `ORACLE_SERVICE` | `FREEPDB1` | Oracle service name (not a schema) |
+| `ORACLE_USER` | `warp` | Oracle user; also the schema introspected by default |
+| `ORACLE_PASS` | - | Oracle password (required by the `oracle` compose profile) |
 | `LLM_PROVIDER` | `ollama` | LLM provider (openai, anthropic, gemini, ollama) |
 | `LLM_MODEL` | `gemma3:1b` | LLM model name |
 | `LLM_API_KEY` | - | LLM API key (not needed for Ollama) |

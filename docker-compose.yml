@@ -130,6 +130,36 @@ services:
     restart: unless-stopped
 
   # ===================
+  # Oracle (optional): docker compose --profile oracle up -d
+  # ===================
+  oracle:
+    # Oracle's own image needs a licence click-through; gvenzl/oracle-free is
+    # the community build, and unlike SQL Server it has arm64 images, so this
+    # runs natively on Apple Silicon.
+    image: gvenzl/oracle-free:23-slim-faststart
+    container_name: warp-oracle
+    profiles: ["oracle"]
+    ports:
+      - "1521:1521"
+    environment:
+      # Required when the profile is enabled; left empty otherwise so the
+      # default stack still starts.
+      ORACLE_PASSWORD: ${ORACLE_PASS:-}
+      APP_USER: ${ORACLE_USER:-warp}
+      APP_USER_PASSWORD: ${ORACLE_PASS:-}
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+    networks:
+      - warp-network
+    restart: unless-stopped
+
+  # ===================
   # Adminer (DB Admin UI)
   # ===================
   adminer:
@@ -154,3 +184,4 @@ volumes:
   postgres_data:
   mysql_data:
   mssql_data:
+  oracle_data:

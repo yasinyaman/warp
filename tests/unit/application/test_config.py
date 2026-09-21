@@ -375,6 +375,39 @@ class TestProductionValidation:
         s.settings.auth.allow_public_openapi = True
         assert validate_production_config(s, "production", ["https://a"]) == []
 
+    def test_row_filters_without_auth_are_a_violation(self):
+        # Nobody would be identified, so the rules would restrict nothing —
+        # the most dangerous kind of misconfiguration: silently permissive.
+        from warp.application.config import ApiKeyConfig, validate_production_config
+
+        s = self._safe()
+        s.settings.auth.enabled = False
+        s.settings.auth.api_keys = [
+            ApiKeyConfig(
+                key="k",
+                name="acme",
+                tenant="acme",
+                row_filters={"orders": [{"column": "tenant_id", "value": "${tenant}"}]},
+            )
+        ]
+        joined = " ".join(validate_production_config(s, "production", ["https://a"]))
+        assert "row_filters" in joined
+
+    def test_row_filters_with_auth_enabled_are_fine(self):
+        from warp.application.config import ApiKeyConfig, validate_production_config
+
+        s = self._safe()
+        s.settings.auth.api_keys = [
+            ApiKeyConfig(
+                key="k",
+                name="acme",
+                tenant="acme",
+                permissions=["all"],
+                row_filters={"orders": [{"column": "tenant_id", "value": "${tenant}"}]},
+            )
+        ]
+        assert validate_production_config(s, "production", ["https://a"]) == []
+
     def test_default_config_in_production_lists_every_problem(self):
         from warp.application.config import Settings, validate_production_config
 
@@ -407,3 +440,82 @@ class TestSettingsHelpers:
         from warp.application.config import LLMConfig
 
         assert LLMConfig(provider=provider).is_cloud_provider is cloud
+
+
+class TestHashMaskingNeedsAKey:
+    """A `hash` rule with no key would not actually mask the column.
+
+    An unkeyed digest of an email or an 11-digit national id is reversible by
+    enumeration, so the two tempting fallbacks — skip the rule, or hash
+    unkeyed — both leave PII readable while reporting that it is masked.
+    """
+
+    def _with_masking(self, **masking):
+        from warp.application.config import ApiKeyConfig, Settings
+
+        s = Settings()
+        s.settings.auth.enabled = True
+        s.settings.auth.api_keys = [ApiKeyConfig(key="k", permissions=["all"])]
+        s.settings.auth.public_paths = ["/health"]
+        s.settings.masking.enabled = True
+        for name, value in masking.items():
+            setattr(s.settings.masking, name, value)
+        return s
+
+    def test_hash_without_a_secret_will_not_parse(self):
+        """Refused where the configuration is read, not where it is applied.
+
+        Checking it inside `_masking_for` made the refusal depend on
+        `auto_discover_tables` being on and on the environment being
+        production; a misconfiguration is neither.
+        """
+        from pydantic import ValidationError
+
+        from warp.application.config import MaskingConfig
+
+        with pytest.raises(ValidationError, match="hash_secret"):
+            MaskingConfig(enabled=True, rules={"email": "hash"})
+
+    def test_hash_hidden_in_by_role_will_not_parse_either(self):
+        """`by_role` is the source that gets forgotten."""
+        from pydantic import ValidationError
+
+        from warp.application.config import MaskingConfig
+
+        with pytest.raises(ValidationError, match="hash_secret"):
+            MaskingConfig(
+                enabled=True, rules={"email": "redact"}, by_role={"support": {"phone": "hash"}}
+            )
+
+    def test_a_hash_rule_is_fine_while_masking_is_off(self):
+        """Nothing is masked, so nothing needs a key."""
+        from warp.application.config import MaskingConfig
+
+        assert MaskingConfig(enabled=False, rules={"email": "hash"}).hash_secret is None
+
+    def test_hash_with_a_secret_is_fine(self):
+        from warp.application.config import validate_production_config
+
+        settings = self._with_masking(rules={"email": "hash"}, hash_secret="x" * 40)
+        assert validate_production_config(settings, "production", ["https://a"]) == []
+
+    def test_a_short_secret_is_a_violation(self):
+        """A passphrase somebody chose is itself dictionary-attackable."""
+        from warp.application.config import validate_production_config
+
+        settings = self._with_masking(rules={"email": "hash"}, hash_secret="hunter2")
+        violations = validate_production_config(settings, "production", ["https://a"])
+        assert any("shorter than" in v for v in violations)
+
+    def test_other_strategies_need_no_secret(self):
+        from warp.application.config import validate_production_config
+
+        settings = self._with_masking(rules={"email": "partial", "phone": "last4"})
+        assert validate_production_config(settings, "production", ["https://a"]) == []
+
+    def test_masking_switched_off_is_not_checked(self):
+        from warp.application.config import validate_production_config
+
+        settings = self._with_masking(rules={"email": "hash"})
+        settings.settings.masking.enabled = False
+        assert validate_production_config(settings, "production", ["https://a"]) == []

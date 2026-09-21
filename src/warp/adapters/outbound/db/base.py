@@ -4,7 +4,7 @@ All database implementations must inherit from this class.
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 
@@ -166,14 +166,13 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     async def select_by_id(
-        self, table: str, id_column: str, id_value: Any, columns: list[str] | None = None
+        self, table: str, key: Mapping[str, Any], columns: list[str] | None = None
     ) -> dict[str, Any] | None:
         """Select a single record by its ID.
 
         Args:
             table: Table name.
-            id_column: Name of the ID column.
-            id_value: Value of the ID.
+            key: Column-to-value map for the whole primary key.
             columns: List of columns to select (None = all).
 
         Returns:
@@ -183,14 +182,13 @@ class DatabaseAdapter(ABC):
 
     @abstractmethod
     async def update(
-        self, table: str, id_column: str, id_value: Any, data: dict[str, Any]
+        self, table: str, key: Mapping[str, Any], data: dict[str, Any]
     ) -> dict[str, Any] | None:
         """Update an existing record.
 
         Args:
             table: Table name.
-            id_column: Name of the ID column.
-            id_value: Value of the ID.
+            key: Column-to-value map for the whole primary key.
             data: Dictionary of column-value pairs to update.
 
         Returns:
@@ -199,13 +197,12 @@ class DatabaseAdapter(ABC):
         pass
 
     @abstractmethod
-    async def delete(self, table: str, id_column: str, id_value: Any) -> bool:
+    async def delete(self, table: str, key: Mapping[str, Any]) -> bool:
         """Delete a record by its ID.
 
         Args:
             table: Table name.
-            id_column: Name of the ID column.
-            id_value: Value of the ID.
+            key: Column-to-value map for the whole primary key.
 
         Returns:
             True if deleted, False if not found.

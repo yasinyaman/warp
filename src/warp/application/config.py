@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from warp.domain.errors import DatabaseNotConfiguredError
 from warp.domain.samples import DEFAULT_PII_PATTERNS
@@ -75,6 +75,15 @@ class ExportConfig(BaseModel):
     statement_timeout_ms: int = 0
 
 
+class RowRuleConfig(BaseModel):
+    """One mandatory row condition attached to an API key."""
+
+    column: str
+    operator: str = "eq"
+    # ``${tenant}`` / ``${username}`` are filled in from the calling key.
+    value: Any = None
+
+
 class ApiKeyConfig(BaseModel):
     """API Key configuration with permissions."""
 
@@ -83,6 +92,19 @@ class ApiKeyConfig(BaseModel):
     permissions: list[str] = Field(default_factory=lambda: ["read"])
     # Permissions: read, create, update, delete, query (for raw queries)
     # Or use "all" for full access
+
+    # Row-level security. `tenant` and the key's `name` are what `${tenant}`
+    # and `${username}` resolve to inside a rule's value.
+    tenant: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    # table name -> conditions ANDed onto every read of that table, and
+    # enforced on writes. A caller cannot widen or drop them.
+    row_filters: dict[str, list[RowRuleConfig]] = Field(default_factory=dict)
+
+    @property
+    def has_row_rules(self) -> bool:
+        """Whether this key carries any row-level restriction."""
+        return any(self.row_filters.values())
 
 
 class AuthConfig(BaseModel):
@@ -99,6 +121,69 @@ class AuthConfig(BaseModel):
     # In production, startup is refused while "/openapi.json" is public unless
     # this is explicitly set to true (see validate_production_config).
     allow_public_openapi: bool = False
+
+
+class MaskingConfig(BaseModel):
+    """Column masking, keyed by the catalog's semantic types.
+
+    Rules attach to a semantic type rather than a column name, so a newly
+    discovered PII column is masked as soon as the catalog labels it.
+    """
+
+    enabled: bool = False
+    # semantic type -> redact | partial | last4 | hash | null
+    rules: dict[str, str] = Field(default_factory=dict)
+    # role -> its own semantic-type rules, overriding `rules` entirely
+    by_role: dict[str, dict[str, str]] = Field(default_factory=dict)
+    # roles that see raw values
+    exempt_roles: list[str] = Field(default_factory=list)
+    # Keys the `hash` strategy, which refuses to run without one. Store it
+    # apart from anything it masks: whoever holds it can re-derive the values.
+    hash_secret: str | None = None
+
+    @property
+    def strategies(self) -> set[str]:
+        """Every strategy this configuration asks for, from both rule sources.
+
+        ``by_role`` is the one that gets forgotten — a support role's own rules
+        live there and nowhere else.
+        """
+        used = set(self.rules.values())
+        for rules in self.by_role.values():
+            used |= set(rules.values())
+        return used
+
+    @model_validator(mode="after")
+    def _hash_needs_a_key(self) -> "MaskingConfig":
+        """Refuse a `hash` rule with no key, where the configuration is read.
+
+        Checked here rather than where masking is applied, so it does not
+        depend on the environment or on `auto_discover_tables` being on. An
+        unkeyed digest of enumerable data is reversible, and the two ways of
+        carrying on — skipping the rule, or hashing unkeyed — would both
+        return readable PII while reporting that it was masked.
+
+        Raises:
+            ValueError: Naming the setting that is missing.
+        """
+        if self.enabled and "hash" in self.strategies and not self.hash_secret:
+            raise ValueError(
+                "masking uses the 'hash' strategy but masking.hash_secret is not set. "
+                "An unkeyed digest of an email or a national id is reversible by "
+                "enumeration, so there is no safe default. Set masking.hash_secret, "
+                "or use redact/partial/last4/null."
+            )
+        return self
+
+
+class AuditConfig(BaseModel):
+    """Audit trail for data access."""
+
+    enabled: bool = False
+    # Appended to, never rewritten. Events also go to the `warp.audit` logger.
+    file: str | None = None
+    # Record the column names a caller filtered on (never the values).
+    log_filter_columns: bool = True
 
 
 class CatalogConfig(BaseModel):
@@ -181,6 +266,8 @@ class SettingsConfig(BaseModel):
     redoc_url: str = "/redoc"
     auth: AuthConfig = Field(default_factory=AuthConfig)
     catalog: CatalogConfig = Field(default_factory=CatalogConfig)
+    masking: MaskingConfig = Field(default_factory=MaskingConfig)
+    audit: AuditConfig = Field(default_factory=AuditConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     i18n: I18nConfig = Field(default_factory=I18nConfig)
@@ -244,6 +331,11 @@ class RuntimeEnv:
         )
 
 
+#: Below this a masking key is a passphrase somebody chose, which is itself
+#: dictionary-attackable — the hole the key exists to close.
+MIN_HASH_SECRET_LENGTH = 32
+
+
 def validate_production_config(
     settings: Settings,
     app_env: str,
@@ -290,6 +382,25 @@ def validate_production_config(
             "CORS_ORIGINS allows '*': any origin could call the API. "
             "Set CORS_ORIGINS to an explicit, comma-separated allowlist."
         )
+
+    if not cfg.auth.enabled and any(key.has_row_rules for key in cfg.auth.api_keys):
+        violations.append(
+            "auth.enabled is false while API keys carry row_filters: nobody would "
+            "be identified, so the row rules would not apply to anything. Enable "
+            "authentication or remove the row filters."
+        )
+
+    # A *missing* key is refused when the configuration is parsed, by
+    # MaskingConfig itself. What is left for production is whether the key that
+    # is there is strong enough to be worth having.
+    if cfg.masking.enabled and "hash" in cfg.masking.strategies:
+        secret = cfg.masking.hash_secret or ""
+        if secret and len(secret) < MIN_HASH_SECRET_LENGTH:
+            violations.append(
+                f"masking.hash_secret is shorter than {MIN_HASH_SECRET_LENGTH} "
+                f"characters: a guessable key is the same exposure as no key. "
+                f"Use a generated secret."
+            )
 
     openapi_public = any(
         p.rstrip("/") in ("/openapi.json", "/openapi", "/") for p in cfg.auth.public_paths

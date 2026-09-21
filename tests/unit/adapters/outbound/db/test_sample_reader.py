@@ -444,3 +444,25 @@ async def test_read_row_count_mssql_empty_table_is_zero_not_none() -> None:
     adapter.execute_query.return_value = [{"row_count": 0}]
     reader = SampleReader(adapter, db_type="sqlserver", schema="dbo")
     assert await reader.read_row_count("orders") == 0
+
+
+@pytest.mark.asyncio
+async def test_read_column_stats_survives_upper_cased_result_names() -> None:
+    # Oracle folds `as distinct_count` to DISTINCT_COUNT, so reading the row by
+    # name silently produced a ColumnStats full of Nones.
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{"DISTINCT_COUNT": 5, "NULL_COUNT": 1}]
+    reader = SampleReader(adapter, db_type="oracle", schema="WARP")
+    stats = await reader.read_column_stats("users", columns=["zip"])
+    assert stats["zip"].distinct_count == 5
+    assert stats["zip"].null_count == 1
+
+
+@pytest.mark.asyncio
+async def test_read_column_stats_handles_a_missing_row() -> None:
+    adapter = FakeAdapter()
+    adapter.execute_query.return_value = [{}]
+    reader = SampleReader(adapter, db_type="postgresql")
+    stats = await reader.read_column_stats("users", columns=["status"])
+    assert stats["status"].distinct_count is None
+    assert stats["status"].null_count is None

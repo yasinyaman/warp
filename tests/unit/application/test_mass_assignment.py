@@ -29,12 +29,12 @@ class _FakeDB:
         self.inserted = data
         return {"id": 1, **data}
 
-    async def update(self, table, id_column, id_value, data):
+    async def update(self, table, key, data):
         self.updated = data
-        return {"id": id_value, **data}
+        return {**key, **data}
 
-    async def select_by_id(self, table, id_column, id_value, columns=None):
-        return {"id": id_value}
+    async def select_by_id(self, table, key, columns=None):
+        return dict(key)
 
 
 @pytest.fixture
@@ -63,14 +63,14 @@ class TestCreate:
 class TestUpdate:
     async def test_rejects_pk_change(self, crud):
         with pytest.raises(ValidationError):
-            await crud.update(1, {"username": "y", "id": 999})
+            await crud.update({"id": 1}, {"username": "y", "id": 999})
 
     async def test_rejects_readonly_column(self, crud):
         with pytest.raises(ValidationError):
-            await crud.update(1, {"created_at": "2020-01-01"})
+            await crud.update({"id": 1}, {"created_at": "2020-01-01"})
 
     async def test_allows_writable_columns(self, crud):
-        await crud.update(1, {"username": "y"})
+        await crud.update({"id": 1}, {"username": "y"})
         assert crud.db.updated == {"username": "y"}
 
 

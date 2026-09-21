@@ -107,27 +107,27 @@ class TestStatements:
         assert params == []
 
     def test_update_pg(self):
-        sql, params = PG.build_update("users", "id", 5, {"name": "x", "age": 3})
+        sql, params = PG.build_update("users", {"id": 5}, {"name": "x", "age": 3})
         assert sql == ('UPDATE "users" SET "name" = $1, "age" = $2 WHERE "id" = $3 RETURNING *')
         assert params == ["x", 3, 5]
 
     def test_update_mysql(self):
-        sql, params = MY.build_update("users", "id", 5, {"name": "x"})
+        sql, params = MY.build_update("users", {"id": 5}, {"name": "x"})
         assert sql == "UPDATE `users` SET `name` = %s WHERE `id` = %s"
         assert params == ["x", 5]
 
     def test_delete_pg_returns_id(self):
-        sql, params = PG.build_delete("users", "id", 9)
+        sql, params = PG.build_delete("users", {"id": 9})
         assert sql == 'DELETE FROM "users" WHERE "id" = $1 RETURNING "id"'
         assert params == [9]
 
     def test_delete_mysql(self):
-        sql, params = MY.build_delete("users", "id", 9)
+        sql, params = MY.build_delete("users", {"id": 9})
         assert sql == "DELETE FROM `users` WHERE `id` = %s"
         assert params == [9]
 
     def test_select_by_id(self):
-        sql, params = PG.build_select_by_id("users", "id", 7, ["id", "name"])
+        sql, params = PG.build_select_by_id("users", {"id": 7}, ["id", "name"])
         assert sql == 'SELECT "id", "name" FROM "users" WHERE "id" = $1'
         assert params == [7]
 
@@ -224,17 +224,17 @@ class TestSQLServer:
         assert pg_sql == 'INSERT INTO "users" ("name") VALUES ($1)'
 
     def test_update_output(self):
-        sql, params = MS.build_update("users", "id", 5, {"name": "x", "age": 3})
+        sql, params = MS.build_update("users", {"id": 5}, {"name": "x", "age": 3})
         assert sql == "UPDATE [users] SET [name] = ?, [age] = ? OUTPUT INSERTED.* WHERE [id] = ?"
         assert params == ["x", 3, 5]
-        plain, _ = MS.build_update("users", "id", 5, {"name": "x"}, returning=False)
+        plain, _ = MS.build_update("users", {"id": 5}, {"name": "x"}, returning=False)
         assert plain == "UPDATE [users] SET [name] = ? WHERE [id] = ?"
 
     def test_delete_output(self):
-        sql, params = MS.build_delete("users", "id", 9)
+        sql, params = MS.build_delete("users", {"id": 9})
         assert sql == "DELETE FROM [users] OUTPUT DELETED.[id] WHERE [id] = ?"
         assert params == [9]
-        plain, _ = MS.build_delete("users", "id", 9, returning=False)
+        plain, _ = MS.build_delete("users", {"id": 9}, returning=False)
         assert plain == "DELETE FROM [users] WHERE [id] = ?"
 
     def test_select_offset_fetch_with_sort(self):
@@ -267,6 +267,6 @@ class TestSQLServer:
         assert select == 'SELECT * FROM "t" WHERE "a" = $1 LIMIT 5 OFFSET 0'
 
     def test_select_by_id(self):
-        sql, params = MS.build_select_by_id("users", "id", 7, None)
+        sql, params = MS.build_select_by_id("users", {"id": 7}, None)
         assert sql == "SELECT * FROM [users] WHERE [id] = ?"
         assert params == [7]

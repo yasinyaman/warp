@@ -126,23 +126,30 @@ class TestTableSchema:
             indexes=[IndexSchema(name="idx_email", columns=["email"], unique=True)],
         )
 
-    def test_pk_column_single(self, users_schema):
-        """Test getting single primary key column."""
-        assert users_schema.pk_column == "id"
+    def test_key_columns_single(self, users_schema):
+        """A single-column key is still a key: one entry, not a bare string."""
+        assert users_schema.key_columns == ("id",)
+        assert users_schema.has_key is True
 
-    def test_pk_column_composite(self):
-        """Test getting composite primary key."""
+    def test_key_columns_composite_keeps_every_column(self):
+        """The whole key travels.
+
+        This used to answer `"order_id"` — the first column — and every
+        key-addressed statement was built from it alone, so `DELETE` on one
+        line reached every line of the order.
+        """
         schema = TableSchema(
             table_name="order_items", columns=[], primary_key=["order_id", "product_id"]
         )
-        assert schema.pk_column == "order_id"  # First column
+        assert schema.key_columns == ("order_id", "product_id")
         assert schema.has_composite_pk is True
+        assert schema.has_key is True
 
-    def test_pk_column_none(self):
-        """Test table without primary key."""
-        schema = TableSchema(table_name="logs", columns=[])
-        assert schema.pk_column is None
-        assert schema.has_composite_pk is False
+    def test_a_table_with_no_key_says_so(self):
+        """No key means no key-addressed routes, not a fabricated ``id``."""
+        schema = TableSchema(table_name="logs", columns=[], primary_key=None)
+        assert schema.key_columns == ()
+        assert schema.has_key is False
 
     def test_get_column(self, users_schema):
         """Test getting column by name."""
@@ -455,3 +462,39 @@ class TestSQLServerTypes:
         assert type_kind("number") == "float"
         assert type_kind("varchar2") == "str"
         assert type_kind("raw") == "bytes"
+
+
+class TestOracleTypes:
+    """Oracle bakes precision into the type name, unlike every other engine here."""
+
+    def test_parameterized_type_names_resolve(self):
+        from warp.domain.sql_types import python_type_for, type_kind
+
+        assert type_kind("TIMESTAMP(6)") == "datetime"
+        assert type_kind("TIMESTAMP(6) WITH TIME ZONE") == "datetime"
+        assert type_kind("TIMESTAMP(9) WITH LOCAL TIME ZONE") == "datetime"
+        assert python_type_for("NUMBER(10,0)") is float
+        assert type_kind("VARCHAR2(255)") == "str"
+        assert type_kind("RAW(16)") == "bytes"
+
+    def test_interval_types_pass_through_as_text(self):
+        from warp.domain.sql_types import type_kind
+
+        assert type_kind("INTERVAL DAY(2) TO SECOND(6)") == "str"
+        assert type_kind("INTERVAL YEAR(4) TO MONTH") == "str"
+
+    def test_plain_oracle_types(self):
+        from warp.domain.sql_types import type_kind
+
+        assert type_kind("NUMBER") == "float"
+        assert type_kind("BINARY_DOUBLE") == "float"
+        assert type_kind("BINARY_FLOAT") == "float"
+        assert type_kind("CLOB") == "str"
+        assert type_kind("NCLOB") == "str"
+        assert type_kind("BFILE") == "bytes"
+        assert type_kind("ROWID") == "str"
+
+    def test_an_unknown_parameterized_type_still_degrades_to_text(self):
+        from warp.domain.sql_types import type_kind
+
+        assert type_kind("SDO_GEOMETRY(4)") == "str"

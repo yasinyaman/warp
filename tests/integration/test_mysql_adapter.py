@@ -17,9 +17,9 @@ async def test_introspection_uses_portable_column_keys(mysql_gateway: DatabaseGa
 
 async def test_update_with_unchanged_values_returns_the_row(mysql_gateway: DatabaseGateway) -> None:
     # FOUND_ROWS: rowcount reports matched rows, so this is not mistaken for "not found".
-    row = await mysql_gateway.update("users", "id", 1, {"username": "alice"})
+    row = await mysql_gateway.update("users", {"id": 1}, {"username": "alice"})
     assert row is not None and row["username"] == "alice"
-    assert await mysql_gateway.update("users", "id", 999, {"username": "x"}) is None
+    assert await mysql_gateway.update("users", {"id": 999}, {"username": "x"}) is None
 
 
 async def test_crud_round_trip(mysql_gateway: DatabaseGateway) -> None:
@@ -27,7 +27,7 @@ async def test_crud_round_trip(mysql_gateway: DatabaseGateway) -> None:
     assert created["username"] == "dave" and created["zip"] == "007"
     rows, total = await mysql_gateway.select("users", filters=[("zip", "eq", "00123")])
     assert total == 1 and rows[0]["username"] == "alice"
-    assert await mysql_gateway.delete("users", "id", created["id"]) is True
+    assert await mysql_gateway.delete("users", {"id": created["id"]}) is True
 
 
 async def test_named_parameters_and_percent(mysql_gateway: DatabaseGateway) -> None:

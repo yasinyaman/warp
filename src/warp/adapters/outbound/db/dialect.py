@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 PlaceholderStyle = Literal["numbered", "format", "qmark"]
 ReturningStyle = Literal["returning", "output", "refetch"]
 LimitStyle = Literal["limit_offset", "offset_fetch"]
+SampleStyle = Literal["limit", "top", "fetch_first"]
+IdentifierCase = Literal["preserve", "upper"]
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,23 @@ class Dialect:
             ``OUTPUT INSERTED.* / DELETED.x``) or ``refetch`` (no clause; the
             adapter re-selects the row).
         limit_style: ``limit_offset`` or SQL Server's ``offset_fetch``.
+        sample_style: How a "first N rows" probe is written: ``limit``
+            (``... LIMIT n``), ``top`` (SQL Server ``SELECT TOP (n) ...``) or
+            ``fetch_first`` (``... FETCH FIRST n ROWS ONLY``). Deliberately
+            independent of ``limit_style``: Oracle paginates with
+            ``OFFSET ... FETCH`` like SQL Server but has no ``TOP``.
+        unsorted_pagination_filler: ``ORDER BY`` clause injected when
+            ``offset_fetch`` pagination is requested without a sort, or ``None``
+            when the engine paginates fine without one. SQL Server requires an
+            ``ORDER BY``; Oracle does not, and rejects the SQL Server filler
+            because a ``SELECT`` without ``FROM`` is invalid there.
+        identifier_case: ``preserve`` (the name is quoted as written) or
+            ``upper`` (the name is upper-cased before quoting). Oracle folds
+            unquoted identifiers to upper case, so a table stored as ``USERS``
+            does not resolve when quoted as ``"users"``.
+        identifier_extra_chars: Characters beyond letters/digits/underscore
+            that this engine allows in an identifier. Oracle allows ``$`` and
+            ``#`` and its data dictionary generates them.
         escape_percent: Whether a literal ``%`` must be doubled when the driver
             applies printf-style formatting (aiomysql).
         schema_qualified: Whether table references are ``schema.table``.
@@ -75,6 +94,10 @@ class Dialect:
     like_operator: str
     returning_style: ReturningStyle
     limit_style: LimitStyle
+    sample_style: SampleStyle = "limit"
+    unsorted_pagination_filler: str | None = None
+    identifier_case: IdentifierCase = "preserve"
+    identifier_extra_chars: str = ""
     escape_percent: bool = False
     schema_qualified: bool = True
     default_schema_name: str | None = None
@@ -90,26 +113,44 @@ class Dialect:
         return "?"
 
     def quote(self, name: str) -> str:
-        """Validate and quote an identifier for this dialect."""
-        safe = sanitize_identifier(name)
+        """Validate and quote an identifier for this dialect.
+
+        The name is folded first when the engine stores unquoted identifiers in
+        a fixed case (Oracle upper-cases them), because quoting makes the name
+        case-sensitive: ``"users"`` would not find a table stored as ``USERS``.
+        """
+        safe = self.fold_identifier(sanitize_identifier(name, self.identifier_extra_chars))
         open_q, close_q = self.quote_chars
         return f"{open_q}{safe}{close_q}"
 
+    def fold_identifier(self, name: str) -> str:
+        """Apply the engine's identifier case folding to an already-safe name."""
+        if self.identifier_case == "upper":
+            return name.upper()
+        return name
+
     def default_schema(self, database: str, options: Mapping[str, Any] | None = None) -> str:
-        """Schema to introspect: ``options["schema"]`` wins, then the dialect default."""
+        """Schema to introspect: ``options["schema"]`` wins, then the dialect default.
+
+        The result is case-folded like any other identifier. It reaches the
+        catalog queries as a bound ``:schema`` value compared against what the
+        engine stored (Oracle's ``ALL_TABLES.OWNER`` is upper case), and it is
+        also quoted into qualified table names, so both paths must agree.
+        """
         configured = (options or {}).get("schema")
         if configured:
-            return str(configured)
+            return self.fold_identifier(str(configured))
         if self.default_schema_name is not None:
             return self.default_schema_name
-        return database
+        return self.fold_identifier(database)
 
     def order_and_limit(self, order_sql: str, limit: int | None, offset: int = 0) -> str:
         """Compose the ``ORDER BY`` and pagination tail of a SELECT.
 
         ``limit=None`` means no pagination. SQL Server's ``OFFSET ... FETCH``
         requires an ``ORDER BY``, so a stable dummy ordering is injected when
-        the caller did not sort.
+        the caller did not sort — see ``unsorted_pagination_filler``, which is
+        ``None`` for engines that need no such filler (Oracle).
 
         Row counts are the only thing this layer interpolates into SQL, so the
         numbers are forced to ``int`` here instead of being trusted from the
@@ -120,8 +161,9 @@ class Dialect:
             return order_sql
         rows, start = int(limit), int(offset)
         if self.limit_style == "offset_fetch":
-            order = order_sql or "ORDER BY (SELECT NULL)"
-            return f"{order} OFFSET {start} ROWS FETCH NEXT {rows} ROWS ONLY"
+            order = order_sql or (self.unsorted_pagination_filler or "")
+            tail = f"OFFSET {start} ROWS FETCH NEXT {rows} ROWS ONLY"
+            return f"{order} {tail}" if order else tail
         tail = f"LIMIT {rows} OFFSET {start}"
         return f"{order_sql} {tail}" if order_sql else tail
 
@@ -132,8 +174,10 @@ class Dialect:
         same reason as in ``order_and_limit``.
         """
         rows = int(limit)
-        if self.limit_style == "offset_fetch":
+        if self.sample_style == "top":
             return f"SELECT TOP ({rows}) * FROM {table_sql}"
+        if self.sample_style == "fetch_first":
+            return f"SELECT * FROM {table_sql} FETCH FIRST {rows} ROWS ONLY"
         return f"SELECT * FROM {table_sql} LIMIT {rows}"
 
 
@@ -307,9 +351,65 @@ MSSQL = Dialect(
     like_operator="LIKE",
     returning_style="output",
     limit_style="offset_fetch",
+    sample_style="top",
+    unsorted_pagination_filler="ORDER BY (SELECT NULL)",
     default_schema_name="dbo",
     row_count_sql=_MSSQL_ROW_COUNT_SQL,
     comment_queries=_MSSQL_COMMENTS,
+)
+
+# --- Oracle (via ODBC) ------------------------------------------------------------
+
+# NUM_ROWS is only as fresh as the last statistics gather, which is the same
+# trade-off as pg_class.reltuples and sys.partitions: an estimate, never a
+# COUNT(*). It is NULL on a table that has never been analysed.
+_ORACLE_ROW_COUNT_SQL = """
+                SELECT NUM_ROWS AS "row_count"
+                FROM ALL_TABLES
+                WHERE OWNER = :schema AND TABLE_NAME = :table_name
+                """
+
+_ORACLE_COMMENTS = CommentQueries(
+    table="""
+SELECT COMMENTS AS "comment"
+FROM ALL_TAB_COMMENTS
+WHERE OWNER = :schema AND TABLE_NAME = :table_name AND COMMENTS IS NOT NULL
+""",
+    columns="""
+SELECT COLUMN_NAME AS "column_name", COMMENTS AS "comment"
+FROM ALL_COL_COMMENTS
+WHERE OWNER = :schema AND TABLE_NAME = :table_name AND COMMENTS IS NOT NULL
+""",
+    all_tables="""
+SELECT TABLE_NAME AS "table_name", COMMENTS AS "comment"
+FROM ALL_TAB_COMMENTS
+WHERE OWNER = :schema AND COMMENTS IS NOT NULL
+""",
+    all_columns="""
+SELECT TABLE_NAME AS "table_name", COLUMN_NAME AS "column_name", COMMENTS AS "comment"
+FROM ALL_COL_COMMENTS
+WHERE OWNER = :schema AND COMMENTS IS NOT NULL
+""",
+    scope_param="schema",
+)
+
+# Oracle has no RETURNING clause the gateway can consume: `RETURNING ... INTO`
+# binds output parameters, which the DatabaseGateway shape does not express.
+# Writes therefore re-select the row, exactly like MySQL.
+ORACLE = Dialect(
+    name="oracle",
+    placeholder_style="qmark",
+    quote_chars=('"', '"'),
+    like_operator="LIKE",
+    returning_style="refetch",
+    limit_style="offset_fetch",
+    sample_style="fetch_first",
+    unsorted_pagination_filler=None,
+    identifier_case="upper",
+    identifier_extra_chars="$#",
+    default_schema_name=None,
+    row_count_sql=_ORACLE_ROW_COUNT_SQL,
+    comment_queries=_ORACLE_COMMENTS,
 )
 
 # --- Generic ODBC (best effort: ANSI quoting, no catalog intelligence) -------------
@@ -331,6 +431,7 @@ DIALECTS: dict[str, Dialect] = {
     "mariadb": MYSQL,
     "mssql": MSSQL,
     "sqlserver": MSSQL,
+    "oracle": ORACLE,
     "odbc": ODBC,
 }
 
