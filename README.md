@@ -1,5 +1,12 @@
 # Warp Engine
 
+> [!IMPORTANT]
+> **Warp continues as [Truejoin](https://github.com/yasinyaman/truejoin).** Warp, Fusion and
+> Stargate were merged into one open-source product: governed access to corporate databases for
+> AI agents, in one process. Warp's REST API and its catalog live on there, now with SQL Server and Oracle, a catalog a person reviews before it is used, and row rules, column masks and an audit trail on every query.
+>
+> New development happens in Truejoin. Documentation: <https://yaman.dev/truejoin/>.
+
 Auto-discovery REST CRUD API generator with LLM-powered database catalog intelligence.
 
 Warp connects to your database, discovers tables and columns, and generates a fully functional REST API with filtering, sorting, pagination, and authentication. Its catalog intelligence layer uses LLMs to generate human-readable descriptions, semantic types, and multi-language documentation for your entire schema — then injects all of it into the OpenAPI spec so downstream LLMs and tools get rich context automatically.
